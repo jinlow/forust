@@ -1,14 +1,29 @@
 from __future__ import annotations
 from optparse import Option
-from typing import Any, Optional, Tuple, List
+from typing import Any, Optional, Tuple, List, Type
 import numpy as np
+from abc import ABC, abstractstaticmethod
 
 # https://arxiv.org/pdf/1603.02754.pdf
 # https://github.com/Ekeany/XGBoost-From-Scratch/blob/master/XGBoost.py
 # https://medium.com/analytics-vidhya/what-makes-xgboost-so-extreme-e1544a4433bb
 
 
-class LogLoss:
+class LossABC(ABC):
+    @abstractstaticmethod
+    def loss(y: np.ndarray, y_hat: np.ndarray) -> np.ndarray:  # type: ignore
+        return np.ndarray(())
+
+    @abstractstaticmethod
+    def grad(y: np.ndarray, y_hat: np.ndarray) -> np.ndarray:  # type: ignore
+        return np.ndarray(())
+
+    @abstractstaticmethod
+    def hess(y: np.ndarray, y_hat: np.ndarray) -> np.ndarray:  # type: ignore
+        return np.ndarray(())
+
+
+class LogLoss(LossABC):
     """LogLoss, expects y_hat to be be a probability.
     Thus if it's on the logit scale, it will need to be converted
     to a probability using this function:
@@ -31,6 +46,56 @@ class LogLoss:
         return y_hat * (1 - y_hat)
 
 
+class XGBoost:
+    def __init__(
+        self,
+        iterations: int = 10,
+        objective: Type[LossABC] = LogLoss,
+        l2: float = 1,
+        gamma: float = 0,
+        max_leaves: int = int(1e9),
+        max_depth: int = 15,
+        min_child_weight: float = 1,
+        learning_rate: float = 0.3,
+        base_score: float = 0.5,
+    ):
+        self.obj = objective()
+        self.iterations = iterations
+        self.l2 = l2
+        self.gamma = gamma
+        self.min_child_weight = min_child_weight
+        self.learning_rate = learning_rate
+        self.max_leaves = max_leaves
+        self.max_depth = max_depth
+        self.base_score = base_score
+        self.trees_: List[Tree] = []
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> XGBoost:
+        preds_ = np.repeat(self.base_score, repeats=X.shape[0])
+        grad_ = self.obj.grad(y=y, y_hat=preds_)
+        hess_ = self.obj.hess(y=y, y_hat=preds_)
+        for _ in range(self.iterations):
+            t = Tree(
+                l2=self.l2,
+                gamma=self.gamma,
+                max_leaves=self.max_leaves,
+                max_depth=self.max_depth,
+                min_child_weight=self.min_child_weight,
+                learning_rate=self.learning_rate,
+            )
+            self.trees_.append(t.fit(X=X, grad=grad_, hess=hess_))
+            preds_ -= t.predict(X=X)
+            grad_ = self.obj.grad(y=y, y_hat=preds_)
+            hess_ = self.obj.hess(y=y, y_hat=preds_)
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        preds_ = np.repeat(np.float32(self.base_score), X.shape[0])
+        for t in self.trees_:
+            preds_ += t.predict(X)
+        return preds_
+
+
 class Tree:
     """
     Define a tree structure that houses a vector
@@ -41,11 +106,10 @@ class Tree:
         self,
         l2: float = 1,
         gamma: float = 0,
-        max_leaves: int = 20,
+        max_leaves: int = int(1e9),
         max_depth: int = 15,
         min_child_weight: float = 1,
         learning_rate: float = 0.3,
-        objective: LogLoss = LogLoss(),
     ):
         self.l2 = l2
         self.gamma = gamma
@@ -53,35 +117,64 @@ class Tree:
         self.learning_rate = learning_rate
         self.max_leaves = max_leaves
         self.max_depth = max_depth
-        self.objective = objective
-        self.nodes: List[TreeNode] = []
+        self.nodes_: List[TreeNode] = []
+
+    def __repr__(self):
+        ...
+
+    def predict_row(self, x_row: np.ndarray) -> float:
+        node_idx = 0
+        while True:
+            n = self.nodes_[node_idx]
+            if n.is_leaf:
+                return n.weight_value
+            if x_row[n.split_feature_] < n.split_value_:
+                node_idx = n.left_child_
+            else:
+                node_idx = n.right_child_
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        preds_ = np.ndarray((X.shape[0],), dtype=np.float32)
+        for i in range(X.shape[0]):
+            preds_[i] = self.predict_row(X[i, :])
+        return preds_
 
     def fit(self, X: np.ndarray, grad: np.ndarray, hess: np.ndarray) -> Tree:
+        self.nodes_ = []
         grad_sum = grad.sum()
         hess_sum = hess.sum()
         root_gain = self.gain(grad_sum=grad_sum, hess_sum=hess_sum)
         root_weight = self.weight(grad_sum=grad_sum, hess_sum=hess_sum)
         root_node = TreeNode(
+            num=0,
             node_idxs=np.arange(X.shape[0]),
             depth=0,
             weight_value=root_weight,
             gain_value=root_gain,
             cover_value=hess_sum,
         )
-        self.nodes.append(root_node)
+        self.nodes_.append(root_node)
+        n_leaves = 1
         growable = [0]
         while len(growable) > 0:
-            # If we have hit max leaves break
-            if len(self.nodes) >= self.max_leaves:
+            if n_leaves >= self.max_leaves:
                 break
+
             n_idx = growable.pop()
-            n = self.nodes[n_idx]
+            n = self.nodes_[n_idx]
             depth = n.depth + 1
             # if we have hit max depth, skip this node
             # but keep going, because there be other valid
             # shallower nodes.
             if depth > self.max_depth:
                 continue
+
+            # For max_leaves, subtract 1 from the n_leaves
+            # everytime we pop from the growable stack
+            # then, if we can add two children, add two to
+            # n_leaves. If we can't split the node any
+            # more, then just add 1 back to n_leaves
+            n_leaves -= 1
 
             # Try to find a valid split for this node.
             split_info = self.best_split(
@@ -93,8 +186,16 @@ class Tree:
             # If this is None, this means there
             # are no more valid nodes.
             if split_info is None:
+                n_leaves += 1
                 continue
+            
+            # If we can add two more leaves
+            # add two.
+            n_leaves += 2
+            left_idx = len(self.nodes_)
+            right_idx = left_idx + 1
             left_node = TreeNode(
+                num=left_idx,
                 node_idxs=split_info.left_idxs,
                 weight_value=split_info.left_weight,
                 gain_value=split_info.left_gain,
@@ -102,16 +203,15 @@ class Tree:
                 depth=depth,
             )
             right_node = TreeNode(
+                num=right_idx,
                 node_idxs=split_info.right_idxs,
                 weight_value=split_info.right_weight,
                 gain_value=split_info.right_gain,
                 cover_value=split_info.right_cover,
                 depth=depth,
             )
-            left_idx = len(self.nodes)
-            right_idx = left_idx + 1
-            self.nodes.append(left_node)
-            self.nodes.append(right_node)
+            self.nodes_.append(left_node)
+            self.nodes_.append(right_node)
             n.update_children(
                 left_child=left_idx, right_child=right_idx, split_info=split_info
             )
@@ -148,7 +248,7 @@ class Tree:
             )
 
             if split_info is None:
-                return None
+                continue
 
             if split_info.split_gain > best_gain:
                 best_gain = split_info.split_gain
@@ -247,12 +347,14 @@ class TreeNode:
 
     def __init__(
         self,
+        num: int,
         node_idxs: np.ndarray,
         weight_value: float,
         gain_value: float,
         cover_value: float,
         depth: int,
     ):
+        self.num = num
         self.node_idxs = node_idxs
 
         self.weight_value = weight_value
@@ -266,7 +368,11 @@ class TreeNode:
         self.left_child_: Optional[int] = None
         self.right_child_: Optional[int] = None
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        n = f"{self.num}"
+        return n
+
+    def print_node(self):
         return (
             "TreeNode{\n"
             + f"\tweight_value: {self.weight_value}\n"
@@ -280,6 +386,10 @@ class TreeNode:
             + f"\tright_child_: {self.right_child_}\n"
             + "        }"
         )
+
+    @property
+    def is_leaf(self):
+        return self.split_feature_ is None
 
     def update_children(
         self,
@@ -298,120 +408,8 @@ class TreeNode:
         )
         self.split_value_ = split_info.split_value
 
-    # def optimal_split(
-    #     self,
-    #     X: np.ndarray,
-    #     grad: np.ndarray,
-    #     hess: np.ndarray,
-    #     l2: float,
-    #     gamma: float,
-    #     min_child_weight: float,
-    # ) -> Optional[SplitInfo]:
-    #     pass
 
-    # def fit(
-    #     self,
-    #     X: np.ndarray,
-    #     grad: np.ndarray,
-    #     hess: np.ndarray,
-    # ) -> TreeNode:
-    #     # Fit the node.
-    #     self.weight_ = self.weight(grad=grad, hess=hess)
-    #     self.children_ = self.find_best_split(X=X, grad=grad, hess=hess)
-    #     return self
-
-    # def weight(self, grad: np.ndarray, hess: np.ndarray) -> float:
-    #     return -1 * (grad.sum() / (hess.sum() + self.l2))
-
-    # def calc_gain_given_weight():
-    #     pass
-
-    # def gain(
-    #     self,
-    #     grad: np.ndarray,
-    #     hess: np.ndarray,
-    # ) -> float:
-    #     return (grad.sum() ** 2) / (hess.sum() + self.l2)
-
-    # def split_gain(
-    #     self,
-    #     grad: np.ndarray,
-    #     hess: np.ndarray,
-    #     left_mask: np.ndarray,
-    #     right_mask: np.ndarray,
-    # ) -> float:
-    #     gl = grad[left_mask].sum()
-    #     gr = grad[right_mask].sum()
-    #     hl = hess[left_mask].sum()
-    #     hr = hess[right_mask].sum()
-    #     l = (gl**2) / (hl + self.l2)
-    #     r = (gr**2) / (hr + self.l2)
-    #     lr = ((gl + gr) ** 2) / (hl + hr + self.l2)
-    #     # They don't multiply by 1/2 in the
-    #     # actual code for some reason.
-    #     return (l + r - lr) - self.gamma
-
-    # def find_best_split(
-    #     self,
-    #     X: np.ndarray,
-    #     grad: np.ndarray,
-    #     hess: np.ndarray,
-    # ) -> Optional[Tuple[int, float, float]]:
-    #     best_feature = -1
-    #     best_split = None
-    #     best_gain = -np.inf
-    #     for i in range(X.shape[1]):
-    #         res = self.find_feature_best_split(
-    #             x=X[:, i],
-    #             grad=grad,
-    #             hess=hess,
-    #         )
-    #         if res is None:
-    #             continue
-    #         split, gain = res
-    #         if gain > best_gain:
-    #             best_feature = i
-    #             best_split = split
-    #             best_gain = gain
-    #     if best_split is None:
-    #         return None
-    #     return best_feature, best_split, best_gain
-
-    # def find_feature_best_split(
-    #     self,
-    #     x: np.ndarray,
-    #     grad: np.ndarray,
-    #     hess: np.ndarray,
-    # ) -> Optional[Tuple[float, float]]:
-    #     """Return the best split value"""
-    #     best_split = None
-    #     max_gain = -np.inf
-    #     # Skip the minimum, because we are
-    #     # looking at less than.
-    #     for v in np.unique(x)[1:]:
-    #         left_mask = x < v
-    #         right_mask = ~left_mask
-
-    #         # Check the min child weight condition
-    #         if (hess[left_mask].sum() < self.min_child_weight) or (
-    #             hess[right_mask].sum() < self.min_child_weight
-    #         ):
-    #             continue
-    #         split_gain = self.split_gain(
-    #             left_mask=left_mask,
-    #             right_mask=right_mask,
-    #             grad=grad,
-    #             hess=hess,
-    #         )
-    #         if split_gain > max_gain:
-    #             best_split = v
-    #             max_gain = split_gain
-    #     if best_split is None:
-    #         return None
-    #     return best_split, max_gain
-
-
-def gain(
+def split_gain(
     left_mask: np.ndarray,
     right_mask: np.ndarray,
     grad: np.ndarray,
@@ -426,7 +424,7 @@ def gain(
     l = (gl**2) / (hl + l2)
     r = (gr**2) / (hr + l2)
     lr = ((gl + gr) ** 2) / (hl + hr + l2)
-    return 0.5 * (l + r - lr) - gamma
+    return (l + r - lr) - gamma
 
 
 def missing_gain(
@@ -449,8 +447,8 @@ def missing_gain(
     r = (gr**2) / (hr + l2)
     rm = ((gr + gm) ** 2) / (hr + hm + l2)
     lrm = ((gl + gr + gm) ** 2) / (hl + hr + hm + l2)
-    gain_left = 0.5 * (lm + r - lrm) - gamma
-    gain_right = 0.5 * (l + rm - lrm) - gamma
+    gain_left = (lm + r - lrm) - gamma
+    gain_right = (l + rm - lrm) - gamma
     return (gain_left, gain_right)
 
 
