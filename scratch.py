@@ -22,10 +22,18 @@ t.fit(X.to_numpy(), grad=g, hess=h)
 # print(t.nodes_[2].weight_value)
 # print(t.predict(X.to_numpy()[0:10]))
 
-m = XGBoost(iterations=1, max_depth=6, min_child_weight=0)
+m = XGBoost(
+    iterations=10,
+    max_depth=5,
+    min_leaf_weight=1,
+)
 m.fit(X.to_numpy(), y)
-m.predict(X.to_numpy())[0:10]
-len(m.trees_[0].nodes_)
+mp = m.predict(X.to_numpy())
+# len(m.trees_[0].nodes_)
+# print(m.trees_[29])
+# print(len(m.trees_[0].__repr__().split()))
+print(mp[0:10])
+
 
 def log_loss(predt: np.ndarray, dtrain: xgb.DMatrix) -> Tuple[np.ndarray, np.ndarray]:
     y = dtrain.get_label()
@@ -39,28 +47,35 @@ def log_loss(predt: np.ndarray, dtrain: xgb.DMatrix) -> Tuple[np.ndarray, np.nda
     # print(np.unique(y))
     return g, h
 
+
 d = xgb.DMatrix(X, label=y)
 mod = xgb.train(
-    {
-        "seed": 123,
-        # "objective": "binary:logitraw",
-        "tree_method": "exact",
-        "eval_metric": "auc",
-        "lambda": 1,
-        "gamma": 0,
-        "min_child_weight": 0,
-        "max_leaves": 0,
-        "max_depth": 6,
-    },
+    dict(
+        seed=123,
+        # objective="binary:logitraw",
+        tree_method="exact",
+        eval_metric="auc",
+        reg_lambda=1,
+        gamma=0,
+        min_child_weight=1,
+        max_leaves=0,
+        max_depth=5,
+        verbosity=0,
+    ),
     obj=log_loss,
-    num_boost_round=1,
+    num_boost_round=10,
     dtrain=d,
     evals=[(d, "train")],
 )
 mod.get_score(importance_type="gain")
 y[X["pclass"].lt(3)].mean(), y[X["pclass"].ge(3)].mean()
-# print(mod.get_dump(with_stats=True)[0])
-print(mod.predict(d)[0:10])
+# print(mod.get_dump(with_stats=True)[29])
+xp = mod.predict(d)
+print(xp[0:10])
+
+np.all(np.isclose(mp, xp, rtol=6))
+
+# print(len(mod.get_dump(with_stats=True)[0].split()))
 
 # from typing import Tuple
 # import seaborn as sns
@@ -131,7 +146,7 @@ print(mod.predict(d)[0:10])
 # d = xgb.DMatrix(X, label=y)
 # mod = xgb.train(
 #     {
-#         "seed": 123,
+#          "seed=123,
 #         # "objective": "binary:logitraw",
 #         "eval_metric": "auc",
 #         "lambda": 1,
@@ -156,5 +171,3 @@ print(mod.predict(d)[0:10])
 # #     evals=[(d, "train")],
 # #     obj=log_loss,
 # # )
-
-

@@ -55,7 +55,7 @@ class XGBoost:
         gamma: float = 0,
         max_leaves: int = int(1e9),
         max_depth: int = 15,
-        min_child_weight: float = 1,
+        min_leaf_weight: float = 0,        
         learning_rate: float = 0.3,
         base_score: float = 0.5,
     ):
@@ -63,7 +63,7 @@ class XGBoost:
         self.iterations = iterations
         self.l2 = l2
         self.gamma = gamma
-        self.min_child_weight = min_child_weight
+        self.min_leaf_weight = min_leaf_weight
         self.learning_rate = learning_rate
         self.max_leaves = max_leaves
         self.max_depth = max_depth
@@ -80,17 +80,17 @@ class XGBoost:
                 gamma=self.gamma,
                 max_leaves=self.max_leaves,
                 max_depth=self.max_depth,
-                min_child_weight=self.min_child_weight,
+                min_leaf_weight=self.min_leaf_weight,
                 learning_rate=self.learning_rate,
             )
             self.trees_.append(t.fit(X=X, grad=grad_, hess=hess_))
-            preds_ -= t.predict(X=X)
+            preds_ += t.predict(X=X)
             grad_ = self.obj.grad(y=y, y_hat=preds_)
             hess_ = self.obj.hess(y=y, y_hat=preds_)
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        preds_ = np.repeat(np.float32(self.base_score), X.shape[0])
+        preds_ = np.repeat(self.base_score, X.shape[0])
         for t in self.trees_:
             preds_ += t.predict(X)
         return preds_
@@ -108,19 +108,27 @@ class Tree:
         gamma: float = 0,
         max_leaves: int = int(1e9),
         max_depth: int = 15,
-        min_child_weight: float = 1,
+        min_leaf_weight: float = 0,        
         learning_rate: float = 0.3,
     ):
         self.l2 = l2
         self.gamma = gamma
-        self.min_child_weight = min_child_weight
+        self.min_leaf_weight = min_leaf_weight
         self.learning_rate = learning_rate
         self.max_leaves = max_leaves
         self.max_depth = max_depth
         self.nodes_: List[TreeNode] = []
 
     def __repr__(self):
-        ...
+        r = ""
+        print_buffer = [0]
+        while len(print_buffer) > 0:
+            n = self.nodes_[print_buffer.pop()]
+            r += (n.depth * "      ") + n.__repr__() + "\n"
+            if not n.is_leaf:
+                print_buffer.append(n.right_child_)  # type: ignore
+                print_buffer.append(n.left_child_)  # type: ignore
+        return r
 
     def predict_row(self, x_row: np.ndarray) -> float:
         node_idx = 0
@@ -134,7 +142,7 @@ class Tree:
                 node_idx = n.right_child_
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        preds_ = np.ndarray((X.shape[0],), dtype=np.float32)
+        preds_ = np.ndarray((X.shape[0],))
         for i in range(X.shape[0]):
             preds_[i] = self.predict_row(X[i, :])
         return preds_
@@ -161,11 +169,13 @@ class Tree:
                 break
 
             n_idx = growable.pop()
+
             n = self.nodes_[n_idx]
             depth = n.depth + 1
+
             # if we have hit max depth, skip this node
-            # but keep going, because there be other valid
-            # shallower nodes.
+            # but keep going, because there may be other
+            # valid shallower nodes.
             if depth > self.max_depth:
                 continue
 
@@ -188,7 +198,7 @@ class Tree:
             if split_info is None:
                 n_leaves += 1
                 continue
-            
+
             # If we can add two more leaves
             # add two.
             n_leaves += 2
@@ -215,8 +225,8 @@ class Tree:
             n.update_children(
                 left_child=left_idx, right_child=right_idx, split_info=split_info
             )
-            growable.append(left_idx)
-            growable.append(right_idx)
+            growable.insert(0, left_idx)
+            growable.insert(0, right_idx)
 
         return self
 
@@ -279,13 +289,15 @@ class Tree:
             lidxs, ridxs = node.node_idxs[mask], node.node_idxs[~mask]
             lgs, lhs = grad[mask].sum(), hess[mask].sum()
             rgs, rhs = grad[~mask].sum(), hess[~mask].sum()
-            # Don't even consider this if the min_child_weight
+            # Don't even consider this if the min_leaf_weight
             # parameter is violated.
-            if np.min([lhs, rhs]) < self.min_child_weight:
+            if np.min([lhs, rhs]) < self.min_leaf_weight:
                 continue
             l_gain = self.gain(lgs, lhs)
             r_gain = self.gain(rgs, rhs)
             split_gain = (l_gain + r_gain - node.gain_value) - self.gamma
+            if split_gain <= 0:
+                continue
             if split_gain > max_gain:
                 max_gain = split_gain
                 split_info = SplitInfo(
@@ -369,7 +381,10 @@ class TreeNode:
         self.right_child_: Optional[int] = None
 
     def __repr__(self) -> str:
-        n = f"{self.num}"
+        if self.is_leaf:
+            n = f"{repr(self.num)}:leaf={repr(self.weight_value)},cover={repr(self.cover_value)}"
+        else:
+            n = f"{repr(self.num)}:[{repr(self.split_feature_)} < {repr(self.split_value_)}] yes={repr(self.left_child_)},no={repr(self.right_child_)},gain={repr(self.split_gain_)},cover={repr(self.cover_value)}"
         return n
 
     def print_node(self):
