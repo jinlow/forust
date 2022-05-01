@@ -26,11 +26,12 @@ m = XGBoost(
     iterations=10,
     max_depth=5,
     min_leaf_weight=1,
+    gamma=3,
 )
 m.fit(X.to_numpy(), y)
 mp = m.predict(X.to_numpy())
 # len(m.trees_[0].nodes_)
-# print(m.trees_[29])
+# print(m.trees_[0])
 # print(len(m.trees_[0].__repr__().split()))
 print(mp[0:10])
 
@@ -47,16 +48,20 @@ def log_loss(predt: np.ndarray, dtrain: xgb.DMatrix) -> Tuple[np.ndarray, np.nda
     # print(np.unique(y))
     return g, h
 
-
+# When testing, know that gamma
+# does not seem to behave the same
+# for the exact method, as
+# it does for the "aprox"
+# tree method
 d = xgb.DMatrix(X, label=y)
 mod = xgb.train(
     dict(
         seed=123,
         # objective="binary:logitraw",
-        tree_method="exact",
+        tree_method="approx", # "hist",
         eval_metric="auc",
         reg_lambda=1,
-        gamma=0,
+        gamma=3,
         min_child_weight=1,
         max_leaves=0,
         max_depth=5,
@@ -69,7 +74,7 @@ mod = xgb.train(
 )
 mod.get_score(importance_type="gain")
 y[X["pclass"].lt(3)].mean(), y[X["pclass"].ge(3)].mean()
-# print(mod.get_dump(with_stats=True)[29])
+# print(mod.get_dump(with_stats=True)[0])
 xp = mod.predict(d)
 print(xp[0:10])
 
