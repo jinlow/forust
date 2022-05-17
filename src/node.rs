@@ -1,29 +1,16 @@
-struct SplitInfo {
-    split_gain: T,
-    split_feature: usize,
-    split_value: T,
-    left_gain: T,
-    left_cover: T,
-    left_weight: T,
-    left_idxs: Vec<usize>,
-    right_gain: T,
-    right_cover: T,
-    right_weight: T,
-    right_idxs: Vec<usize>,
-}
-
-struct Node<T> {
-    num: usize,
-    node_idxs: Vec<usize>,
-    weight_value: T,
-    gain_value: T,
-    cover_value: T,
-    depth: usize,
-    split_value_: Option<T>,
-    split_feature_: Option<T>,
-    split_gain_: Option<T>,
-    left_child_: Option<T>,
-    right_child_: Option<T>,
+pub struct Node<T> {
+    pub num: usize,
+    pub node_idxs: Vec<usize>,
+    pub weight_value: T,
+    pub gain_value: T,
+    pub grad_sum: T,
+    pub hess_sum: T,
+    pub depth: usize,
+    pub split_value_: Option<T>,
+    pub split_feature_: Option<T>,
+    pub split_gain_: Option<T>,
+    pub left_child_: Option<T>,
+    pub right_child_: Option<T>,
 }
 
 impl<T> Node<T> {
@@ -32,7 +19,8 @@ impl<T> Node<T> {
         node_idxs: Vec<usize>,
         weight_value: T,
         gain_value: T,
-        cover_value: T,
+        grad_sum: T,
+        hess_sum: T,
         depth: usize,
     ) -> Self {
         Node {
@@ -40,7 +28,8 @@ impl<T> Node<T> {
             node_idxs,
             weight_value,
             gain_value,
-            cover_value,
+            grad_sum,
+            hess_sum,
             depth,
             split_value_: None,
             split_feature_: None,

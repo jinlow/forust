@@ -1,6 +1,6 @@
 import seaborn as sns
 import xgboost as xgb
-from pyforust.model import LogLoss, Tree, XGBoost
+from forust.model import LogLoss, Tree, XGBoost
 import numpy as np
 from typing import Tuple
 
