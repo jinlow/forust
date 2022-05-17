@@ -80,10 +80,10 @@ where
                         right_weight: self.weight(right_grad, right_hess),
                         right_idxs: node.node_idxs[(idx_ + 1)..].to_vec(),
                     });
-                    // Update for new value
-                    left_grad += grad[*i];
-                    left_hess += hess[*i];
                 }
+                // Update for new value
+                left_grad += grad[*i];
+                left_hess += hess[*i];
             }
         }
         split_info
