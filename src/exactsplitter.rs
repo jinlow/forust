@@ -38,23 +38,31 @@ where
         let mut right_hess;
         let mut cur_val = f[node.node_idxs[0]];
 
-        for i in &node.node_idxs[1..] {
+        for (idx_, i) in node.node_idxs[1..].iter().enumerate() {
             let v = f[*i];
             if v == cur_val {
                 left_grad += grad[*i];
                 left_hess += hess[*i];
             } else {
+                cur_val = v;
                 // We have found a new value, consider this as a
                 // possible split.
                 right_grad = node.grad_sum - left_grad;
-                right_hess = node.grad_sum - left_hess;
+                right_hess = node.hess_sum - left_hess;
+
                 if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
+                    // Update for new value
+                    left_grad += grad[*i];
+                    left_hess += hess[*i];
                     continue;
                 }
                 let left_gain = self.gain(left_grad, left_hess);
                 let right_gain = self.gain(right_grad, right_hess);
                 let split_gain = (left_gain + right_gain - node.gain_value) - self.get_gamma();
                 if split_gain <= self.min_split_gain {
+                    // Update for new value
+                    left_grad += grad[*i];
+                    left_hess += hess[*i];
                     continue;
                 }
                 if max_gain.is_none() || split_gain > max_gain.unwrap() {
@@ -66,17 +74,16 @@ where
                         left_gain,
                         left_cover: left_hess,
                         left_weight: self.weight(left_grad, left_hess),
-                        left_idxs: node.node_idxs[..*i].to_vec(),
+                        left_idxs: node.node_idxs[..(idx_ + 1)].to_vec(),
                         right_gain,
                         right_cover: right_hess,
                         right_weight: self.weight(right_grad, right_hess),
-                        right_idxs: node.node_idxs[*i..].to_vec(),
-                    })
+                        right_idxs: node.node_idxs[(idx_ + 1)..].to_vec(),
+                    });
+                    // Update for new value
+                    left_grad += grad[*i];
+                    left_hess += hess[*i];
                 }
-                // Update for new value
-                left_grad += grad[*i];
-                left_hess += hess[*i];
-                cur_val = v;
             }
         }
         split_info
@@ -127,12 +134,41 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node::Node;
+    use crate::objective::{LogLoss, ObjectiveFunction};
     #[test]
     fn test_best_feature_split() {
-        let data = Matrix::new(&vec![1, 2, 3, 4, 4, 4, 5], 7, 1);
-        
-        let result = 2 + 2;
-        assert_eq!(result, 4);
+        let d = vec![4.0, 2.0, 3.0, 4.0, 5.0, 1.0, 4.0];
+        let data = Matrix::new(&d, 7, 1);
+        let y = vec![0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+        let yhat = vec![0.0; 7];
+        let grad = LogLoss::calc_grad(&y, &yhat);
+        let hess = LogLoss::calc_hess(&y, &yhat);
+        let es = ExactSplitter {
+            l2: 0.0,
+            gamma: 0.0,
+            min_leaf_weight: 0.0,
+            learning_rate: 1.0,
+            min_split_gain: 0.0,
+        };
+        let mut n = Node::new(
+            0,
+            vec![0, 1, 2, 3, 4, 5, 6],
+            0.0,
+            0.14,
+            grad.iter().sum::<f64>(),
+            hess.iter().sum::<f64>(),
+            0,
+        );
+        let s = es
+            .best_feature_split(&mut n, &data, 0, &grad, &hess)
+            .unwrap();
+        println!("{:?}", s);
+        assert_eq!(s.split_value, 4.0);
+        assert_eq!(s.left_cover, 0.75);
+        assert_eq!(s.right_cover, 1.0);
+        assert_eq!(s.left_gain, 3.0);
+        assert_eq!(s.right_gain, 1.0);
+        assert_eq!(s.split_gain, 3.86);
     }
 }
-

@@ -78,4 +78,3 @@ mod tests {
         assert!(h1.iter().sum::<f64>() < h2.iter().sum::<f64>());
     }
 }
-

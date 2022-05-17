@@ -1,6 +1,7 @@
 use crate::data::{Matrix, MatrixData};
 use crate::node::Node;
 
+#[derive(Debug)]
 pub struct SplitInfo<T> {
     pub split_gain: T,
     pub split_feature: usize,

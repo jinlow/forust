@@ -1,7 +1,7 @@
 mod exactsplitter;
 mod node;
-mod splitter;
 mod objective;
+mod splitter;
 
 pub mod data;
 

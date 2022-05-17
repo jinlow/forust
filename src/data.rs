@@ -1,9 +1,10 @@
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 use std::str::FromStr;
 
 pub trait MatrixData<T>:
     Mul<Output = T>
+    + Display
     + Add<Output = T>
     + Div<Output = T>
     + Neg<Output = T>
@@ -50,7 +51,7 @@ impl MatrixData<i64> for i64 {
         (self as f64).ln() as i64
     }
     fn exp(self) -> i64 {
-        self.exp()
+        (self as f64).exp() as i64
     }
 }
 impl MatrixData<i32> for i32 {
@@ -61,7 +62,7 @@ impl MatrixData<i32> for i32 {
         (self as f64).ln() as i32
     }
     fn exp(self) -> i32 {
-        self.exp()
+        (self as f64).exp() as i32
     }
 }
 
