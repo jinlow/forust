@@ -115,7 +115,7 @@ where
     ) -> Option<SplitInfo<T>> {
         let mut best_split_info = None;
         let mut best_gain = self.min_split_gain;
-        for feature in 0..(data.cols + 1) {
+        for feature in 0..(data.cols) {
             let split_info = self.best_feature_split(node, data, feature, grad, hess);
             match split_info {
                 Some(info) => {
@@ -171,4 +171,42 @@ mod tests {
         assert_eq!(s.right_gain, 1.0);
         assert_eq!(s.split_gain, 3.86);
     }
+
+    #[test]
+    fn test_best_split() {
+        let d = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 4.0, 2.0, 3.0, 4.0, 5.0, 1.0, 4.0];
+        let data = Matrix::new(&d, 7, 2);
+        let y = vec![0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+        let yhat = vec![0.0; 7];
+        let grad = LogLoss::calc_grad(&y, &yhat);
+        let hess = LogLoss::calc_hess(&y, &yhat);
+        let es = ExactSplitter {
+            l2: 0.0,
+            gamma: 0.0,
+            min_leaf_weight: 0.0,
+            learning_rate: 1.0,
+            min_split_gain: 0.0,
+        };
+        let mut n = Node::new(
+            0,
+            vec![0, 1, 2, 3, 4, 5, 6],
+            0.0,
+            0.14,
+            grad.iter().sum::<f64>(),
+            hess.iter().sum::<f64>(),
+            0,
+        );
+        let s = es
+            .best_split(&mut n, &data, &grad, &hess)
+            .unwrap();
+        println!("{:?}", s);
+        assert_eq!(s.split_feature, 1);
+        assert_eq!(s.split_value, 4.0);
+        assert_eq!(s.left_cover, 0.75);
+        assert_eq!(s.right_cover, 1.0);
+        assert_eq!(s.left_gain, 3.0);
+        assert_eq!(s.right_gain, 1.0);
+        assert_eq!(s.split_gain, 3.86);
+    }
+    
 }

@@ -1,6 +1,7 @@
 use std::fmt::{self, Debug, Display};
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 use std::str::FromStr;
+use std::iter::Sum;
 
 pub trait MatrixData<T>:
     Mul<Output = T>
@@ -15,6 +16,7 @@ pub trait MatrixData<T>:
     + AddAssign
     + Sub<Output = T>
     + SubAssign
+    + Sum
 {
     fn one() -> T;
     fn ln(self) -> T;
