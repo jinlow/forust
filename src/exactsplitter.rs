@@ -1,5 +1,5 @@
 use crate::data::{Matrix, MatrixData};
-use crate::node::Node;
+use crate::node::SplittableNode;
 use crate::splitter::{SplitInfo, Splitter};
 
 pub struct ExactSplitter<T> {
@@ -16,27 +16,31 @@ where
 {
     fn best_feature_split(
         &self,
-        node: &mut Node<T>,
+        node: &mut SplittableNode<T>,
         data: &Matrix<T>,
         feature: usize,
         grad: &[T],
         hess: &[T],
+        index: &mut [usize],
     ) -> Option<SplitInfo<T>> {
         let mut split_info: Option<SplitInfo<T>> = None;
         let mut max_gain: Option<T> = None;
 
         let f = data.get_col(feature);
 
-        node.node_idxs
+        // node_idxs
+        //     .sort_by(|a, b| f[*a].partial_cmp(&f[*b]).unwrap());
+        let node_idxs = &mut index[node.start_idx..node.stop_idx];
+        node_idxs
             .sort_by(|a, b| f[*a].partial_cmp(&f[*b]).unwrap());
 
-        let mut left_grad = grad[node.node_idxs[0]];
-        let mut left_hess = hess[node.node_idxs[0]];
+        let mut left_grad = grad[node_idxs[0]];
+        let mut left_hess = hess[node_idxs[0]];
         let mut right_grad;
         let mut right_hess;
-        let mut cur_val = f[node.node_idxs[0]];
+        let mut cur_val = f[node_idxs[0]];
 
-        for (idx_, i) in node.node_idxs[1..].iter().enumerate() {
+        for (idx_, i) in node_idxs[1..].iter().enumerate() {
             let v = f[*i];
             if v == cur_val {
                 left_grad += grad[*i];
@@ -73,13 +77,14 @@ where
                         left_gain,
                         left_cover: left_hess,
                         left_weight: self.weight(left_grad, left_hess),
-                        // Should this be plus 1?
-                        left_idxs: node.node_idxs[..(idx_ + 1)].to_vec(),
+                        left_start_idx: node.start_idx,
+                        left_stop_idx: idx_ + 1 + node.start_idx,
                         right_grad,
                         right_gain,
                         right_cover: right_hess,
                         right_weight: self.weight(right_grad, right_hess),
-                        right_idxs: node.node_idxs[(idx_ + 1)..].to_vec(),
+                        right_start_idx: idx_ + 1 + node.start_idx,
+                        right_stop_idx: node.stop_idx,
                     });
                 }
                 // Update for new value
@@ -109,15 +114,16 @@ where
 
     fn best_split(
         &self,
-        node: &mut Node<T>,
+        node: &mut SplittableNode<T>,
         data: &Matrix<T>,
         grad: &[T],
         hess: &[T],
+        index: &mut [usize],
     ) -> Option<SplitInfo<T>> {
         let mut best_split_info = None;
         let mut best_gain = self.min_split_gain;
         for feature in 0..(data.cols) {
-            let split_info = self.best_feature_split(node, data, feature, grad, hess);
+            let split_info = self.best_feature_split(node, data, feature, grad, hess, index);
             match split_info {
                 Some(info) => {
                     if info.split_gain > best_gain {
@@ -128,8 +134,6 @@ where
                 None => continue,
             }
         }
-        // Empty the node
-        node.node_idxs = Vec::new();
         best_split_info
     }
 }
@@ -137,15 +141,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::Node;
+    use crate::node::SplittableNode;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use std::fs;
     #[test]
     fn test_best_feature_split() {
-        let d = vec![4.0, 2.0, 3.0, 4.0, 5.0, 1.0, 4.0];
+        let d = vec![4., 2., 3., 4., 5., 1., 4.];
         let data = Matrix::new(&d, 7, 1);
-        let y = vec![0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0];
-        let yhat = vec![0.0; 7];
+        let y = vec![0., 0., 0., 1., 1., 0., 1.];
+        let yhat = vec![0.; 7];
         let grad = LogLoss::calc_grad(&y, &yhat);
         let hess = LogLoss::calc_hess(&y, &yhat);
         let es = ExactSplitter {
@@ -155,17 +159,20 @@ mod tests {
             learning_rate: 1.0,
             min_split_gain: 0.0,
         };
-        let mut n = Node::new(
+        let mut n = SplittableNode::new(
             0,
-            vec![0, 1, 2, 3, 4, 5, 6],
+            // vec![0, 1, 2, 3, 4, 5, 6],
             0.0,
             0.14,
             grad.iter().sum::<f64>(),
             hess.iter().sum::<f64>(),
             0,
+            0,
+            grad.len()
         );
+        let mut index = data.index.to_owned();
         let s = es
-            .best_feature_split(&mut n, &data, 0, &grad, &hess)
+            .best_feature_split(&mut n, &data, 0, &grad, &hess, &mut index)
             .unwrap();
         println!("{:?}", s);
         assert_eq!(s.split_value, 4.0);
@@ -178,12 +185,12 @@ mod tests {
 
     #[test]
     fn test_best_split() {
-        let d = vec![
-            0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 4.0, 2.0, 3.0, 4.0, 5.0, 1.0, 4.0,
+        let d: Vec<f64> = vec![
+            0., 0., 0., 1., 0., 0., 0., 4., 2., 3., 4., 5., 1., 4.,
         ];
         let data = Matrix::new(&d, 7, 2);
-        let y = vec![0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0];
-        let yhat = vec![0.0; 7];
+        let y = vec![0., 0., 0., 1., 1., 0., 1.];
+        let yhat = vec![0.; 7];
         let grad = LogLoss::calc_grad(&y, &yhat);
         let hess = LogLoss::calc_hess(&y, &yhat);
         let es = ExactSplitter {
@@ -193,30 +200,32 @@ mod tests {
             learning_rate: 1.0,
             min_split_gain: 0.0,
         };
-        let mut n = Node::new(
+        let mut n = SplittableNode::new(
             0,
-            vec![0, 1, 2, 3, 4, 5, 6],
+            // vec![0, 1, 2, 3, 4, 5, 6],
             0.0,
             0.14,
             grad.iter().sum::<f64>(),
             hess.iter().sum::<f64>(),
             0,
+            0,
+            grad.len()
         );
-        let s = es.best_split(&mut n, &data, &grad, &hess).unwrap();
+        let mut index = data.index.to_owned();
+        let index = index.as_mut();
+        let s = es.best_split(&mut n, &data, &grad, &hess, index).unwrap();
         println!("{:?}", s);
         assert_eq!(s.split_feature, 1);
-        assert_eq!(s.split_value, 4.0);
+        assert_eq!(s.split_value, 4.);
         assert_eq!(s.left_cover, 0.75);
-        assert_eq!(s.right_cover, 1.0);
-        assert_eq!(s.left_gain, 3.0);
-        assert_eq!(s.right_gain, 1.0);
+        assert_eq!(s.right_cover, 1.);
+        assert_eq!(s.left_gain, 3.);
+        assert_eq!(s.right_gain, 1.);
         assert_eq!(s.split_gain, 3.86);
     }
 
     #[test]
     fn test_data_split() {
-        let mut data_vec: Vec<f64> = Vec::new();
-        let mut y: Vec<f64> = Vec::new();
         let file = fs::read_to_string("resources/contiguous_no_missing.csv")
             .expect("Something went wrong reading the file");
         let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
@@ -242,18 +251,22 @@ mod tests {
         let root_gain = es.gain(grad_sum, hess_sum);
         let root_weight = es.weight(grad_sum, hess_sum);
         let data = Matrix::new(&data_vec, 891, 5);
-        let mut n = Node::new(
+        let mut n = SplittableNode::new(
             0,
-            (0..(data.rows - 1)).collect(),
+            // (0..(data.rows - 1)).collect(),
             root_weight,
             root_gain,
             g.iter().copied().sum::<f64>(),
             h.iter().copied().sum::<f64>(),
             0,
+            0,
+            g.len()
         );
-        let s = es.best_split(&mut n, &data, &g, &h).unwrap();
+        let mut index = data.index.to_owned();
+        let index = index.as_mut();
+        let s = es.best_split(&mut n, &data, &g, &h, index).unwrap();
         n.update_children(1, 2, &s);
-        println!("{}", n);
+        //println!("{}", n);
         assert_eq!(0, 0);
     }
 }

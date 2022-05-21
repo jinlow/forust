@@ -17,12 +17,18 @@ pub trait MatrixData<T>:
     + Sub<Output = T>
     + SubAssign
     + Sum
+    + std::marker::Send
+    + std::marker::Sync
 {
+    fn zero() -> T;
     fn one() -> T;
     fn ln(self) -> T;
     fn exp(self) -> T;
 }
 impl MatrixData<f64> for f64 {
+    fn zero() -> f64 {
+        0.0
+    }
     fn one() -> f64 {
         1.0
     }
@@ -35,6 +41,9 @@ impl MatrixData<f64> for f64 {
 }
 
 impl MatrixData<f32> for f32 {
+    fn zero() -> f32 {
+        0.0
+    }
     fn one() -> f32 {
         1.0
     }
@@ -46,6 +55,9 @@ impl MatrixData<f32> for f32 {
     }
 }
 impl MatrixData<i64> for i64 {
+    fn zero() -> i64 {
+        0
+    }
     fn one() -> i64 {
         1
     }
@@ -57,6 +69,9 @@ impl MatrixData<i64> for i64 {
     }
 }
 impl MatrixData<i32> for i32 {
+    fn zero() -> i32 {
+        0
+    }
     fn one() -> i32 {
         1
     }
@@ -88,6 +103,7 @@ impl MatrixData<i32> for i32 {
 // This will likely be too generic for out needs
 pub struct Matrix<'a, T> {
     data: &'a [T],
+    pub index: Vec<usize>,
     pub rows: usize,
     pub cols: usize,
     stride1: usize,
@@ -101,6 +117,7 @@ where
     pub fn new(data: &'a [T], rows: usize, cols: usize) -> Self {
         Matrix {
             data,
+            index: (0..rows).collect(),
             rows,
             cols,
             stride1: rows,
@@ -128,6 +145,10 @@ where
     pub fn get_col(&self, col: usize) -> &[T] {
         self.get_col_slice(col, 0, self.rows)
     }
+
+    // pub fn get_row(&self, row: usize) -> &[T] {
+        
+    // }
 
     // pub fn get_col_indices(&self, col: usize, indices: &[usize]) {
     //     self.get_col(col).iter

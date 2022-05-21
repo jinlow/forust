@@ -1,5 +1,5 @@
 use crate::data::{Matrix, MatrixData};
-use crate::node::Node;
+use crate::node::SplittableNode;
 
 #[derive(Debug)]
 pub struct SplitInfo<T> {
@@ -10,12 +10,16 @@ pub struct SplitInfo<T> {
     pub left_gain: T,
     pub left_cover: T,
     pub left_weight: T,
-    pub left_idxs: Vec<usize>,
+    // pub left_idxs: Vec<usize>,
+    pub left_start_idx: usize,
+    pub left_stop_idx: usize,
     pub right_grad: T,
     pub right_gain: T,
     pub right_cover: T,
     pub right_weight: T,
-    pub right_idxs: Vec<usize>,
+    // pub right_idxs: Vec<usize>,
+    pub right_start_idx: usize,
+    pub right_stop_idx: usize,
 }
 
 pub trait Splitter<T>
@@ -30,10 +34,11 @@ where
 
     fn best_split(
         &self,
-        node: &mut Node<T>,
+        node: &mut SplittableNode<T>,
         data: &Matrix<T>,
         grad: &[T],
         hess: &[T],
+        index: &mut [usize],
     ) -> Option<SplitInfo<T>>;
 
     fn gain(&self, grad_sum: T, hess_sum: T) -> T {
