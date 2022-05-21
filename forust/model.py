@@ -136,7 +136,7 @@ class Tree:
             n = self.nodes_[node_idx]
             if n.is_leaf:
                 return n.weight_value
-            if x_row[n.split_feature_] < n.split_value_:
+            if x_row[n.split_feature_] < n.split_value_: # type: ignore
                 node_idx = n.left_child_
             else:
                 node_idx = n.right_child_

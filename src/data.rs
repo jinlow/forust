@@ -1,7 +1,7 @@
 use std::fmt::{self, Debug, Display};
+use std::iter::Sum;
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 use std::str::FromStr;
-use std::iter::Sum;
 
 pub trait MatrixData<T>:
     Mul<Output = T>

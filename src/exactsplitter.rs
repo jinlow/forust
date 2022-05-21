@@ -1,15 +1,13 @@
-use std::collections::BTreeSet;
-
 use crate::data::{Matrix, MatrixData};
 use crate::node::Node;
 use crate::splitter::{SplitInfo, Splitter};
 
 pub struct ExactSplitter<T> {
-    l2: T,
-    gamma: T,
-    min_leaf_weight: T,
-    learning_rate: T,
-    min_split_gain: T, // Set this to 0
+    pub l2: T,
+    pub gamma: T,
+    pub min_leaf_weight: T,
+    pub learning_rate: T,
+    pub min_split_gain: T, // Set this to 0
 }
 
 impl<'a, T> ExactSplitter<T>
@@ -71,10 +69,13 @@ where
                         split_gain,
                         split_feature: feature,
                         split_value: v,
+                        left_grad,
                         left_gain,
                         left_cover: left_hess,
                         left_weight: self.weight(left_grad, left_hess),
+                        // Should this be plus 1?
                         left_idxs: node.node_idxs[..(idx_ + 1)].to_vec(),
+                        right_grad,
                         right_gain,
                         right_cover: right_hess,
                         right_weight: self.weight(right_grad, right_hess),
@@ -127,6 +128,8 @@ where
                 None => continue,
             }
         }
+        // Empty the node
+        node.node_idxs = Vec::new();
         best_split_info
     }
 }
@@ -136,6 +139,7 @@ mod tests {
     use super::*;
     use crate::node::Node;
     use crate::objective::{LogLoss, ObjectiveFunction};
+    use std::fs;
     #[test]
     fn test_best_feature_split() {
         let d = vec![4.0, 2.0, 3.0, 4.0, 5.0, 1.0, 4.0];
@@ -174,7 +178,9 @@ mod tests {
 
     #[test]
     fn test_best_split() {
-        let d = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 4.0, 2.0, 3.0, 4.0, 5.0, 1.0, 4.0];
+        let d = vec![
+            0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 4.0, 2.0, 3.0, 4.0, 5.0, 1.0, 4.0,
+        ];
         let data = Matrix::new(&d, 7, 2);
         let y = vec![0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0];
         let yhat = vec![0.0; 7];
@@ -196,9 +202,7 @@ mod tests {
             hess.iter().sum::<f64>(),
             0,
         );
-        let s = es
-            .best_split(&mut n, &data, &grad, &hess)
-            .unwrap();
+        let s = es.best_split(&mut n, &data, &grad, &hess).unwrap();
         println!("{:?}", s);
         assert_eq!(s.split_feature, 1);
         assert_eq!(s.split_value, 4.0);
@@ -208,5 +212,48 @@ mod tests {
         assert_eq!(s.right_gain, 1.0);
         assert_eq!(s.split_gain, 3.86);
     }
-    
+
+    #[test]
+    fn test_data_split() {
+        let mut data_vec: Vec<f64> = Vec::new();
+        let mut y: Vec<f64> = Vec::new();
+        let file = fs::read_to_string("resources/contiguous_no_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file
+            .lines()
+            .map(|x| x.parse::<i64>().unwrap() as f64)
+            .collect();
+        let yhat = vec![0.5; y.len()];
+        let g = LogLoss::calc_grad(&y, &yhat);
+        let h = LogLoss::calc_hess(&y, &yhat);
+
+        let es = ExactSplitter {
+            l2: 1.0,
+            gamma: 3.0,
+            min_leaf_weight: 1.0,
+            learning_rate: 0.3,
+            min_split_gain: 0.0,
+        };
+        let grad_sum = g.iter().copied().sum();
+        let hess_sum = h.iter().copied().sum();
+        let root_gain = es.gain(grad_sum, hess_sum);
+        let root_weight = es.weight(grad_sum, hess_sum);
+        let data = Matrix::new(&data_vec, 891, 5);
+        let mut n = Node::new(
+            0,
+            (0..(data.rows - 1)).collect(),
+            root_weight,
+            root_gain,
+            g.iter().copied().sum::<f64>(),
+            h.iter().copied().sum::<f64>(),
+            0,
+        );
+        let s = es.best_split(&mut n, &data, &g, &h).unwrap();
+        n.update_children(1, 2, &s);
+        println!("{}", n);
+        assert_eq!(0, 0);
+    }
 }
