@@ -106,7 +106,6 @@ impl<T: MatrixData<T>> Tree<T> {
                         node.update_children(left_idx, right_idx, &info);
                         let left_node = SplittableNode::new(
                             left_idx,
-                            // info.left_idxs,
                             info.left_weight,
                             info.left_gain,
                             info.left_grad,
@@ -117,7 +116,6 @@ impl<T: MatrixData<T>> Tree<T> {
                         );
                         let right_node = SplittableNode::new(
                             right_idx,
-                            // info.right_idxs,
                             info.right_weight,
                             info.right_gain,
                             info.right_grad,
@@ -144,15 +142,15 @@ impl<T: MatrixData<T>> Tree<T> {
         loop {
             let n = &self.nodes[node_idx];
             match n {
+                TreeNode::Leaf(node) => {
+                    return node.weight_value;
+                }
                 TreeNode::Parent(node) => {
                     if data.get(row, node.split_feature) < &node.split_value {
                         node_idx = node.left_child;
                     } else {
                         node_idx = node.right_child;
                     }
-                }
-                TreeNode::Leaf(node) => {
-                    return node.weight_value;
                 }
                 _ => unreachable!(),
             }
@@ -233,6 +231,8 @@ mod tests {
         let mut tree = Tree::new();
         tree.fit(&data, &g, &h, &splitter, usize::MAX, 5);
         println!("{}", tree);
+        let preds = tree.predict(&data);
+        println!("{:?}", &preds[0..10]);
         assert_eq!(25, tree.nodes.len())
     }
 }

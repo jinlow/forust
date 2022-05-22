@@ -31,8 +31,7 @@ where
         // node_idxs
         //     .sort_by(|a, b| f[*a].partial_cmp(&f[*b]).unwrap());
         let node_idxs = &mut index[node.start_idx..node.stop_idx];
-        node_idxs
-            .sort_by(|a, b| f[*a].partial_cmp(&f[*b]).unwrap());
+        node_idxs.sort_by(|a, b| f[*a].partial_cmp(&f[*b]).unwrap());
 
         let mut left_grad = grad[node_idxs[0]];
         let mut left_hess = hess[node_idxs[0]];
@@ -134,6 +133,14 @@ where
                 None => continue,
             }
         }
+        // If there is best info, resort the index, so that
+        // the start and stop are correct.
+        if let Some(info) = &best_split_info {
+            let f = data.get_col(info.split_feature);
+            let node_idxs = &mut index[node.start_idx..node.stop_idx];
+            node_idxs.sort_by(|a, b| f[*a].partial_cmp(&f[*b]).unwrap());
+        }
+
         best_split_info
     }
 }
@@ -168,7 +175,7 @@ mod tests {
             hess.iter().sum::<f64>(),
             0,
             0,
-            grad.len()
+            grad.len(),
         );
         let mut index = data.index.to_owned();
         let s = es
@@ -185,9 +192,7 @@ mod tests {
 
     #[test]
     fn test_best_split() {
-        let d: Vec<f64> = vec![
-            0., 0., 0., 1., 0., 0., 0., 4., 2., 3., 4., 5., 1., 4.,
-        ];
+        let d: Vec<f64> = vec![0., 0., 0., 1., 0., 0., 0., 4., 2., 3., 4., 5., 1., 4.];
         let data = Matrix::new(&d, 7, 2);
         let y = vec![0., 0., 0., 1., 1., 0., 1.];
         let yhat = vec![0.; 7];
@@ -209,7 +214,7 @@ mod tests {
             hess.iter().sum::<f64>(),
             0,
             0,
-            grad.len()
+            grad.len(),
         );
         let mut index = data.index.to_owned();
         let index = index.as_mut();
@@ -260,7 +265,7 @@ mod tests {
             h.iter().copied().sum::<f64>(),
             0,
             0,
-            g.len()
+            g.len(),
         );
         let mut index = data.index.to_owned();
         let index = index.as_mut();
