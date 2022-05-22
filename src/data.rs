@@ -147,7 +147,7 @@ where
     }
 
     // pub fn get_row(&self, row: usize) -> &[T] {
-        
+
     // }
 
     // pub fn get_col_indices(&self, col: usize, indices: &[usize]) {
@@ -202,7 +202,6 @@ mod tests {
     fn test_get_col() {
         let v = vec![1, 2, 3, 5, 6, 7];
         let m = Matrix::new(&v, 3, 2);
-        let x: f32 = 1.0;
         assert_eq!(m.get_col(1), &vec![5, 6, 7]);
     }
 }

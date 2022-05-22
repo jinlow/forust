@@ -23,7 +23,7 @@ pub struct SplittableNode<T> {
 
 pub struct ParentNode<T> {
     num: usize,
-    weight_value: T,
+    pub weight_value: T,
     hess_sum: T,
     pub depth: usize,
     pub split_value: T,

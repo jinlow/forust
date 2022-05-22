@@ -24,6 +24,7 @@ if __name__ == "__main__":
         random_state=0,
         replace=True,
     ).reset_index(drop=True)
+
     Xb = dfb.select_dtypes("number").fillna(0).drop(columns=["survived"]).astype(float)
     yb = dfb["survived"].astype(float)
 
