@@ -3,5 +3,6 @@ Cargo.lock
 forust/__pycache__/
 .vscode/
 py-forust/Cargo.lock
-# resources/*
-!resources/make_resources.csv
+resources/*
+!resources/make_resources.py
+!resources/titanic.csv
