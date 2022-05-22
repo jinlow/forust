@@ -6,8 +6,14 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::str::FromStr;
 
-struct Tree<T: MatrixData<T>> {
-    nodes: Vec<TreeNode<T>>,
+pub struct Tree<T: MatrixData<T>> {
+    pub nodes: Vec<TreeNode<T>>,
+}
+
+impl<T: MatrixData<T>> Default for Tree<T> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T: MatrixData<T>> Tree<T> {
@@ -23,14 +29,13 @@ impl<T: MatrixData<T>> Tree<T> {
         splitter: &S,
         max_leaves: usize,
         max_depth: usize,
+        index: &mut [usize],
     ) {
         let mut n_nodes = 1;
         let grad_sum: T = grad.iter().copied().sum();
         let hess_sum: T = hess.iter().copied().sum();
         let root_gain = splitter.gain(grad_sum, hess_sum);
         let root_weight = splitter.weight(grad_sum, hess_sum);
-        let mut index = data.index.to_owned();
-        let index = index.as_mut();
         let root_node = SplittableNode::new(
             0,
             // data.index.to_owned(),
@@ -40,8 +45,7 @@ impl<T: MatrixData<T>> Tree<T> {
             hess_sum,
             0,
             0,
-            data.rows
-
+            data.rows,
         );
         self.nodes.push(TreeNode::Splittable(root_node));
         let mut n_leaves = 1;
@@ -112,7 +116,7 @@ impl<T: MatrixData<T>> Tree<T> {
                             info.left_cover,
                             depth,
                             info.left_start_idx,
-                            info.left_stop_idx
+                            info.left_stop_idx,
                         );
                         let right_node = SplittableNode::new(
                             right_idx,
@@ -122,7 +126,7 @@ impl<T: MatrixData<T>> Tree<T> {
                             info.right_cover,
                             depth,
                             info.right_start_idx,
-                            info.right_stop_idx
+                            info.right_stop_idx,
                         );
                         growable.push_front(left_idx);
                         growable.push_front(right_idx);
@@ -157,11 +161,26 @@ impl<T: MatrixData<T>> Tree<T> {
         }
     }
 
-    pub fn predict(&self, data: &Matrix<T>) -> Vec<T> {
+    fn predict_single_threaded(&self, data: &Matrix<T>) -> Vec<T> {
+        data.index
+            .iter()
+            .map(|i| self.predict_row(data, *i))
+            .collect()
+    }
+
+    fn predict_parallel(&self, data: &Matrix<T>) -> Vec<T> {
         data.index
             .par_iter()
             .map(|i| self.predict_row(data, *i))
             .collect()
+    }
+
+    pub fn predict(&self, data: &Matrix<T>, parallel: bool) -> Vec<T> {
+        if parallel {
+            self.predict_parallel(data)
+        } else {
+            self.predict_single_threaded(data)
+        }
     }
 }
 
@@ -229,9 +248,11 @@ mod tests {
             min_split_gain: 0.0,
         };
         let mut tree = Tree::new();
-        tree.fit(&data, &g, &h, &splitter, usize::MAX, 5);
+        let mut index = data.index.to_owned();
+        let index = index.as_mut();
+        tree.fit(&data, &g, &h, &splitter, usize::MAX, 5, index);
         println!("{}", tree);
-        let preds = tree.predict(&data);
+        let preds = tree.predict(&data, false);
         println!("{:?}", &preds[0..10]);
         assert_eq!(25, tree.nodes.len())
     }

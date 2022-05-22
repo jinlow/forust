@@ -7,3 +7,10 @@ edition = "2021"
 
 [dependencies]
 rayon = "1.5"
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "forust_benchmarks"
+harness = false

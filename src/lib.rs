@@ -1,6 +1,6 @@
-mod exactsplitter;
+pub mod exactsplitter;
 mod node;
-mod objective;
+pub mod objective;
 mod splitter;
 pub mod tree;
 
