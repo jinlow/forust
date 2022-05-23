@@ -1,9 +1,9 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use forust::data::Matrix;
 use forust::exactsplitter::ExactSplitter;
+use forust::gradientbooster::GradientBooster;
 use forust::objective::{LogLoss, ObjectiveFunction};
 use forust::tree::Tree;
-use forust::gradientbooster::GradientBooster;
 use std::fs;
 
 pub fn tree_benchmarks(c: &mut Criterion) {
@@ -12,12 +12,9 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
     let file = fs::read_to_string("resources/performance_100k_samp_seed0.csv")
         .expect("Something went wrong reading the file");
-    let y: Vec<f64> = file
-        .lines()
-        .map(|x| x.parse::<f64>().unwrap())
-        .collect();
+    let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
     let yhat = vec![0.5; y.len()];
-    let w = vec![1.;y.len()];
+    let w = vec![1.; y.len()];
     let g = LogLoss::calc_grad(&y, &yhat, &w);
     let h = LogLoss::calc_hess(&y, &yhat, &w);
 
@@ -63,7 +60,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
                 black_box(&data),
                 black_box(&y),
                 black_box(&w),
-                black_box(true)
+                black_box(true),
             );
         })
     });

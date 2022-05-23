@@ -6,7 +6,6 @@ use std::str::FromStr;
 #[derive(Debug)]
 pub struct SplittableNode<T> {
     pub num: usize,
-    // pub node_idxs: Vec<usize>,
     pub weight_value: T,
     pub gain_value: T,
     pub grad_sum: T,

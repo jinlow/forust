@@ -100,7 +100,7 @@ impl MatrixData<i32> for i32 {
 // }
 
 // Simple Contigious Matrix
-// This will likely be too generic for out needs
+// This will likely be too generic for our needs
 pub struct Matrix<'a, T> {
     data: &'a [T],
     pub index: Vec<usize>,
@@ -145,14 +145,6 @@ where
     pub fn get_col(&self, col: usize) -> &[T] {
         self.get_col_slice(col, 0, self.rows)
     }
-
-    // pub fn get_row(&self, row: usize) -> &[T] {
-
-    // }
-
-    // pub fn get_col_indices(&self, col: usize, indices: &[usize]) {
-    //     self.get_col(col).iter
-    // }
 }
 
 impl<'a, T> fmt::Display for Matrix<'a, T>
