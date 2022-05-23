@@ -5,6 +5,7 @@ mod splitter;
 pub mod tree;
 
 pub mod data;
+pub mod gradientbooster;
 
 #[cfg(test)]
 mod tests {

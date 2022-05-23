@@ -1,6 +1,6 @@
 import seaborn as sns
 import xgboost as xgb
-from forust.model import LogLoss, Tree, XGBoost
+from forust.model import LogLoss, Tree, XGBoost, weight
 import numpy as np
 from typing import Tuple
 
@@ -23,41 +23,69 @@ init_preds = np.repeat(0.5, y.shape)
 g = ll.grad(y, init_preds)
 h = ll.hess(y, init_preds)
 t.fit(X.to_numpy(), grad=g, hess=h)
-print(t)
-print(len(t.nodes_))
-print(t.predict(X.to_numpy()[0:10,:]))
+# print(t)
+# print(t.predict(X.head().to_numpy()))
+# print(len(t.nodes_))
+# print(t.predict(X.to_numpy()[0:10,:]))
 # print(len(t.nodes_))
 # print(t.nodes_[0])
 # print(t.nodes_[1].weight_value)
 # print(t.nodes_[2].weight_value)
 # print(t.predict(X.to_numpy()[0:10]))
-
+w = np.ones(y.shape)
+# # w[X["pclass"].eq(2)] = 4
 m = XGBoost(
-    iterations=1,
+    iterations=10,
+    learning_rate=0.3,
     max_depth=5,
+    l2=1,
     min_leaf_weight=1,
-    gamma=3,
+    gamma=0,
 )
-m.fit(X.to_numpy(), y)
+# m = XGBoost(
+#     iterations=10,
+#     max_depth=5,
+#     min_leaf_weight=1,
+#     gamma=0,
+# )
+m.fit(X.to_numpy(), y, sample_weight=w)
 mp = m.predict(X.to_numpy())
-# len(m.trees_[0].nodes_)
+# # len(m.trees_[0].nodes_)
 # print(m.trees_[0])
-# print(len(m.trees_[0].__repr__().split()))
-# print(mp[0:10])
+# # print(len(m.trees_[0].__repr__().split()))
+print(mp[0:10])
 # print(m.trees_[0])
 
+# from xgboost import XGBClassifier
 
-def log_loss(predt: np.ndarray, dtrain: xgb.DMatrix) -> Tuple[np.ndarray, np.ndarray]:
-    y = dtrain.get_label()
-    # predt = 1/(1+np.exp(-predt))
-    # print(predt)
-    # init_preds = np.repeat(0.5, y.shape)
-    g = ll.grad(y, predt)
-    h = ll.hess(y, predt)
-    # print(h.sum())
-    # print(h[0:10])
-    # print(np.unique(y))
-    return g, h
+# mx = XGBClassifier(seed=123,
+#         objective="binary:logitraw",
+#         tree_method="exact", #"approx", # "hist",
+#         eval_metric="auc",
+#         reg_lambda=1,
+#         gamma=0,
+#         min_child_weight=1,
+#         max_leaves=0,
+#         max_depth=5,
+#         n_estimators=10)
+# mx.fit(X, y, sample_weight=w)
+# xp = mx.predict(X, output_margin=True)
+# print(xp[0:10])
+
+# np.all(np.isclose(mp, xp, rtol=0.00001))
+
+
+# def log_loss(predt: np.ndarray, dtrain: xgb.DMatrix) -> Tuple[np.ndarray, np.ndarray]:
+#     y = dtrain.get_label()
+#     # predt = 1/(1+np.exp(-predt))
+#     # print(predt)
+#     # init_preds = np.repeat(0.5, y.shape)
+#     g = ll.grad(y, predt)
+#     h = ll.hess(y, predt)
+#     # print(h.sum())
+#     # print(h[0:10])
+#     # print(np.unique(y))
+#     return g, h
 
 
 # When testing, know that gamma
@@ -65,15 +93,16 @@ def log_loss(predt: np.ndarray, dtrain: xgb.DMatrix) -> Tuple[np.ndarray, np.nda
 # for the exact method, as
 # it does for the "aprox"
 # tree method
-d = xgb.DMatrix(X, label=y)
+# w = np.random.uniform(0.001, 30, size=y.shape)
+# d = xgb.DMatrix(X, label=y, weight=y+1)
 # mod = xgb.train(
 #     dict(
 #         seed=123,
 #         # objective="binary:logitraw",
-#         tree_method="approx", # "hist",
+#         tree_method="exact", #"approx", # "hist",
 #         eval_metric="auc",
 #         reg_lambda=1,
-#         gamma=3,
+#         gamma=0,
 #         min_child_weight=1,
 #         max_leaves=0,
 #         max_depth=5,
@@ -87,10 +116,9 @@ d = xgb.DMatrix(X, label=y)
 # mod.get_score(importance_type="gain")
 # y[X["pclass"].lt(3)].mean(), y[X["pclass"].ge(3)].mean()
 # # print(mod.get_dump(with_stats=True)[0])
-# xp = mod.predict(d)
-# # print(xp[0:10])
+# xp = mod.predict(xgb.DMatrix(X, label=y))
+# print(xp[0:10])
 
-# np.all(np.isclose(mp, xp, rtol=6))
 
 # print(len(mod.get_dump(with_stats=True)[0].split()))
 

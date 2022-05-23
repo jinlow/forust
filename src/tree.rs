@@ -233,11 +233,12 @@ mod tests {
             .expect("Something went wrong reading the file");
         let y: Vec<f64> = file
             .lines()
-            .map(|x| x.parse::<i64>().unwrap() as f64)
+            .map(|x| x.parse::<f64>().unwrap())
             .collect();
         let yhat = vec![0.5; y.len()];
-        let g = LogLoss::calc_grad(&y, &yhat);
-        let h = LogLoss::calc_hess(&y, &yhat);
+        let w = vec![1.; y.len()];
+        let g = LogLoss::calc_grad(&y, &yhat, &w);
+        let h = LogLoss::calc_hess(&y, &yhat, &w);
 
         let data = Matrix::new(&data_vec, 891, 5);
         let splitter = ExactSplitter {
@@ -245,7 +246,6 @@ mod tests {
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
-            min_split_gain: 0.0,
         };
         let mut tree = Tree::new();
         let mut index = data.index.to_owned();

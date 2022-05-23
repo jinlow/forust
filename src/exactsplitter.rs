@@ -7,7 +7,6 @@ pub struct ExactSplitter<T> {
     pub gamma: T,
     pub min_leaf_weight: T,
     pub learning_rate: T,
-    pub min_split_gain: T, // Set this to 0
 }
 
 impl<'a, T> ExactSplitter<T>
@@ -28,8 +27,6 @@ where
 
         let f = data.get_col(feature);
 
-        // node_idxs
-        //     .sort_by(|a, b| f[*a].partial_cmp(&f[*b]).unwrap());
         let node_idxs = &mut index[node.start_idx..node.stop_idx];
         node_idxs.sort_by(|a, b| f[*a].partial_cmp(&f[*b]).unwrap());
 
@@ -60,7 +57,7 @@ where
                 let left_gain = self.gain(left_grad, left_hess);
                 let right_gain = self.gain(right_grad, right_hess);
                 let split_gain = (left_gain + right_gain - node.gain_value) - self.get_gamma();
-                if split_gain <= self.min_split_gain {
+                if split_gain <= T::zero() {
                     // Update for new value
                     left_grad += grad[*i];
                     left_hess += hess[*i];
@@ -120,7 +117,7 @@ where
         index: &mut [usize],
     ) -> Option<SplitInfo<T>> {
         let mut best_split_info = None;
-        let mut best_gain = self.min_split_gain;
+        let mut best_gain = T::zero();
         for feature in 0..(data.cols) {
             let split_info = self.best_feature_split(node, data, feature, grad, hess, index);
             match split_info {
@@ -157,14 +154,14 @@ mod tests {
         let data = Matrix::new(&d, 7, 1);
         let y = vec![0., 0., 0., 1., 1., 0., 1.];
         let yhat = vec![0.; 7];
-        let grad = LogLoss::calc_grad(&y, &yhat);
-        let hess = LogLoss::calc_hess(&y, &yhat);
+        let w = vec![1.; y.len()];
+        let grad = LogLoss::calc_grad(&y, &yhat, &w);
+        let hess = LogLoss::calc_hess(&y, &yhat, &w);
         let es = ExactSplitter {
             l2: 0.0,
             gamma: 0.0,
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
-            min_split_gain: 0.0,
         };
         let mut n = SplittableNode::new(
             0,
@@ -196,14 +193,14 @@ mod tests {
         let data = Matrix::new(&d, 7, 2);
         let y = vec![0., 0., 0., 1., 1., 0., 1.];
         let yhat = vec![0.; 7];
-        let grad = LogLoss::calc_grad(&y, &yhat);
-        let hess = LogLoss::calc_hess(&y, &yhat);
+        let w = vec![1.; y.len()];
+        let grad = LogLoss::calc_grad(&y, &yhat, &w);
+        let hess = LogLoss::calc_hess(&y, &yhat, &w);
         let es = ExactSplitter {
             l2: 0.0,
             gamma: 0.0,
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
-            min_split_gain: 0.0,
         };
         let mut n = SplittableNode::new(
             0,
@@ -238,18 +235,18 @@ mod tests {
             .expect("Something went wrong reading the file");
         let y: Vec<f64> = file
             .lines()
-            .map(|x| x.parse::<i64>().unwrap() as f64)
+            .map(|x| x.parse::<f64>().unwrap())
             .collect();
         let yhat = vec![0.5; y.len()];
-        let g = LogLoss::calc_grad(&y, &yhat);
-        let h = LogLoss::calc_hess(&y, &yhat);
+        let w = vec![1.; y.len()];
+        let g = LogLoss::calc_grad(&y, &yhat, &w);
+        let h = LogLoss::calc_hess(&y, &yhat, &w);
 
         let es = ExactSplitter {
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
-            min_split_gain: 0.0,
         };
         let grad_sum = g.iter().copied().sum();
         let hess_sum = h.iter().copied().sum();

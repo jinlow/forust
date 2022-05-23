@@ -70,10 +70,14 @@ class XGBoost:
         self.base_score = base_score
         self.trees_: List[Tree] = []
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> XGBoost:
+    def fit(self, X: np.ndarray, y: np.ndarray, sample_weight: Optional[np.ndarray] = None) -> XGBoost:
+        if sample_weight is None:
+            sample_weight_ = np.ones(y.shape)
+        else:
+            sample_weight_ = sample_weight
         preds_ = np.repeat(self.base_score, repeats=X.shape[0])
-        grad_ = self.obj.grad(y=y, y_hat=preds_)
-        hess_ = self.obj.hess(y=y, y_hat=preds_)
+        grad_ = self.obj.grad(y=y, y_hat=preds_) * sample_weight_
+        hess_ = self.obj.hess(y=y, y_hat=preds_) * sample_weight_
         for _ in range(self.iterations):
             t = Tree(
                 l2=self.l2,
@@ -85,8 +89,8 @@ class XGBoost:
             )
             self.trees_.append(t.fit(X=X, grad=grad_, hess=hess_))
             preds_ += t.predict(X=X)
-            grad_ = self.obj.grad(y=y, y_hat=preds_)
-            hess_ = self.obj.hess(y=y, y_hat=preds_)
+            grad_ = self.obj.grad(y=y, y_hat=preds_) * sample_weight_
+            hess_ = self.obj.hess(y=y, y_hat=preds_) * sample_weight_
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
