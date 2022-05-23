@@ -63,6 +63,42 @@ impl GradientBooster {
         }
         GradientBooster { booster }
     }
+    
+    pub fn fit(
+        &mut self,
+        flat_data: PyReadonlyArray1<f64>,
+        rows: usize,
+        cols: usize,
+        y: PyReadonlyArray1<f64>,
+        sample_weight: PyReadonlyArray1<f64>,
+        parallel: Option<bool>
+    ) -> PyResult<()> {
+        let flat_data = flat_data.as_slice()?;
+        let data = Matrix::new(flat_data, rows, cols);
+        let y = y.as_slice()?;
+        let sample_weight = sample_weight.as_slice()?;
+        let parallel = match parallel {
+            None => true,
+            Some(v) => v,
+        };
+        self.booster.fit(&data, &y, &sample_weight, parallel);
+        Ok(())
+    }
+    pub fn predict(
+        &self,
+        flat_data: PyReadonlyArray1<f64>,
+        rows: usize,
+        cols: usize,
+        parallel: Option<bool>
+    ) -> PyResult<Vec<f64>> {
+        let flat_data = flat_data.as_slice()?;
+        let data = Matrix::new(flat_data, rows, cols);
+        let parallel = match parallel {
+            None => true,
+            Some(v) => v,
+        };
+        Ok(self.booster.predict(&data, parallel))
+    }
 }
 
 #[pyfunction]
@@ -76,5 +112,6 @@ fn print_matrix(x: PyReadonlyArray1<f64>, rows: usize, cols: usize) -> PyResult<
 #[pymodule]
 fn forust(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(print_matrix, m)?)?;
+    m.add_class::<GradientBooster>()?;
     Ok(())
 }
