@@ -52,7 +52,6 @@ where
 {
     pub fn new(
         num: usize,
-        // node_idxs: Vec<usize>,
         weight_value: T,
         gain_value: T,
         grad_sum: T,
@@ -63,7 +62,6 @@ where
     ) -> Self {
         SplittableNode {
             num,
-            // node_idxs,
             weight_value,
             gain_value,
             grad_sum,

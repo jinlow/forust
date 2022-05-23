@@ -1,12 +1,7 @@
 use crate::data::{Matrix, MatrixData};
 use crate::exactsplitter::ExactSplitter;
-use crate::node::{SplittableNode, TreeNode};
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
 use crate::tree::Tree;
-use rayon::prelude::*;
-use std::collections::VecDeque;
-use std::fmt;
-use std::str::FromStr;
 
 pub struct GradientBooster<T: MatrixData<T>> {
     pub objective_type: ObjectiveType,
@@ -91,14 +86,14 @@ where
         };
         let mut yhat = vec![self.base_score; y.len()];
         let (calc_grad, calc_hess) = gradient_hessian_callables(&self.objective_type);
-        let mut grad = calc_grad(&y, &yhat, &sample_weight);
-        let mut hess = calc_hess(&y, &yhat, &sample_weight);
+        let mut grad = calc_grad(y, &yhat, sample_weight);
+        let mut hess = calc_hess(y, &yhat, sample_weight);
         let mut index = data.index.to_owned();
         let index = index.as_mut();
         for _ in 0..self.iterations {
             let mut tree = Tree::new();
             tree.fit(
-                &data,
+                data,
                 &grad,
                 &hess,
                 &splitter,
@@ -112,22 +107,21 @@ where
                 .map(|(i, j)| *i + j)
                 .collect();
             self.trees.push(tree);
-            grad = calc_grad(&y, &yhat, &sample_weight);
-            hess = calc_hess(&y, &yhat, &sample_weight);
+            grad = calc_grad(y, &yhat, sample_weight);
+            hess = calc_hess(y, &yhat, sample_weight);
         }
     }
 
     pub fn predict(&self, data: &Matrix<T>, parallel: bool) -> Vec<T> {
         let mut init_preds = vec![self.base_score; data.rows];
         self.trees.iter().for_each(|tree| {
-            for (p_, val) in init_preds.iter_mut().zip(tree.predict(&data, parallel)) {
-                *p_ = *p_ + val;
+            for (p_, val) in init_preds.iter_mut().zip(tree.predict(data, parallel)) {
+                *p_ += val;
             }
         });
         init_preds
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -140,10 +134,7 @@ mod tests {
         let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let file = fs::read_to_string("resources/performance.csv")
             .expect("Something went wrong reading the file");
-        let y: Vec<f64> = file
-            .lines()
-            .map(|x| x.parse::<f64>().unwrap())
-            .collect();
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
 
         let data = Matrix::new(&data_vec, 891, 5);
         let mut booster = GradientBooster::default();
