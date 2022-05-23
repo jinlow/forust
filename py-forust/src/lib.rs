@@ -1,8 +1,7 @@
 use forust::data::Matrix;
 use forust::gradientbooster::GradientBooster as CrateGradienBooster;
-use forust::objective;
 use forust::objective::ObjectiveType;
-use numpy::PyReadonlyArray1;
+use numpy::{PyReadonlyArray1, IntoPyArray, PyArray1};
 use pyo3::prelude::*;
 
 #[pyclass(subclass)]
@@ -84,22 +83,38 @@ impl GradientBooster {
         self.booster.fit(&data, &y, &sample_weight, parallel);
         Ok(())
     }
-    pub fn predict(
+    pub fn predict<'py>(
         &self,
+        py: Python<'py>,
         flat_data: PyReadonlyArray1<f64>,
         rows: usize,
         cols: usize,
         parallel: Option<bool>
-    ) -> PyResult<Vec<f64>> {
+    ) -> PyResult<&'py PyArray1<f64>> {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let parallel = match parallel {
             None => true,
             Some(v) => v,
         };
-        Ok(self.booster.predict(&data, parallel))
+        Ok(self.booster.predict(&data, parallel).into_pyarray(py))
     }
 }
+
+// fn pyarray_or_value_error<'py, T: Element>(
+//     py: Python<'py>,
+//     preds: Result<Vec<T>, DiscrustError>,
+// ) -> PyResult<&'py PyArray1<T>> {
+//     // I didn't want the underlying discrust_core crate to depend on
+//     // pyO3, so have to deal with the error custom here.
+//     match preds {
+//         Ok(v) => {
+//             let arr = v.into_pyarray(py);
+//             return Ok(arr);
+//         }
+//         Err(e) => return Err(PyValueError::new_err(e.to_string())),
+//     };
+// }
 
 #[pyfunction]
 fn print_matrix(x: PyReadonlyArray1<f64>, rows: usize, cols: usize) -> PyResult<()> {

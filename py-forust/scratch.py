@@ -11,6 +11,12 @@ mod = GradientBooster(iterations=100)
 mod.fit(X_vec, y.shape[0], 5, y, np.ones(y.shape))
 mod.predict(X_vec, y.shape[0], 5)[0:10]
 
+from sklearn.ensemble import HistGradientBoostingClassifier
+
+hgb = HistGradientBoostingClassifier(max_iter=100)
+hgb.fit(X, y)
+hgb.predict_proba(X)[0:10]
+
 from xgboost import XGBClassifier
 xmod = XGBClassifier(n_estimators=100, 
     learning_rate=0.3,
