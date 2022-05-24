@@ -1,6 +1,7 @@
 use crate::data::{Matrix, MatrixData};
 use crate::node::SplittableNode;
 use crate::splitter::{SplitInfo, Splitter};
+// use rayon::prelude::*;
 
 pub struct ExactSplitter<T> {
     pub l2: T,
@@ -28,7 +29,7 @@ where
         let f = data.get_col(feature);
 
         let node_idxs = &mut index[node.start_idx..node.stop_idx];
-        node_idxs.sort_by(|a, b| f[*a].partial_cmp(&f[*b]).unwrap());
+        node_idxs.sort_unstable_by(|a, b| f[*a].partial_cmp(&f[*b]).unwrap());
 
         let mut left_grad = grad[node_idxs[0]];
         let mut left_hess = hess[node_idxs[0]];

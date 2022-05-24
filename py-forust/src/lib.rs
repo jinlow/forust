@@ -1,7 +1,8 @@
 use forust::data::Matrix;
 use forust::gradientbooster::GradientBooster as CrateGradienBooster;
 use forust::objective::ObjectiveType;
-use numpy::{PyReadonlyArray1, IntoPyArray, PyArray1};
+use forust::utils::percentiles_nunique as crate_percentiles_nunique;
+use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 
 #[pyclass(subclass)]
@@ -62,7 +63,7 @@ impl GradientBooster {
         }
         GradientBooster { booster }
     }
-    
+
     pub fn fit(
         &mut self,
         flat_data: PyReadonlyArray1<f64>,
@@ -70,7 +71,7 @@ impl GradientBooster {
         cols: usize,
         y: PyReadonlyArray1<f64>,
         sample_weight: PyReadonlyArray1<f64>,
-        parallel: Option<bool>
+        parallel: Option<bool>,
     ) -> PyResult<()> {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
@@ -89,7 +90,7 @@ impl GradientBooster {
         flat_data: PyReadonlyArray1<f64>,
         rows: usize,
         cols: usize,
-        parallel: Option<bool>
+        parallel: Option<bool>,
     ) -> PyResult<&'py PyArray1<f64>> {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
@@ -123,10 +124,25 @@ fn print_matrix(x: PyReadonlyArray1<f64>, rows: usize, cols: usize) -> PyResult<
     Ok(())
 }
 
+#[pyfunction]
+fn percentiles_nunique<'py>(
+    py: Python<'py>,
+    v: PyReadonlyArray1<f64>,
+    sample_weight: PyReadonlyArray1<f64>,
+    percentiles: PyReadonlyArray1<f64>,
+) -> PyResult<(&'py PyArray1<f64>, i32)> {
+    let v_ = v.as_slice()?;
+    let sample_weight_ = sample_weight.as_slice()?;
+    let percentiles_ = percentiles.as_slice()?;
+    let (p, n) = crate_percentiles_nunique(v_, sample_weight_, percentiles_);
+    Ok((p.into_pyarray(py), n))
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn forust(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(print_matrix, m)?)?;
+    m.add_function(wrap_pyfunction!(percentiles_nunique, m)?)?;
     m.add_class::<GradientBooster>()?;
     Ok(())
 }
