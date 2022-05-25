@@ -9,7 +9,6 @@ use std::collections::VecDeque;
 /// sample_weights - Sample weights for the instances of the vector.
 /// percentiles - Percentiles to look for in the data. This should be
 ///     values from 0 to 1, and in sorted order.
-///
 pub fn percentiles_nunique<T>(v: &[T], sample_weights: &[T], percentiles: &[T]) -> (Vec<T>, i32)
 where
     T: MatrixData<T>,
@@ -50,6 +49,20 @@ where
     (p, nunique)
 }
 
+
+pub fn first_greater_than<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> usize {
+    let mut low = 0;
+    let mut high = x.len();
+    while low != high {
+        let mid = (low + high) / 2;
+        if x[mid] <= *v {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    low
+}
 
 
 #[cfg(test)]

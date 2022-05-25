@@ -83,22 +83,6 @@ impl MatrixData<i32> for i32 {
     }
 }
 
-// impl<T> MatrixData<T> for f64 where
-//     T: Mul<Output = T>
-//         + Add<Output = T>
-//         + Div<Output = T>
-//         + Neg<Output = T>
-//         + Copy
-//         + Debug
-//         + PartialEq
-//         + PartialOrd
-//         + AddAssign
-//         + Sub<Output = T>
-//         + SubAssign
-// {
-
-// }
-
 // Simple Contigious Matrix
 // This will likely be too generic for our needs
 pub struct Matrix<'a, T> {
@@ -111,8 +95,6 @@ pub struct Matrix<'a, T> {
 }
 
 impl<'a, T> Matrix<'a, T>
-where
-    T: MatrixData<T>,
 {
     pub fn new(data: &'a [T], rows: usize, cols: usize) -> Self {
         Matrix {
@@ -149,7 +131,7 @@ where
 
 impl<'a, T> fmt::Display for Matrix<'a, T>
 where
-    T: FromStr + std::fmt::Display + MatrixData<T>,
+    T: FromStr + std::fmt::Display,
     <T as FromStr>::Err: 'static + std::error::Error,
 {
     // This trait requires `fmt` with this exact signature.
