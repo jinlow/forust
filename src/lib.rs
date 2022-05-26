@@ -1,7 +1,7 @@
 mod node;
 mod splitter;
 mod histogram;
-mod binner;
+mod binning;
 
 pub mod objective;
 pub mod exactsplitter;
