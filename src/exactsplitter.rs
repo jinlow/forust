@@ -58,7 +58,7 @@ where
                 let left_gain = self.gain(left_grad, left_hess);
                 let right_gain = self.gain(right_grad, right_hess);
                 let split_gain = (left_gain + right_gain - node.gain_value) - self.get_gamma();
-                if split_gain <= T::zero() {
+                if split_gain <= T::ZERO {
                     // Update for new value
                     left_grad += grad[*i];
                     left_hess += hess[*i];
@@ -118,7 +118,7 @@ where
         index: &mut [usize],
     ) -> Option<SplitInfo<T>> {
         let mut best_split_info = None;
-        let mut best_gain = T::zero();
+        let mut best_gain = T::ZERO;
         for feature in 0..(data.cols) {
             let split_info = self.best_feature_split(node, data, feature, grad, hess, index);
             match split_info {

@@ -20,20 +20,18 @@ pub trait MatrixData<T>:
     + std::marker::Send
     + std::marker::Sync
 {
-    fn zero() -> T;
-    fn one() -> T;
+    const ZERO: T;
+    const ONE: T;
+    const MIN: T;
     fn from_usize(v: usize) -> T;
     fn is_nan(&self) -> bool;
     fn ln(self) -> T;
     fn exp(self) -> T;
 }
 impl MatrixData<f64> for f64 {
-    fn zero() -> f64 {
-        0.0
-    }
-    fn one() -> f64 {
-        1.0
-    }
+    const ZERO: f64 = 0.0;
+    const ONE: f64 = 1.0;
+    const MIN: f64 = f64::MIN;
     fn from_usize(v: usize) -> f64 {
         v as f64
     }
@@ -49,12 +47,9 @@ impl MatrixData<f64> for f64 {
 }
 
 impl MatrixData<f32> for f32 {
-    fn zero() -> f32 {
-        0.0
-    }
-    fn one() -> f32 {
-        1.0
-    }
+    const ZERO: f32 = 0.0;
+    const ONE: f32 = 1.0;
+    const MIN: f32 = f32::MIN;
     fn from_usize(v: usize) -> f32 {
         v as f32
     }
@@ -68,34 +63,6 @@ impl MatrixData<f32> for f32 {
         self.exp()
     }
 }
-// impl MatrixData<i64> for i64 {
-//     fn zero() -> i64 {
-//         0
-//     }
-//     fn one() -> i64 {
-//         1
-//     }
-//     fn ln(self) -> i64 {
-//         (self as f64).ln() as i64
-//     }
-//     fn exp(self) -> i64 {
-//         (self as f64).exp() as i64
-//     }
-// }
-// impl MatrixData<i32> for i32 {
-//     fn zero() -> i32 {
-//         0
-//     }
-//     fn one() -> i32 {
-//         1
-//     }
-//     fn ln(self) -> i32 {
-//         (self as f64).ln() as i32
-//     }
-//     fn exp(self) -> i32 {
-//         (self as f64).exp() as i32
-//     }
-// }
 
 // Simple Contigious Matrix
 // This will likely be too generic for our needs
@@ -108,8 +75,7 @@ pub struct Matrix<'a, T> {
     stride2: usize,
 }
 
-impl<'a, T> Matrix<'a, T>
-{
+impl<'a, T> Matrix<'a, T> {
     pub fn new(data: &'a [T], rows: usize, cols: usize) -> Self {
         Matrix {
             data,

@@ -1,5 +1,5 @@
 use crate::data::{Matrix, MatrixData};
-use crate::utils::{first_greater_than, percentiles_nunique};
+use crate::utils::{first_greater_than, percentiles};
 
 // We want to be able to bin our dataset into discrete buckets.
 // First we will calculate percentils and the number of unique values
@@ -10,7 +10,7 @@ use crate::utils::{first_greater_than, percentiles_nunique};
 // For now, we will just use usize, although, it would be good to see if
 // we can use something smaller, u8 for instance.
 
-struct BinnedData<T> {
+pub struct BinnedData<T> {
     binned_data: Vec<usize>,
     cuts: Vec<Vec<T>>,
     nunique: Vec<usize>,
@@ -31,13 +31,13 @@ fn bin_matrix_from_cuts<T: std::cmp::PartialOrd>(data: &Matrix<T>, cuts: &[Vec<T
         .collect()
 }
 
-pub fn bin_matrix<T: MatrixData<T>>(data: &Matrix<T>, sample_weights: &[T], nbins: usize) {
-    // -> BinnedData<T> {
-    let mut percentiles = Vec::new();
+pub fn bin_matrix<T: MatrixData<T>>(data: &Matrix<T>, sample_weights: &[T], nbins: usize)
+    -> BinnedData<T> {
+    let mut pcts = Vec::new();
     let nbins_ = T::from_usize(nbins);
     for i in 0..nbins {
         let v = T::from_usize(i) / nbins_;
-        percentiles.push(v);
+        pcts.push(v);
     }
     // First we need to generate the bins for each of the columns.
     // We will loop through all of the columns, and generate the cuts.
@@ -50,8 +50,14 @@ pub fn bin_matrix<T: MatrixData<T>>(data: &Matrix<T>, sample_weights: &[T], nbin
             .filter(|v| !v.is_nan())
             .copied()
             .collect();
-        let (col_cuts, col_nunique) = percentiles_nunique(&no_miss, sample_weights, &percentiles);
+        let mut col_cuts= percentiles(&no_miss, sample_weights, &pcts);
+        col_cuts.push(T::MIN);
+        col_cuts.dedup();
+        // There will be one less bins, then there are cuts.
+        // The first value will be for missing.
+        nunique.push(col_cuts.len().clone() - 1);
         cuts.push(col_cuts);
-        nunique.push(col_nunique);
     }
+    let binned_data = bin_matrix_from_cuts(data, &cuts);
+    BinnedData { binned_data, cuts, nunique}
 }

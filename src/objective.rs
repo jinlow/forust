@@ -37,8 +37,8 @@ where
         y.iter()
             .zip(yhat)
             .map(|(y_, yhat_)| {
-                let yhat_ = T::one() / (T::one() + (-*yhat_).exp());
-                -(*y_ * yhat_.ln() + (T::one() - *y_) * ((T::one() - yhat_).ln()))
+                let yhat_ = T::ONE / (T::ONE + (-*yhat_).exp());
+                -(*y_ * yhat_.ln() + (T::ONE - *y_) * ((T::ONE - yhat_).ln()))
             })
             .zip(sample_weight)
             .map(|(l, w)| l * *w)
@@ -49,7 +49,7 @@ where
         y.iter()
             .zip(yhat)
             .map(|(y_, yhat_)| {
-                let yhat_ = T::one() / (T::one() + (-*yhat_).exp());
+                let yhat_ = T::ONE / (T::ONE + (-*yhat_).exp());
                 yhat_ - *y_
             })
             .zip(sample_weight)
@@ -60,8 +60,8 @@ where
     fn calc_hess(_: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
         yhat.iter()
             .map(|yhat_| {
-                let yhat_ = T::one() / (T::one() + (-*yhat_).exp());
-                yhat_ * (T::one() - yhat_)
+                let yhat_ = T::ONE / (T::ONE + (-*yhat_).exp());
+                yhat_ * (T::ONE - yhat_)
             })
             .zip(sample_weight)
             .map(|(l, w)| l * *w)

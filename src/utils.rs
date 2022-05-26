@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 /// sample_weights - Sample weights for the instances of the vector.
 /// percentiles - Percentiles to look for in the data. This should be
 ///     values from 0 to 1, and in sorted order.
-pub fn percentiles_nunique<T>(v: &[T], sample_weights: &[T], percentiles: &[T]) -> (Vec<T>, i32)
+pub fn percentiles<T>(v: &[T], sample_weights: &[T], percentiles: &[T]) -> Vec<T>
 where
     T: MatrixData<T>,
 {
@@ -19,34 +19,36 @@ where
     // Setup percentiles
     let mut pcts = VecDeque::from_iter(percentiles.iter());
     let mut current_pct = *pcts.pop_front().expect("No percentiles were provided");
-    let mut drained_pcts = false;
 
     // Prepare a vector to put the percentiles in...
     let mut p = Vec::new();
-    let mut pct_cnt = T::zero();
-    let mut nunique = 1;
-
+    let mut cuml_pct = T::ZERO;
     let mut current_value = v[idx[0]];
     let total_values = sample_weights.iter().copied().sum();
 
     for i in idx.iter() {
         if current_value != v[*i] {
-            nunique += 1;
             current_value = v[*i];
         }
-        pct_cnt += sample_weights[*i] / total_values;
-        if !drained_pcts {
-            if (current_pct == T::zero()) || (pct_cnt >= current_pct) {
-                drained_pcts = true;
+        cuml_pct += sample_weights[*i] / total_values;
+        if (current_pct == T::ZERO) || (cuml_pct >= current_pct) {
+            // We loop here, because the same number might be a valid
+            // value to make the percentile several times.
+            while cuml_pct >= current_pct {
                 p.push(current_value);
-                if let Some(p_) = pcts.pop_front() {
-                    drained_pcts = false;
-                    current_pct = *p_;
+                match pcts.pop_front() {
+                    Some(p_) => current_pct = *p_,
+                    None => return p,
                 }
+            }
+        } else if current_pct == T::ONE {
+            if let Some(i_) = idx.last() {
+                p.push(v[*i_]);
+                break;
             }
         }
     }
-    (p, nunique)
+    p
 }
 
 // Return the index of the first value in a slice that
@@ -73,27 +75,35 @@ pub fn first_greater_than<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> usize {
 mod tests {
     use super::*;
     #[test]
-    fn test_percentiles_nunique() {
-        let v = vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10.];
+    fn test_percentiles() {
+        let v = vec![4., 5., 6., 1., 2., 3., 7., 8., 9., 10.];
         let w = vec![1.; v.len()];
-        let p = vec![0.3, 0.5, 0.75];
-        let (p, n) = percentiles_nunique(&v, &w, &p);
-        assert_eq!(n, 10);
-        assert_eq!(p, vec![3.0, 5.0, 8.0]);
+        let p = vec![0.3, 0.5, 0.75, 1.0];
+        let p = percentiles(&v, &w, &p);
+        assert_eq!(p, vec![3.0, 5.0, 8.0, 10.0]);
+    }
+
+    #[test]
+    fn test_percentiles_weighted() {
+        let v = vec![10., 8., 9., 1., 2., 3., 6., 7., 4., 5.];
+        let w = vec![1., 1., 1., 1., 1., 2., 1., 1., 5., 1.];
+        let p = vec![0.3, 0.5, 0.75, 1.0];
+        let p = percentiles(&v, &w, &p);
+        assert_eq!(p, vec![4.0, 4.0, 7.0, 10.0]);
     }
 
     #[test]
     fn test_first_greater_than_or_equal() {
-        let v = vec![1., 4., 8., 9.];
-        assert_eq!(0, first_greater_than(&v, &0.));
-        assert_eq!(1, first_greater_than(&v, &1.));
+        let v = vec![f64::MIN, 1., 4., 8., 9.];
+        assert_eq!(1, first_greater_than(&v, &0.));
+        assert_eq!(2, first_greater_than(&v, &1.));
         // Less than the bin value of 1, means the value is less
         // than 4...
-        assert_eq!(1, first_greater_than(&v, &2.));
-        assert_eq!(2, first_greater_than(&v, &4.));
-        assert_eq!(4, first_greater_than(&v, &9.));
-        assert_eq!(4, first_greater_than(&v, &10.));
-        assert_eq!(1, first_greater_than(&v, &1.));
+        assert_eq!(2, first_greater_than(&v, &2.));
+        assert_eq!(3, first_greater_than(&v, &4.));
+        assert_eq!(5, first_greater_than(&v, &9.));
+        assert_eq!(5, first_greater_than(&v, &10.));
+        assert_eq!(2, first_greater_than(&v, &1.));
         assert_eq!(0, first_greater_than(&v, &f64::NAN));
     }
 }

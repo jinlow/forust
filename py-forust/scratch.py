@@ -1,15 +1,15 @@
 import pandas as pd
 import numpy as np
-from forust import  percentiles_nunique
+from forust import  percentiles
 
-df = pd.read_csv("../resources/titanic.csv").sample(1_000_000, replace=True, random_state=0)
-percentiles = np.array([0.1, 0.2, 0.5, 0.78])
-p, n = percentiles_nunique(df["fare"].to_numpy(), np.ones(df.shape[0]), percentiles)
+df = pd.read_csv("../resources/titanic.csv").sample(2_000_000, replace=True, random_state=0)
+pcts = np.array([0.1, 0.2, 0.5, 0.78])
+pcts = np.linspace(0, 1, num=200, endpoint=True)
+p1 = percentiles(df["fare"].to_numpy(), np.ones(df.shape[0]), pcts)
 
-p
 
 df["fare"].nunique()
-np.percentile(df["fare"], percentiles*100)
+p2 = np.percentile(df["fare"], pcts*100)
 
 
 import pandas as pd

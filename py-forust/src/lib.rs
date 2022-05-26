@@ -1,7 +1,7 @@
 use forust::data::Matrix;
 use forust::gradientbooster::GradientBooster as CrateGradienBooster;
 use forust::objective::ObjectiveType;
-use forust::utils::percentiles_nunique as crate_percentiles_nunique;
+use forust::utils::percentiles as crate_percentiles;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 
@@ -125,24 +125,24 @@ fn print_matrix(x: PyReadonlyArray1<f64>, rows: usize, cols: usize) -> PyResult<
 }
 
 #[pyfunction]
-fn percentiles_nunique<'py>(
+fn percentiles<'py>(
     py: Python<'py>,
     v: PyReadonlyArray1<f64>,
     sample_weight: PyReadonlyArray1<f64>,
     percentiles: PyReadonlyArray1<f64>,
-) -> PyResult<(&'py PyArray1<f64>, i32)> {
+) -> PyResult<&'py PyArray1<f64>> {
     let v_ = v.as_slice()?;
     let sample_weight_ = sample_weight.as_slice()?;
     let percentiles_ = percentiles.as_slice()?;
-    let (p, n) = crate_percentiles_nunique(v_, sample_weight_, percentiles_);
-    Ok((p.into_pyarray(py), n))
+    let p = crate_percentiles(v_, sample_weight_, percentiles_);
+    Ok(p.into_pyarray(py))
 }
 
 /// A Python module implemented in Rust.
 #[pymodule]
 fn forust(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(print_matrix, m)?)?;
-    m.add_function(wrap_pyfunction!(percentiles_nunique, m)?)?;
+    m.add_function(wrap_pyfunction!(percentiles, m)?)?;
     m.add_class::<GradientBooster>()?;
     Ok(())
 }
