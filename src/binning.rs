@@ -9,6 +9,10 @@ use crate::utils::{first_greater_than, percentiles};
 // bin is missing values.
 // For now, we will just use usize, although, it would be good to see if
 // we can use something smaller, u8 for instance.
+// If we generated these cuts:
+// [-1.7976931348623157e+308, 0.0, 7.8958, 14.4542, 31.0, 512.3292]
+// We would have a number with bins 0 (missing), 1, 2, 3, 4, 5
+// a split that is [feature < 5] would translate to [feature < 31.0 ]
 
 pub struct BinnedData<T> {
     pub binned_data: Vec<usize>,

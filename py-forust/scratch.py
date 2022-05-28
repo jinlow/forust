@@ -7,25 +7,33 @@ df = pd.read_csv("../resources/titanic.csv")# .sample(1_000_000, replace=True, r
 X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True) #[["pclass"]].astype(float)
 X_vec = X.to_numpy().ravel(order="F")
 
-b, c, n = rust_bin_matrix(X_vec, X.shape[0], X.shape[1], np.ones(X.shape[0]), nbins=5)
-Xb = pd.DataFrame(b.reshape(X.shape, order="F"))
+w = np.ones(X.shape[0])  # np.random.uniform(0.1, 100, X.shape[0]),
+# w[X["age"] > 56] = 100000
 
+b, c, n = rust_bin_matrix(X_vec, X.shape[0], X.shape[1], w, nbins=5)
+Xb = pd.DataFrame(b.reshape(X.shape, order="F"))
+c[-1]
 
 X_rs = X.copy()
 for i in range(X.shape[1]):
-    X_rs.iloc[:,i] = pd.Series(np.digitize(X.iloc[:,i], c[i])).fillna(0)
+    X_rs.iloc[:,i] = pd.Series(np.digitize(X.iloc[:,i], c[i], right=True))
+    X_rs.iloc[X.iloc[:,i].isna(),i] = 0
 
 for i in range(X.shape[1]):
     X_rs.iloc[:,i].value_counts()
     Xb.iloc[:,i].value_counts()
 
-print(X_rs.iloc[:,0].value_counts())
-print(Xb.iloc[:,0].value_counts())
+print(X_rs.iloc[:,0].value_counts().sort_index())
+print(Xb.iloc[:,0].value_counts().sort_index())
 
-print(X_rs.iloc[:,1].value_counts())
-print(Xb.iloc[:,1].value_counts())
+print(X_rs.iloc[:,1].value_counts().sort_index())
+print(Xb.iloc[:,1].value_counts().sort_index())
 
+(X_rs.rename(columns={k: i for i, k in enumerate(X_rs.columns)}) == Xb).all()
 
+pd.concat([Xb.iloc[:,-1].head(),
+X.iloc[:,-1].head()], axis=1)
+c[-1]
 ####
 import pandas as pd
 import numpy as np
@@ -80,3 +88,4 @@ xmod = XGBClassifier(n_estimators=100,
 )
 xmod.fit(X, y)
 xmod.predict(X, output_margin=True)[0:10]
+print(xmod.get_booster().get_dump()[0])

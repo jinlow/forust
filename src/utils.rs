@@ -62,7 +62,7 @@ pub fn first_greater_than<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> usize {
         // This will always be false for NaNs.
         // This it will force us to the bottom,
         // and thus Zero.
-        if x[mid] <= *v {
+        if x[mid] <  *v {
             low = mid + 1;
         } else {
             high = mid;
@@ -96,14 +96,14 @@ mod tests {
     fn test_first_greater_than_or_equal() {
         let v = vec![f64::MIN, 1., 4., 8., 9.];
         assert_eq!(1, first_greater_than(&v, &0.));
-        assert_eq!(2, first_greater_than(&v, &1.));
-        // Less than the bin value of 1, means the value is less
+        assert_eq!(1, first_greater_than(&v, &1.));
+        // Less than the bin value of 2, means the value is less
         // than 4...
         assert_eq!(2, first_greater_than(&v, &2.));
-        assert_eq!(3, first_greater_than(&v, &4.));
-        assert_eq!(5, first_greater_than(&v, &9.));
+        assert_eq!(2, first_greater_than(&v, &4.));
+        assert_eq!(4, first_greater_than(&v, &9.));
         assert_eq!(5, first_greater_than(&v, &10.));
-        assert_eq!(2, first_greater_than(&v, &1.));
+        assert_eq!(1, first_greater_than(&v, &1.));
         assert_eq!(0, first_greater_than(&v, &f64::NAN));
     }
 }
