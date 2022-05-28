@@ -1,3 +1,4 @@
+use forust::binning::bin_matrix;
 use forust::data::Matrix;
 use forust::gradientbooster::GradientBooster as CrateGradienBooster;
 use forust::objective::ObjectiveType;
@@ -102,20 +103,21 @@ impl GradientBooster {
     }
 }
 
-// fn pyarray_or_value_error<'py, T: Element>(
-//     py: Python<'py>,
-//     preds: Result<Vec<T>, DiscrustError>,
-// ) -> PyResult<&'py PyArray1<T>> {
-//     // I didn't want the underlying discrust_core crate to depend on
-//     // pyO3, so have to deal with the error custom here.
-//     match preds {
-//         Ok(v) => {
-//             let arr = v.into_pyarray(py);
-//             return Ok(arr);
-//         }
-//         Err(e) => return Err(PyValueError::new_err(e.to_string())),
-//     };
-// }
+#[pyfunction]
+fn rust_bin_matrix<'py>(
+    py: Python<'py>,
+    flat_data: PyReadonlyArray1<f64>,
+    rows: usize,
+    cols: usize,
+    sample_weight: PyReadonlyArray1<f64>,
+    nbins: usize,
+) -> PyResult<(&'py PyArray1<usize>, Vec<Vec<f64>>, Vec<usize>)> {
+    let flat_data = flat_data.as_slice()?;
+    let sample_weight = sample_weight.as_slice()?;
+    let data = Matrix::new(flat_data, rows, cols);
+    let r = bin_matrix(&data, sample_weight, nbins);
+    Ok((r.binned_data.into_pyarray(py), r.cuts, r.nunique))
+}
 
 #[pyfunction]
 fn print_matrix(x: PyReadonlyArray1<f64>, rows: usize, cols: usize) -> PyResult<()> {
@@ -143,6 +145,7 @@ fn percentiles<'py>(
 fn forust(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(print_matrix, m)?)?;
     m.add_function(wrap_pyfunction!(percentiles, m)?)?;
+    m.add_function(wrap_pyfunction!(rust_bin_matrix, m)?)?;
     m.add_class::<GradientBooster>()?;
     Ok(())
 }

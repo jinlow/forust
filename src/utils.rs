@@ -6,10 +6,10 @@ use std::collections::VecDeque;
 ///
 /// Params:
 /// v - A Vector of which to find percentiles for.
-/// sample_weights - Sample weights for the instances of the vector.
+/// sample_weight - Sample weights for the instances of the vector.
 /// percentiles - Percentiles to look for in the data. This should be
 ///     values from 0 to 1, and in sorted order.
-pub fn percentiles<T>(v: &[T], sample_weights: &[T], percentiles: &[T]) -> Vec<T>
+pub fn percentiles<T>(v: &[T], sample_weight: &[T], percentiles: &[T]) -> Vec<T>
 where
     T: MatrixData<T>,
 {
@@ -24,13 +24,13 @@ where
     let mut p = Vec::new();
     let mut cuml_pct = T::ZERO;
     let mut current_value = v[idx[0]];
-    let total_values = sample_weights.iter().copied().sum();
+    let total_values = sample_weight.iter().copied().sum();
 
     for i in idx.iter() {
         if current_value != v[*i] {
             current_value = v[*i];
         }
-        cuml_pct += sample_weights[*i] / total_values;
+        cuml_pct += sample_weight[*i] / total_values;
         if (current_pct == T::ZERO) || (cuml_pct >= current_pct) {
             // We loop here, because the same number might be a valid
             // value to make the percentile several times.
