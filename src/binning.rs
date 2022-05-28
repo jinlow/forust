@@ -80,13 +80,33 @@ mod tests {
     use super::*;
     use std::fs;
     #[test]
-    fn test_tree_fit() {
+    fn test_bin_data() {
         let file = fs::read_to_string("resources/contiguous_no_missing.csv")
             .expect("Something went wrong reading the file");
         let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let data = Matrix::new(&data_vec, 891, 5);
         let sample_weight = vec![1.; data.rows];
-        let b = bin_matrix(&data, &sample_weight, 101);
-        // println!("{:?}", b.binned_data);
+        let b = bin_matrix(&data, &sample_weight, 50);
+        let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
+        for column in 0..data.cols {
+            let mut b_compare = 1;
+            for cuts in b.cuts[column].windows(2) {
+                let c1 = cuts[0];
+                let c2 = cuts[1];
+                let mut n_v = 0;
+                let mut n_b = 0;
+                for (bin, value) in bdata.get_col(column).iter().zip(data.get_col(column)) {
+                    if *bin == b_compare {
+                        n_b += 1;
+                    }
+                    if (c1 < *value) && (*value <= c2) {
+                        n_v += 1;
+                    }
+                }
+                // println!("Column: {}, Bin: {}, {} {}", column, b_compare, n_v, n_b);
+                assert_eq!(n_v, n_b);
+                b_compare += 1;
+            }
+        }
     }
 }

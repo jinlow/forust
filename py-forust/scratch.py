@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from forust import rust_bin_matrix
 
-df = pd.read_csv("../resources/titanic.csv")# .sample(1_000_000, replace=True, random_state=0)
+df = pd.read_csv("../resources/titanic.csv").sample(1_000_000, replace=True, random_state=0)
 
 X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True) #[["pclass"]].astype(float)
 X_vec = X.to_numpy().ravel(order="F")
@@ -47,6 +47,7 @@ p1 = percentiles(df["fare"].to_numpy(), np.ones(df.shape[0]), pcts)
 
 df["fare"].nunique()
 p2 = np.percentile(df["fare"], pcts*100)
+np.allclose(p1, p2)
 
 ####
 import pandas as pd
