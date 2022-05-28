@@ -62,7 +62,7 @@ pub fn first_greater_than<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> usize {
         // This will always be false for NaNs.
         // This it will force us to the bottom,
         // and thus Zero.
-        if x[mid] <  *v {
+        if x[mid] < *v {
             low = mid + 1;
         } else {
             high = mid;
