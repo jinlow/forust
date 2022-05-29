@@ -1,5 +1,6 @@
 use crate::data::{Matrix, MatrixData};
-use crate::utils::{first_greater_than, percentiles};
+use crate::utils::{map_bin, percentiles};
+use crate::errors::ForustError;
 
 // We want to be able to bin our dataset into discrete buckets.
 // First we will calculate percentils and the number of unique values
@@ -10,18 +11,18 @@ use crate::utils::{first_greater_than, percentiles};
 // For now, we will just use usize, although, it would be good to see if
 // we can use something smaller, u8 for instance.
 // If we generated these cuts:
-// [-1.7976931348623157e+308, 0.0, 7.8958, 14.4542, 31.0, 512.3292]
-// We would have a number with bins 0 (missing), 1, 2, 3, 4, 5
+// [0.0, 7.8958, 14.4542, 31.0, 512.3292, inf]
+// We would have a number with bins 0 (missing), 1 [MIN, 0.0), 2 (0.0, 7], 3 [], 4, 5
 // a split that is [feature < 5] would translate to [feature < 31.0 ]
 
 pub struct BinnedData<T> {
-    pub binned_data: Vec<usize>,
+    pub binned_data: Vec<u16>,
     pub cuts: Vec<Vec<T>>,
     pub nunique: Vec<usize>,
 }
 
 /// Convert a matrix of data, into a binned matrix.
-fn bin_matrix_from_cuts<T: std::cmp::PartialOrd>(data: &Matrix<T>, cuts: &[Vec<T>]) -> Vec<usize> {
+fn bin_matrix_from_cuts<T: std::cmp::PartialOrd>(data: &Matrix<T>, cuts: &[Vec<T>]) -> Vec<u16> {
     // loop through the matrix, binning the data.
     // We will determine the column we are in, by
     // using the modulo operator, on the record value.
@@ -30,7 +31,9 @@ fn bin_matrix_from_cuts<T: std::cmp::PartialOrd>(data: &Matrix<T>, cuts: &[Vec<T
         .enumerate()
         .map(|(i, v)| {
             let col = i / data.rows;
-            first_greater_than(&cuts[col], v)
+            // This will always be smaller than u16::MAX so we
+            // are good to just unwrap here.
+            map_bin(&cuts[col], v).unwrap()
         })
         .collect()
 }
@@ -38,12 +41,12 @@ fn bin_matrix_from_cuts<T: std::cmp::PartialOrd>(data: &Matrix<T>, cuts: &[Vec<T
 pub fn bin_matrix<T: MatrixData<T>>(
     data: &Matrix<T>,
     sample_weight: &[T],
-    nbins: usize,
-) -> BinnedData<T> {
+    nbins: u16,
+) -> Result<BinnedData<T>, ForustError> {
     let mut pcts = Vec::new();
-    let nbins_ = T::from_usize(nbins - 1);
+    let nbins_ = T::from_u16(nbins);
     for i in 0..nbins {
-        let v = T::from_usize(i) / nbins_;
+        let v = T::from_u16(i) / nbins_;
         pcts.push(v);
     }
 
@@ -59,8 +62,12 @@ pub fn bin_matrix<T: MatrixData<T>>(
             .copied()
             .collect();
         let mut col_cuts = percentiles(&no_miss, sample_weight, &pcts);
-        col_cuts.insert(0, T::MIN);
+        // col_cuts.insert(0, T::MIN);
+        col_cuts.push(T::MAX);
         col_cuts.dedup();
+        if col_cuts.len() < 3 {
+            return Err(ForustError::NoVariance);
+        }
         // There will be one less bins, then there are cuts.
         // The first value will be for missing.
         nunique.push(col_cuts.len().clone());
@@ -69,11 +76,11 @@ pub fn bin_matrix<T: MatrixData<T>>(
 
     let binned_data = bin_matrix_from_cuts(data, &cuts);
 
-    BinnedData {
+    Ok(BinnedData {
         binned_data,
         cuts,
         nunique,
-    }
+    })
 }
 
 mod tests {
@@ -86,7 +93,7 @@ mod tests {
         let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let data = Matrix::new(&data_vec, 891, 5);
         let sample_weight = vec![1.; data.rows];
-        let b = bin_matrix(&data, &sample_weight, 50);
+        let b = bin_matrix(&data, &sample_weight, 50).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         for column in 0..data.cols {
             let mut b_compare = 1;
@@ -99,7 +106,7 @@ mod tests {
                     if *bin == b_compare {
                         n_b += 1;
                     }
-                    if (c1 < *value) && (*value <= c2) {
+                    if (c1 <= *value) && (*value < c2) {
                         n_v += 1;
                     }
                 }

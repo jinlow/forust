@@ -23,7 +23,10 @@ pub trait MatrixData<T>:
     const ZERO: T;
     const ONE: T;
     const MIN: T;
+    const MAX: T;
+    const NAN: T;
     fn from_usize(v: usize) -> T;
+    fn from_u16(v: u16) -> T;
     fn is_nan(self) -> bool;
     fn ln(self) -> T;
     fn exp(self) -> T;
@@ -32,8 +35,13 @@ impl MatrixData<f64> for f64 {
     const ZERO: f64 = 0.0;
     const ONE: f64 = 1.0;
     const MIN: f64 = f64::MIN;
+    const MAX: f64 = f64::MAX;
+    const NAN: f64 = f64::NAN;
     fn from_usize(v: usize) -> f64 {
         v as f64
+    }
+    fn from_u16(v: u16) -> f64 {
+        f64::from(v)
     }
     fn is_nan(self) -> bool {
         self.is_nan()
@@ -50,8 +58,13 @@ impl MatrixData<f32> for f32 {
     const ZERO: f32 = 0.0;
     const ONE: f32 = 1.0;
     const MIN: f32 = f32::MIN;
+    const MAX: f32 = f32::MAX;
+    const NAN: f32 = f32::NAN;
     fn from_usize(v: usize) -> f32 {
         v as f32
+    }
+    fn from_u16(v: u16) -> f32 {
+        f32::from(v)
     }
     fn is_nan(self) -> bool {
         self.is_nan()

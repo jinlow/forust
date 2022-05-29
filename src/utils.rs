@@ -54,7 +54,7 @@ where
 // Return the index of the first value in a slice that
 // is less another number. This will return the first index for
 // missing values.
-pub fn first_greater_than<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> usize {
+pub fn map_bin<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> Option<u16> {
     let mut low = 0;
     let mut high = x.len();
     while low != high {
@@ -62,13 +62,13 @@ pub fn first_greater_than<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> usize {
         // This will always be false for NaNs.
         // This it will force us to the bottom,
         // and thus Zero.
-        if x[mid] < *v {
+        if x[mid] <= *v {
             low = mid + 1;
         } else {
             high = mid;
         }
     }
-    low
+    u16::try_from(low).ok()
 }
 
 #[cfg(test)]
@@ -93,17 +93,17 @@ mod tests {
     }
 
     #[test]
-    fn test_first_greater_than_or_equal() {
+    fn test_map_bin_or_equal() {
         let v = vec![f64::MIN, 1., 4., 8., 9.];
-        assert_eq!(1, first_greater_than(&v, &0.));
-        assert_eq!(1, first_greater_than(&v, &1.));
+        assert_eq!(1, map_bin(&v, &0.).unwrap());
+        assert_eq!(2, map_bin(&v, &1.).unwrap());
         // Less than the bin value of 2, means the value is less
         // than 4...
-        assert_eq!(2, first_greater_than(&v, &2.));
-        assert_eq!(2, first_greater_than(&v, &4.));
-        assert_eq!(4, first_greater_than(&v, &9.));
-        assert_eq!(5, first_greater_than(&v, &10.));
-        assert_eq!(1, first_greater_than(&v, &1.));
-        assert_eq!(0, first_greater_than(&v, &f64::NAN));
+        assert_eq!(2, map_bin(&v, &2.).unwrap());
+        assert_eq!(3, map_bin(&v, &4.).unwrap());
+        assert_eq!(5, map_bin(&v, &9.).unwrap());
+        assert_eq!(5, map_bin(&v, &10.).unwrap());
+        assert_eq!(2, map_bin(&v, &1.).unwrap());
+        assert_eq!(0, map_bin(&v, &f64::NAN).unwrap());
     }
 }

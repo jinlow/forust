@@ -110,8 +110,8 @@ fn rust_bin_matrix<'py>(
     rows: usize,
     cols: usize,
     sample_weight: PyReadonlyArray1<f64>,
-    nbins: usize,
-) -> PyResult<(&'py PyArray1<usize>, Vec<Vec<f64>>, Vec<usize>)> {
+    nbins: u16,
+) -> PyResult<(&'py PyArray1<u16>, Vec<Vec<f64>>, Vec<usize>)> {
     let flat_data = flat_data.as_slice()?;
     let sample_weight = sample_weight.as_slice()?;
     let data = Matrix::new(flat_data, rows, cols);

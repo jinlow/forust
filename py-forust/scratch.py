@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from forust import rust_bin_matrix
 
-df = pd.read_csv("../resources/titanic.csv").sample(1_000_000, replace=True, random_state=0)
+df = pd.read_csv("../resources/titanic.csv") #.sample(1_000_000, replace=True, random_state=0)
 
 X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True) #[["pclass"]].astype(float)
 X_vec = X.to_numpy().ravel(order="F")
@@ -16,7 +16,7 @@ c[-1]
 
 X_rs = X.copy()
 for i in range(X.shape[1]):
-    X_rs.iloc[:,i] = pd.Series(np.digitize(X.iloc[:,i], c[i], right=True))
+    X_rs.iloc[:,i] = pd.cut(X.iloc[:,i], c[i], right=False).cat.add_categories(0) # pd.Series(np.digitize(X.iloc[:,i], c[i], right=True))
     X_rs.iloc[X.iloc[:,i].isna(),i] = 0
 
 for i in range(X.shape[1]):
@@ -26,8 +26,8 @@ for i in range(X.shape[1]):
 print(X_rs.iloc[:,0].value_counts().sort_index())
 print(Xb.iloc[:,0].value_counts().sort_index())
 
-print(X_rs.iloc[:,1].value_counts().sort_index())
-print(Xb.iloc[:,1].value_counts().sort_index())
+print(X_rs.iloc[:,-1].value_counts().sort_index())
+print(Xb.iloc[:,-1].value_counts().sort_index())
 
 (X_rs.rename(columns={k: i for i, k in enumerate(X_rs.columns)}) == Xb).all()
 
