@@ -1,7 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use forust::binning::bin_matrix;
 use forust::data::Matrix;
-use forust::exactsplitter::ExactSplitter;
 use forust::gradientbooster::GradientBooster;
+use forust::histsplitter::HistogramSplitter;
 use forust::objective::{LogLoss, ObjectiveFunction};
 use forust::tree::Tree;
 use std::fs;
@@ -19,7 +20,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     let h = LogLoss::calc_hess(&y, &yhat, &w);
 
     let data = Matrix::new(&data_vec, y.len(), 5);
-    let splitter = ExactSplitter {
+    let splitter = HistogramSplitter {
         l2: 1.0,
         gamma: 3.0,
         min_leaf_weight: 1.0,
@@ -28,19 +29,35 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     let mut tree = Tree::new();
     let mut index = data.index.to_owned();
     let index = index.as_mut();
-    tree.fit(&data, &g, &h, &splitter, usize::MAX, 5, index);
+
+    let bindata = bin_matrix(&data, &w, 300).unwrap();
+    let bdata = Matrix::new(&bindata.binned_data, data.rows, data.cols);
+
+    tree.fit(
+        &bdata,
+        &bindata.cuts,
+        &g,
+        &h,
+        &splitter,
+        usize::MAX,
+        5,
+        index,
+        true,
+    );
     println!("{}", tree.nodes.len());
     c.bench_function("Train Tree", |b| {
         b.iter(|| {
-            let mut train_tree = Tree::new();
-            train_tree.fit(
-                black_box(&data),
+            let mut train_tree: Tree<f64> = Tree::new();
+            tree.fit(
+                black_box(&bdata),
+                black_box(&bindata.cuts),
                 black_box(&g),
                 black_box(&h),
                 black_box(&splitter),
                 black_box(usize::MAX),
                 black_box(5),
                 black_box(index),
+                black_box(true),
             );
         })
     });
@@ -61,11 +78,11 @@ pub fn tree_benchmarks(c: &mut Criterion) {
                 black_box(&y),
                 black_box(&w),
                 black_box(true),
-            );
+            ).unwrap();
         })
     });
     let mut booster = GradientBooster::default();
-    booster.fit(&data, &y, &w, true);
+    booster.fit(&data, &y, &w, true).unwrap();
     c.bench_function("Predict Booster", |b| {
         b.iter(|| booster.predict(&data, true))
     });
