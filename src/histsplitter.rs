@@ -7,6 +7,7 @@ pub struct SplitInfo<T> {
     pub split_gain: T,
     pub split_feature: usize,
     pub split_value: T,
+    pub split_bin: u16,
     pub missing_right: bool,
     pub left_grad: T,
     pub left_gain: T,
@@ -38,16 +39,12 @@ where
         }
     }
 
-    fn best_split(
-        &self,
-        node: &SplittableNode<T>,
-        histograms: &Histograms<T>,
-    ) -> Option<SplitInfo<T>> {
+    pub fn best_split(&self, node: &SplittableNode<T>) -> Option<SplitInfo<T>> {
         let mut best_split_info = None;
         let mut best_gain = T::ZERO;
-        let Histograms(hists) = histograms;
+        let Histograms(hists) = &node.histograms;
         for (i, histogram) in hists.iter().enumerate() {
-            let split_info = self.best_feature_split(node, histogram, i);
+            let split_info = self.best_feature_split(node, i);
             match split_info {
                 Some(info) => {
                     if info.split_gain > best_gain {
@@ -64,11 +61,12 @@ where
     pub fn best_feature_split(
         &self,
         node: &SplittableNode<T>,
-        histogram: &Hist<T>,
         feature: usize,
     ) -> Option<SplitInfo<T>> {
         let mut split_info: Option<SplitInfo<T>> = None;
         let mut max_gain: Option<T> = None;
+
+        let histogram = &node.histograms.0[feature];
 
         // We know that at least one value will be populated.
         let first_bin = histogram.get(&1).unwrap();
@@ -146,6 +144,7 @@ where
                         split_gain,
                         split_feature: feature,
                         split_value: bin.cut_value,
+                        split_bin: i,
                         missing_right,
                         left_grad,
                         left_gain,
@@ -165,35 +164,34 @@ where
         split_info
     }
 
-    fn gain(&self, grad_sum: T, hess_sum: T) -> T {
+    pub fn gain(&self, grad_sum: T, hess_sum: T) -> T {
         (grad_sum * grad_sum) / (hess_sum + self.get_l2())
     }
 
-    fn weight(&self, grad_sum: T, hess_sum: T) -> T {
+    pub fn weight(&self, grad_sum: T, hess_sum: T) -> T {
         -((grad_sum / (hess_sum + self.get_l2())) * self.get_learning_rate())
     }
 
-    fn get_l2(&self) -> T {
+    pub fn get_l2(&self) -> T {
         self.l2
     }
 
-    fn get_learning_rate(&self) -> T {
+    pub fn get_learning_rate(&self) -> T {
         self.learning_rate
     }
 
-    fn get_gamma(&self) -> T {
+    pub fn get_gamma(&self) -> T {
         self.gamma
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::binning::bin_matrix;
     use crate::node::SplittableNode;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use std::fs;
-    use crate::binning::bin_matrix;
     #[test]
     fn test_best_feature_split() {
         let d = vec![4., 2., 3., 4., 5., 1., 4.];
@@ -214,10 +212,10 @@ mod tests {
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
         };
-
         let mut n = SplittableNode::new(
             0,
             // vec![0, 1, 2, 3, 4, 5, 6],
+            hists,
             0.0,
             0.14,
             grad.iter().sum::<f64>(),
@@ -226,10 +224,7 @@ mod tests {
             0,
             grad.len(),
         );
-        let Histograms(hist) = hists;
-        let s = splitter
-            .best_feature_split(&mut n, &hist[0], 0)
-            .unwrap();
+        let s = splitter.best_feature_split(&mut n, 0).unwrap();
         println!("{:?}", s);
         assert_eq!(s.split_value, 4.0);
         assert_eq!(s.left_cover, 0.75);
@@ -263,6 +258,7 @@ mod tests {
         let mut n = SplittableNode::new(
             0,
             // vec![0, 1, 2, 3, 4, 5, 6],
+            hists,
             0.0,
             0.14,
             grad.iter().sum::<f64>(),
@@ -271,7 +267,7 @@ mod tests {
             0,
             grad.len(),
         );
-        let s = splitter.best_split(&mut n, &hists).unwrap();
+        let s = splitter.best_split(&mut n).unwrap();
         println!("{:?}", s);
         assert_eq!(s.split_feature, 1);
         assert_eq!(s.split_value, 4.);
@@ -315,6 +311,7 @@ mod tests {
         let mut n = SplittableNode::new(
             0,
             // (0..(data.rows - 1)).collect(),
+            hists,
             root_weight,
             root_gain,
             grad.iter().copied().sum::<f64>(),
@@ -324,10 +321,9 @@ mod tests {
             grad.len(),
         );
         let mut index = data.index.to_owned();
-        let s = splitter.best_split(&mut n, &hists).unwrap();
+        let s = splitter.best_split(&mut n).unwrap();
         // n.update_children(1, 2, &s);
         //println!("{}", n);
         assert_eq!(0, 0);
     }
 }
-

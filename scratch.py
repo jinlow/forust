@@ -32,10 +32,11 @@ t.fit(X.to_numpy(), grad=g, hess=h)
 # print(t.nodes_[1].weight_value)
 # print(t.nodes_[2].weight_value)
 # print(t.predict(X.to_numpy()[0:10]))
+
 w = np.ones(y.shape)
 # # w[X["pclass"].eq(2)] = 4
 m = XGBoost(
-    iterations=10,
+    iterations=1,
     learning_rate=0.3,
     max_depth=5,
     l2=1,
@@ -51,7 +52,7 @@ m = XGBoost(
 m.fit(X.to_numpy(), y, sample_weight=w)
 mp = m.predict(X.to_numpy())
 # # len(m.trees_[0].nodes_)
-# print(m.trees_[0])
+print(m.trees_[0])
 # # print(len(m.trees_[0].__repr__().split()))
 print(mp[0:10])
 # print(m.trees_[0])

@@ -1,5 +1,7 @@
+use crate::binning::bin_matrix;
 use crate::data::{Matrix, MatrixData};
-use crate::exactsplitter::ExactSplitter;
+use crate::errors::ForustError;
+use crate::histsplitter::HistogramSplitter;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
 use crate::tree::Tree;
 
@@ -13,6 +15,8 @@ pub struct GradientBooster<T: MatrixData<T>> {
     pub gamma: T,
     pub min_leaf_weight: T,
     pub base_score: T,
+    pub nbins: u16,
+    pub parallel: bool,
     pub trees: Vec<Tree<T>>,
 }
 
@@ -28,6 +32,8 @@ impl Default for GradientBooster<f64> {
             0.,
             1.,
             0.5,
+            256,
+            true,
         )
     }
 }
@@ -44,6 +50,8 @@ impl Default for GradientBooster<f32> {
             0.,
             1.,
             0.5,
+            256,
+            true,
         )
     }
 }
@@ -62,6 +70,8 @@ where
         gamma: T,
         min_leaf_weight: T,
         base_score: T,
+        nbins: u16,
+        parallel: bool,
     ) -> Self {
         GradientBooster {
             objective_type,
@@ -73,12 +83,20 @@ where
             gamma,
             min_leaf_weight,
             base_score,
+            nbins,
+            parallel,
             trees: Vec::new(),
         }
     }
 
-    pub fn fit(&mut self, data: &Matrix<T>, y: &[T], sample_weight: &[T], parallel: bool) {
-        let splitter = ExactSplitter {
+    pub fn fit(
+        &mut self,
+        data: &Matrix<T>,
+        y: &[T],
+        sample_weight: &[T],
+        parallel: bool,
+    ) -> Result<(), ForustError> {
+        let splitter = HistogramSplitter {
             l2: self.l2,
             gamma: self.gamma,
             min_leaf_weight: self.min_leaf_weight,
@@ -89,17 +107,24 @@ where
         let mut grad = calc_grad(y, &yhat, sample_weight);
         let mut hess = calc_hess(y, &yhat, sample_weight);
         let mut index = data.index.to_owned();
+
+        // Generate binned data
+        let binned_data = bin_matrix(&data, sample_weight, self.nbins)?;
+        let bdata = Matrix::new(&binned_data.binned_data, data.rows, data.cols);
+
         let index = index.as_mut();
         for _ in 0..self.iterations {
             let mut tree = Tree::new();
             tree.fit(
-                data,
+                &bdata,
+                &binned_data.cuts,
                 &grad,
                 &hess,
                 &splitter,
                 self.max_leaves,
                 self.max_depth,
                 index,
+                self.parallel,
             );
             yhat = yhat
                 .iter()
@@ -110,6 +135,7 @@ where
             grad = calc_grad(y, &yhat, sample_weight);
             hess = calc_hess(y, &yhat, sample_weight);
         }
+        Ok(())
     }
 
     pub fn predict(&self, data: &Matrix<T>, parallel: bool) -> Vec<T> {
@@ -138,11 +164,13 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         let mut booster = GradientBooster::default();
-        booster.iterations = 10;
+        booster.iterations = 1;
+        booster.nbins = 300;
+        booster.parallel = false;
         let sample_weight = vec![1.; y.len()];
-        booster.fit(&data, &y, &sample_weight, true);
+        booster.fit(&data, &y, &sample_weight, true).unwrap();
         let preds = booster.predict(&data, false);
-        // println!("{}", booster.trees[0]);
+        println!("{}", booster.trees[0]);
         println!("{:?}", &preds[0..10]);
     }
 }

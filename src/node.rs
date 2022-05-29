@@ -1,11 +1,13 @@
 use crate::data::MatrixData;
-use crate::splitter::SplitInfo;
+use crate::histsplitter::SplitInfo;
 use std::fmt::{self, Debug};
 use std::str::FromStr;
+use crate::histogram::Histograms;
 
 #[derive(Debug)]
 pub struct SplittableNode<T> {
     pub num: usize,
+    pub histograms: Histograms<T>,
     pub weight_value: T,
     pub gain_value: T,
     pub grad_sum: T,
@@ -51,6 +53,7 @@ where
 {
     pub fn new(
         num: usize,
+        histograms: Histograms<T>,
         weight_value: T,
         gain_value: T,
         grad_sum: T,
@@ -61,6 +64,7 @@ where
     ) -> Self {
         SplittableNode {
             num,
+            histograms,
             weight_value,
             gain_value,
             grad_sum,
