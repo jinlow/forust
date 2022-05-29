@@ -164,8 +164,8 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         let mut booster = GradientBooster::default();
-        booster.iterations = 1;
-        booster.nbins = 300;
+        booster.iterations = 10;
+        booster.nbins = 1000;
         booster.parallel = false;
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight, true).unwrap();

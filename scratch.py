@@ -36,7 +36,7 @@ t.fit(X.to_numpy(), grad=g, hess=h)
 w = np.ones(y.shape)
 # # w[X["pclass"].eq(2)] = 4
 m = XGBoost(
-    iterations=1,
+    iterations=10,
     learning_rate=0.3,
     max_depth=5,
     l2=1,

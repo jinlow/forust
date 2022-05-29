@@ -54,7 +54,7 @@ import pandas as pd
 import numpy as np
 from forust import GradientBooster
 
-df = pd.read_csv("../resources/titanic.csv").sample(100_000, replace=True, random_state=0)
+df = pd.read_csv("../resources/titanic.csv").sample(1_000_000, replace=True, random_state=0)
 
 X = df.select_dtypes("number").drop(columns="survived").fillna(0).reset_index(drop=True)
 X_vec = X.to_numpy().ravel(order="F")

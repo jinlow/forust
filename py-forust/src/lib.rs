@@ -24,6 +24,8 @@ impl GradientBooster {
         gamma: Option<f64>,
         min_leaf_weight: Option<f64>,
         base_score: Option<f64>,
+        nbins: Option<u16>,
+        parallel: Option<bool>,
     ) -> Self {
         let mut booster = CrateGradienBooster::<f64>::default();
         match objective_type {
@@ -62,6 +64,12 @@ impl GradientBooster {
         if let Some(x) = base_score {
             booster.base_score = x;
         }
+        if let Some(x) = nbins {
+            booster.nbins = x;
+        }
+        if let Some(x) = parallel {
+            booster.parallel = x;
+        }
         GradientBooster { booster }
     }
 
@@ -82,7 +90,7 @@ impl GradientBooster {
             None => true,
             Some(v) => v,
         };
-        self.booster.fit(&data, &y, &sample_weight, parallel);
+        self.booster.fit(&data, &y, &sample_weight, parallel).unwrap();
         Ok(())
     }
     pub fn predict<'py>(
@@ -115,7 +123,7 @@ fn rust_bin_matrix<'py>(
     let flat_data = flat_data.as_slice()?;
     let sample_weight = sample_weight.as_slice()?;
     let data = Matrix::new(flat_data, rows, cols);
-    let r = bin_matrix(&data, sample_weight, nbins);
+    let r = bin_matrix(&data, sample_weight, nbins).unwrap();
     Ok((r.binned_data.into_pyarray(py), r.cuts, r.nunique))
 }
 

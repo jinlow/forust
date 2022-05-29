@@ -43,7 +43,7 @@ where
         let mut best_split_info = None;
         let mut best_gain = T::ZERO;
         let Histograms(hists) = &node.histograms;
-        for (i, histogram) in hists.iter().enumerate() {
+        for i in 0..hists.len() {
             let split_info = self.best_feature_split(node, i);
             match split_info {
                 Some(info) => {
@@ -97,6 +97,10 @@ where
                 let mut left_hess = cuml_hess;
                 let mut right_grad = node.grad_sum - cuml_grad;
                 let mut right_hess = node.hess_sum - cuml_hess;
+
+                // Should this be after we add in the missing hessians?
+                // Right now this means that only real values will be considered
+                // in this calculation I think...
                 if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
                     // Update for new value
                     cuml_grad += bin.grad_sum;
