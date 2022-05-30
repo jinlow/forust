@@ -1,5 +1,5 @@
-use crate::data::{Matrix, MatrixData};
-use crate::histogram::{Hist, Histograms};
+use crate::data::MatrixData;
+use crate::histogram::Histograms;
 use crate::node::SplittableNode;
 
 #[derive(Debug)]
@@ -192,6 +192,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::Matrix;
     use crate::binning::bin_matrix;
     use crate::node::SplittableNode;
     use crate::objective::{LogLoss, ObjectiveFunction};
@@ -309,7 +310,7 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 10).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-        let mut index = data.index.to_owned();
+        let index = data.index.to_owned();
         let hists = Histograms::new(&bdata, &b.cuts, &grad, &hess, &index, true);
 
         let mut n = SplittableNode::new(
@@ -324,7 +325,6 @@ mod tests {
             0,
             grad.len(),
         );
-        let mut index = data.index.to_owned();
         let s = splitter.best_split(&mut n).unwrap();
         // n.update_children(1, 2, &s);
         //println!("{}", n);
