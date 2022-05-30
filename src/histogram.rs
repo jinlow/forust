@@ -104,7 +104,7 @@ where
                 col_index
                     .par_iter()
                     .map(|i| {
-                        create_feature_histogram(data.get_col(*i), &cuts[*i], grad, hess, &index)
+                        create_feature_histogram(data.get_col(*i), &cuts[*i], grad, hess, index)
                     })
                     .collect(),
             )
@@ -113,7 +113,7 @@ where
                 col_index
                     .iter()
                     .map(|i| {
-                        create_feature_histogram(data.get_col(*i), &cuts[*i], grad, hess, &index)
+                        create_feature_histogram(data.get_col(*i), &cuts[*i], grad, hess, index)
                     })
                     .collect(),
             )
@@ -130,12 +130,13 @@ where
         let histograms = root_hists
             .iter()
             .zip(child_hists)
-            .map(|(rh, ch)| create_feature_histogram_from_parent_child(rh, &ch))
+            .map(|(rh, ch)| create_feature_histogram_from_parent_child(rh, ch))
             .collect();
         Histograms(histograms)
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::binning::bin_matrix;

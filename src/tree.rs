@@ -23,6 +23,7 @@ impl<T: MatrixData<T>> Tree<T> {
         Tree { nodes: Vec::new() }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn fit(
         &mut self,
         data: &Matrix<u16>,
@@ -122,7 +123,7 @@ impl<T: MatrixData<T>> Tree<T> {
                         // pivot the sub array that this node has on our split value
                         let mut split_idx = pivot_on_split(
                             &mut index[node.start_idx..node.stop_idx],
-                            &data.get_col(info.split_feature),
+                            data.get_col(info.split_feature),
                             info.split_bin,
                             info.missing_right,
                         );

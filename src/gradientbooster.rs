@@ -60,6 +60,7 @@ impl<T> GradientBooster<T>
 where
     T: MatrixData<T>,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         objective_type: ObjectiveType,
         iterations: usize,
@@ -109,7 +110,7 @@ where
         let mut index = data.index.to_owned();
 
         // Generate binned data
-        let binned_data = bin_matrix(&data, sample_weight, self.nbins)?;
+        let binned_data = bin_matrix(data, sample_weight, self.nbins)?;
         let bdata = Matrix::new(&binned_data.binned_data, data.rows, data.cols);
 
         let index = index.as_mut();

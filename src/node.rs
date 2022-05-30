@@ -51,6 +51,7 @@ impl<'a, T> SplittableNode<T>
 where
     T: MatrixData<T>,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         num: usize,
         histograms: Histograms<T>,

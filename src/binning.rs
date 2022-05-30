@@ -85,7 +85,7 @@ pub fn bin_matrix<T: MatrixData<T>>(
         }
         // There will be one less bins, then there are cuts.
         // The first value will be for missing.
-        nunique.push(col_cuts.len().clone());
+        nunique.push(col_cuts.len());
         cuts.push(col_cuts);
     }
 
@@ -98,6 +98,7 @@ pub fn bin_matrix<T: MatrixData<T>>(
     })
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
