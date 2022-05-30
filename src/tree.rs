@@ -51,6 +51,7 @@ impl<T: MatrixData<T>> Tree<T> {
             grad_sum,
             hess_sum,
             0,
+            true,
             0,
             data.rows,
         );
@@ -175,6 +176,7 @@ impl<T: MatrixData<T>> Tree<T> {
                             info.left_grad,
                             info.left_cover,
                             depth,
+                            true,
                             node.start_idx,
                             split_idx,
                         );
@@ -186,6 +188,7 @@ impl<T: MatrixData<T>> Tree<T> {
                             info.right_grad,
                             info.right_cover,
                             depth,
+                            true,
                             split_idx,
                             node.stop_idx,
                         );
@@ -211,10 +214,18 @@ impl<T: MatrixData<T>> Tree<T> {
                     return node.weight_value;
                 }
                 TreeNode::Parent(node) => {
-                    if data.get(row, node.split_feature) < &node.split_value {
+                    let v = data.get(row, node.split_feature);
+                    if v < &node.split_value {
                         node_idx = node.left_child;
-                    } else {
+                    } else if v >= &node.split_value {
                         node_idx = node.right_child;
+                    } 
+                    else if v.is_nan() {
+                        if node.missing_right {
+                            node_idx = node.right_child;
+                        } else {
+                            node_idx = node.left_child;
+                        }
                     }
                 }
                 _ => unreachable!(),
@@ -282,7 +293,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    // use crate::exactsplitter::ExactSplitter;
     use crate::binning::bin_matrix;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use std::fs;

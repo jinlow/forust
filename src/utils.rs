@@ -2,13 +2,13 @@ use crate::data::MatrixData;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
-/// Niave percentiles calculation.
+/// Naive weighted percentiles calculation.
+/// 
 /// Currently this function does not support missing values.
-///
-/// Params:
-/// v - A Vector of which to find percentiles for.
-/// sample_weight - Sample weights for the instances of the vector.
-/// percentiles - Percentiles to look for in the data. This should be
+///   
+/// * `v` - A Vector of which to find percentiles for.
+/// * `sample_weight` - Sample weights for the instances of the vector.
+/// * `percentiles` - Percentiles to look for in the data. This should be
 ///     values from 0 to 1, and in sorted order.
 pub fn percentiles<T>(v: &[T], sample_weight: &[T], percentiles: &[T]) -> Vec<T>
 where
@@ -55,6 +55,12 @@ where
 // Return the index of the first value in a slice that
 // is less another number. This will return the first index for
 // missing values.
+/// Return the index of the first value in a sorted
+/// vector that is greater than a provided value.
+/// 
+/// * `x` - The sorted slice of values.
+/// * `v` - The value used to calculate the first
+///   value larger than it.
 pub fn map_bin<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> Option<u16> {
     let mut low = 0;
     let mut high = x.len();
@@ -72,6 +78,16 @@ pub fn map_bin<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> Option<u16> {
     u16::try_from(low).ok()
 }
 
+/// Provided a list of index values, pivot those values
+/// around a specific split value so all of the values less
+/// than the split value are on one side, and then all of the
+/// values greater than or equal to the split value are above.
+/// 
+/// * `index` - The index values to sort.
+/// * `feature` - The feature vector to use to sort the index by.
+/// * `split_value` - the split value to use to pivot on.
+/// * `missing_right` - Should missing values go to the left, or
+///    to the right of the split value.
 pub fn pivot_on_split(
     index: &mut [usize],
     feature: &[u16],

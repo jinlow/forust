@@ -16,6 +16,7 @@ pub struct SplittableNode<T> {
     pub split_value: T,
     pub split_feature: usize,
     pub split_gain: T,
+    pub missing_right: bool,
     pub left_child: usize,
     pub right_child: usize,
     pub start_idx: usize,
@@ -30,6 +31,7 @@ pub struct ParentNode<T> {
     pub split_value: T,
     pub split_feature: usize,
     split_gain: T,
+    pub missing_right: bool,
     pub left_child: usize,
     pub right_child: usize,
 }
@@ -60,6 +62,7 @@ where
         grad_sum: T,
         hess_sum: T,
         depth: usize,
+        missing_right: bool,
         start_idx: usize,
         stop_idx: usize,
     ) -> Self {
@@ -74,6 +77,7 @@ where
             split_value: T::ZERO,
             split_feature: 0,
             split_gain: T::ZERO,
+            missing_right: true,
             left_child: 0,
             right_child: 0,
             start_idx,
@@ -92,6 +96,7 @@ where
         self.split_feature = split_info.split_feature;
         self.split_gain = split_info.left_gain + split_info.right_gain - self.gain_value;
         self.split_value = split_info.split_value;
+        self.missing_right = split_info.missing_right;
     }
     pub fn as_leaf_node(&self) -> TreeNode<T> {
         TreeNode::Leaf(LeafNode {
@@ -107,6 +112,7 @@ where
             weight_value: self.weight_value,
             hess_sum: self.hess_sum,
             depth: self.depth,
+            missing_right: self.missing_right,
             split_value: self.split_value,
             split_feature: self.split_feature,
             split_gain: self.split_gain,

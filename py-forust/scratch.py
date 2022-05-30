@@ -54,9 +54,9 @@ import pandas as pd
 import numpy as np
 from forust import GradientBooster
 
-df = pd.read_csv("../resources/titanic.csv").sample(500_000, replace=True, random_state=0)
+df = pd.read_csv("../resources/titanic.csv") #.sample(100_000, replace=True, random_state=0)
 
-X = df.select_dtypes("number").drop(columns="survived").fillna(0).reset_index(drop=True)
+X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True)
 X_vec = X.to_numpy().ravel(order="F")
 y = df["survived"].to_numpy().astype("float64")
 mod = GradientBooster(
@@ -86,7 +86,8 @@ xmod = XGBClassifier(n_estimators=100,
     gamma=0,
     objective="binary:logitraw",
     eval_metric="auc",
-)
+)   
 xmod.fit(X, y)
 xmod.predict(X, output_margin=True)[0:10]
-print(xmod.get_booster().get_dump()[0])
+# print(xmod.get_booster().get_dump()[0])
+np.allclose(xmod.predict(X, output_margin=True), mod.predict(X_vec, y.shape[0], 5), rtol=0.0001)

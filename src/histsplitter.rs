@@ -98,16 +98,6 @@ where
                 let mut right_grad = node.grad_sum - cuml_grad;
                 let mut right_hess = node.hess_sum - cuml_hess;
 
-                // Should this be after we add in the missing hessians?
-                // Right now this means that only real values will be considered
-                // in this calculation I think...
-                if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
-                    // Update for new value
-                    cuml_grad += bin.grad_sum;
-                    cuml_hess += bin.hess_sum;
-                    continue;
-                }
-
                 let mut left_gain = self.gain(left_grad, left_hess);
                 let mut right_gain = self.gain(right_grad, right_hess);
 
@@ -133,6 +123,16 @@ where
                         left_hess += missing.hess_sum;
                         missing_right = false;
                     }
+                }
+
+                // Should this be after we add in the missing hessians?
+                // Right now this means that only real values will be considered
+                // in this calculation I think...
+                if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
+                    // Update for new value
+                    cuml_grad += bin.grad_sum;
+                    cuml_hess += bin.hess_sum;
+                    continue;
                 }
 
                 let split_gain = (left_gain + right_gain - node.gain_value) - self.get_gamma();
@@ -226,6 +226,7 @@ mod tests {
             grad.iter().sum::<f64>(),
             hess.iter().sum::<f64>(),
             0,
+            true,
             0,
             grad.len(),
         );
@@ -269,6 +270,7 @@ mod tests {
             grad.iter().sum::<f64>(),
             hess.iter().sum::<f64>(),
             0,
+            true,
             0,
             grad.len(),
         );
@@ -322,6 +324,7 @@ mod tests {
             grad.iter().copied().sum::<f64>(),
             hess.iter().copied().sum::<f64>(),
             0,
+            true,
             0,
             grad.len(),
         );
