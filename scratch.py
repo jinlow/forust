@@ -52,7 +52,10 @@ m = XGBoost(
 m.fit(X.to_numpy(), y, sample_weight=w)
 mp = m.predict(X.to_numpy())
 # # len(m.trees_[0].nodes_)
-print(m.trees_[0])
+# print(m.trees_[0])
+print(len(m.trees_[0].nodes_))
+print(len(m.trees_[-1].nodes_))
+
 # # print(len(m.trees_[0].__repr__().split()))
 print(mp[0:10])
 # print(m.trees_[0])

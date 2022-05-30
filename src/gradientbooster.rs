@@ -170,7 +170,10 @@ mod tests {
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight, true).unwrap();
         let preds = booster.predict(&data, false);
-        println!("{}", booster.trees[0]);
+        assert_eq!(39, booster.trees[0].nodes.len());
+        assert_eq!(23, booster.trees.last().unwrap().nodes.len());
+        println!("{}", booster.trees[0].nodes.len());
+        println!("{}", booster.trees.last().unwrap().nodes.len());
         println!("{:?}", &preds[0..10]);
     }
 }

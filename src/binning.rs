@@ -79,7 +79,6 @@ pub fn bin_matrix<T: MatrixData<T>>(
             .copied()
             .collect();
         let mut col_cuts = percentiles_or_value(&no_miss, sample_weight, &pcts);
-        // col_cuts.insert(0, T::MIN);
         col_cuts.push(T::MAX);
         col_cuts.dedup();
         if col_cuts.len() < 3 {

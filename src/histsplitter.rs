@@ -326,8 +326,8 @@ mod tests {
             grad.len(),
         );
         let s = splitter.best_split(&mut n).unwrap();
-        // n.update_children(1, 2, &s);
-        //println!("{}", n);
-        assert_eq!(0, 0);
+        println!("{:?}", s);
+        n.update_children(1, 2, &s);
+        assert_eq!(0, s.split_feature);
     }
 }
