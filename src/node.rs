@@ -1,8 +1,8 @@
 use crate::data::MatrixData;
+use crate::histogram::Histograms;
 use crate::histsplitter::SplitInfo;
 use std::fmt::{self, Debug};
 use std::str::FromStr;
-use crate::histogram::Histograms;
 
 #[derive(Debug)]
 pub struct SplittableNode<T> {

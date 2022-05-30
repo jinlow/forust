@@ -73,12 +73,14 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     c.bench_function("Train Booster", |b| {
         b.iter(|| {
             let mut booster = GradientBooster::default();
-            booster.fit(
-                black_box(&data),
-                black_box(&y),
-                black_box(&w),
-                black_box(true),
-            ).unwrap();
+            booster
+                .fit(
+                    black_box(&data),
+                    black_box(&y),
+                    black_box(&w),
+                    black_box(true),
+                )
+                .unwrap();
         })
     });
     let mut booster = GradientBooster::default();

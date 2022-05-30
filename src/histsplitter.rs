@@ -192,8 +192,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::Matrix;
     use crate::binning::bin_matrix;
+    use crate::data::Matrix;
     use crate::node::SplittableNode;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use std::fs;

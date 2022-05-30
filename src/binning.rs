@@ -17,7 +17,6 @@ where
     } else {
         percentiles(v, sample_weight, pcts)
     }
-    
 }
 
 // We want to be able to bin our dataset into discrete buckets.
