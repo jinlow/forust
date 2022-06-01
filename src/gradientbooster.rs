@@ -156,23 +156,39 @@ mod tests {
     use std::fs;
     #[test]
     fn test_tree_fit() {
-        let file = fs::read_to_string("resources/contiguous_no_missing.csv")
+        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
             .expect("Something went wrong reading the file");
-        let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap_or(f64::NAN)).collect();
         let file = fs::read_to_string("resources/performance.csv")
             .expect("Something went wrong reading the file");
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
 
         let data = Matrix::new(&data_vec, 891, 5);
+        //let data = Matrix::new(data.get_col(1), 891, 1);
         let mut booster = GradientBooster::default();
         booster.iterations = 10;
         booster.nbins = 300;
+        booster.max_depth = 3;
         booster.parallel = false;
+        booster.base_score = 0.0;
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight, true).unwrap();
         let preds = booster.predict(&data, false);
-        assert_eq!(39, booster.trees[0].nodes.len());
-        assert_eq!(23, booster.trees.last().unwrap().nodes.len());
+        // assert_eq!(39, booster.trees[0].nodes.len());
+        // assert_eq!(23, booster.trees.last().unwrap().nodes.len());
+        // for c in 0..data.cols {
+        //     println!("{} , {}", c, data.get_col(c).iter().map(|i| if i.is_nan() {1} else {0}).sum::<i32>())
+        // }
+
+
+        let b = bin_matrix(&data, &sample_weight, 10).unwrap();
+        let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
+        
+
+        // for c in 0..bdata.cols {
+        //     println!("{} , {}", c, bdata.get_col(c).iter().map(|i| if *i == 0 {1} else {0}).sum::<u16>())
+        // }
+        println!("{}", booster.trees[0]);
         println!("{}", booster.trees[0].nodes.len());
         println!("{}", booster.trees.last().unwrap().nodes.len());
         println!("{:?}", &preds[0..10]);

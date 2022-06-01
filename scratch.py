@@ -16,13 +16,13 @@ ll = LogLoss()
 
 df = sns.load_dataset("titanic")
 # Need to add NA support
-X = df.select_dtypes("number").drop(columns="survived").fillna(0)
+X = df.select_dtypes("number").drop(columns="survived") #[["age"]].mul(-1) #.fillna(0)
 y = df["survived"]
 
-init_preds = np.repeat(0.5, y.shape)
-g = ll.grad(y, init_preds)
-h = ll.hess(y, init_preds)
-t.fit(X.to_numpy(), grad=g, hess=h)
+# init_preds = np.repeat(0.5, y.shape)
+# g = ll.grad(y, init_preds)
+# h = ll.hess(y, init_preds)
+# t.fit(X.to_numpy(), grad=g, hess=h)
 # print(t)
 # print(t.predict(X.head().to_numpy()))
 # print(len(t.nodes_))
@@ -33,34 +33,61 @@ t.fit(X.to_numpy(), grad=g, hess=h)
 # print(t.nodes_[2].weight_value)
 # print(t.predict(X.to_numpy()[0:10]))
 
-w = np.ones(y.shape)
-# # w[X["pclass"].eq(2)] = 4
-m = XGBoost(
-    iterations=10,
-    learning_rate=0.3,
-    max_depth=5,
-    l2=1,
-    min_leaf_weight=1,
-    gamma=0,
-)
+# w = np.ones(y.shape)
+# # # w[X["pclass"].eq(2)] = 4
 # m = XGBoost(
 #     iterations=10,
+#     learning_rate=0.3,
 #     max_depth=5,
+#     l2=1,
 #     min_leaf_weight=1,
 #     gamma=0,
 # )
-m.fit(X.to_numpy(), y, sample_weight=w)
-mp = m.predict(X.to_numpy())
-# # len(m.trees_[0].nodes_)
-# print(m.trees_[0])
-print(len(m.trees_[0].nodes_))
-print(len(m.trees_[-1].nodes_))
+# # m = XGBoost(
+# #     iterations=10,
+# #     max_depth=5,
+# #     min_leaf_weight=1,
+# #     gamma=0,
+# # )
+# m.fit(X.to_numpy(), y, sample_weight=w)
+# mp = m.predict(X.to_numpy())
+# # # len(m.trees_[0].nodes_)
+# # print(m.trees_[0])
+# print(len(m.trees_[0].nodes_))
+# print(len(m.trees_[-1].nodes_))
 
-# # print(len(m.trees_[0].__repr__().split()))
-print(mp[0:10])
+# # # print(len(m.trees_[0].__repr__().split()))
+# print(mp[0:10])
 # print(m.trees_[0])
 
-# from xgboost import XGBClassifier
+from xgboost import XGBClassifier
+xmod = XGBClassifier(n_estimators=10, 
+    learning_rate=0.3,
+    max_depth=3,
+    reg_lambda=1,
+    min_child_weight=1,
+    gamma=0,
+    objective="binary:logitraw",
+    eval_metric="auc",
+    tree_method="hist",
+    base_score=0,
+)
+xmod.fit(X, y)
+print(xmod.get_booster().get_dump(with_stats=True)[0])
+print(xmod.predict(X, output_margin=True)[0:10])
+
+xmod = XGBClassifier(n_estimators=1, 
+    learning_rate=0.3,
+    max_depth=3,
+    reg_lambda=1,
+    min_child_weight=1,
+    gamma=0,
+    objective="binary:logitraw",
+    eval_metric="auc",
+)
+xmod.fit(X.fillna(0), y)
+print(xmod.get_booster().get_dump(with_stats=True)[0])
+print(xmod.predict(X, output_margin=True)[0:10])
 
 # mx = XGBClassifier(seed=123,
 #         objective="binary:logitraw",

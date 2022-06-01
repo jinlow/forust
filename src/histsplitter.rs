@@ -95,8 +95,8 @@ where
                 let mut missing_right = true;
                 let mut left_grad = cuml_grad;
                 let mut left_hess = cuml_hess;
-                let mut right_grad = node.grad_sum - cuml_grad;
-                let mut right_hess = node.hess_sum - cuml_hess;
+                let mut right_grad = node.grad_sum - cuml_grad - missing.grad_sum;
+                let mut right_hess = node.hess_sum - cuml_hess - missing.hess_sum;
 
                 let mut left_gain = self.gain(left_grad, left_hess);
                 let mut right_gain = self.gain(right_grad, right_hess);
@@ -104,23 +104,25 @@ where
                 // Check Missing direction
                 // Don't even worry about it, if there are no missing values
                 // in this bin.
-                if missing.grad_sum != T::ZERO {
+                if (missing.grad_sum != T::ZERO) && (missing.hess_sum != T::ZERO) {
                     // The gain if missing went left
                     let missing_left_gain =
                         self.gain(left_grad + missing.grad_sum, left_hess + missing.hess_sum);
                     // The gain is missing went right
                     let missing_right_gain =
                         self.gain(right_grad + missing.grad_sum, right_hess + missing.hess_sum);
-                    if (left_gain + missing_right_gain) > (missing_left_gain + right_gain) {
+
+                    if (missing_right_gain - right_gain) > (missing_left_gain - left_gain) {
                         // Missing goes right
-                        right_gain = missing_right_gain;
                         right_grad += missing.grad_sum;
                         right_hess += missing.hess_sum;
+                        right_gain = missing_right_gain;
+                        missing_right = true;
                     } else {
                         // Missing goes left
-                        left_gain = missing_left_gain;
                         left_grad += missing.grad_sum;
                         left_hess += missing.hess_sum;
+                        left_gain = missing_left_gain;
                         missing_right = false;
                     }
                 }
@@ -209,7 +211,7 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 10).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-        let mut index = data.index.to_owned();
+        let index = data.index.to_owned();
         let hists = Histograms::new(&bdata, &b.cuts, &grad, &hess, &index, true);
         let splitter = HistogramSplitter {
             l2: 0.0,
@@ -252,7 +254,7 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 10).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-        let mut index = data.index.to_owned();
+        let index = data.index.to_owned();
         let hists = Histograms::new(&bdata, &b.cuts, &grad, &hess, &index, true);
 
         let splitter = HistogramSplitter {

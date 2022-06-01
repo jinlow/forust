@@ -135,28 +135,44 @@ where
                 "{}:leaf={},cover={}",
                 leaf.num, leaf.weight_value, leaf.hess_sum
             ),
-            TreeNode::Parent(parent) => write!(
-                f,
-                "{}:[{} < {}] yes={},no={},gain={},cover={}",
-                parent.num,
-                parent.split_feature,
-                parent.split_value,
-                parent.left_child,
-                parent.right_child,
-                parent.split_gain,
-                parent.hess_sum
-            ),
-            TreeNode::Splittable(node) => write!(
-                f,
-                "SPLITTABLE - {}:[{} < {}] yes={},no={},gain={},cover={}",
-                node.num,
-                node.split_feature,
-                node.split_value,
-                node.left_child,
-                node.right_child,
-                node.split_gain,
-                node.hess_sum
-            ),
+            TreeNode::Parent(parent) => {
+                let missing = if parent.missing_right {
+                    parent.right_child
+                } else {
+                    parent.left_child
+                };
+                write!(
+                    f,
+                    "{}:[{} < {}] yes={},no={},missing={},gain={},cover={}",
+                    parent.num,
+                    parent.split_feature,
+                    parent.split_value,
+                    parent.left_child,
+                    parent.right_child,
+                    missing,
+                    parent.split_gain,
+                    parent.hess_sum
+                )
+            }
+            TreeNode::Splittable(node) => {
+                let missing = if node.missing_right {
+                    node.right_child
+                } else {
+                    node.left_child
+                };
+                write!(
+                    f,
+                    "SPLITTABLE - {}:[{} < {}] yes={},no={},missing={},gain={},cover={}",
+                    node.num,
+                    node.split_feature,
+                    node.split_value,
+                    missing,
+                    node.left_child,
+                    node.right_child,
+                    node.split_gain,
+                    node.hess_sum
+                )
+            }
         }
     }
 }

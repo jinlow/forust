@@ -118,9 +118,9 @@ impl<T: MatrixData<T>> Tree<T> {
                         n_leaves += 2;
                         let left_idx = n_nodes;
                         let right_idx = left_idx + 1;
+                        
                         // We need to move all of the index's above and bellow our
                         // split value.
-
                         // pivot the sub array that this node has on our split value
                         let mut split_idx = pivot_on_split(
                             &mut index[node.start_idx..node.stop_idx],

@@ -56,11 +56,11 @@ from forust import GradientBooster
 
 df = pd.read_csv("../resources/titanic.csv") #.sample(100_000, replace=True, random_state=0)
 
-X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True)
+X = df.select_dtypes("number").drop(columns="survived").fillna(0).reset_index(drop=True)
 X_vec = X.to_numpy().ravel(order="F")
 y = df["survived"].to_numpy().astype("float64")
 mod = GradientBooster(
-        iterations=100,
+        iterations=500,
         learning_rate=0.3,
         max_depth=5,
         l2=1,
@@ -69,7 +69,7 @@ mod = GradientBooster(
         objective_type="LogLoss",
 )
 mod.fit(X_vec, y.shape[0], 5, y, np.ones(y.shape))
-mod.predict(X_vec, y.shape[0], 5)[0:10]
+print(mod.predict(X_vec, y.shape[0], 5)[0:10])
 
 from sklearn.ensemble import HistGradientBoostingClassifier
 
@@ -78,7 +78,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 # hgb.predict_proba(X)[0:10]
 
 from xgboost import XGBClassifier
-xmod = XGBClassifier(n_estimators=100, 
+xmod = XGBClassifier(n_estimators=500, 
     learning_rate=0.3,
     max_depth=5,
     reg_lambda=1,
@@ -86,8 +86,10 @@ xmod = XGBClassifier(n_estimators=100,
     gamma=0,
     objective="binary:logitraw",
     eval_metric="auc",
-)   
+    # tree_method="hist",
+    # max_bin=10000,
+)
 xmod.fit(X, y)
-xmod.predict(X, output_margin=True)[0:10]
+print(xmod.predict(X, output_margin=True)[0:10])
 # print(xmod.get_booster().get_dump()[0])
 np.allclose(xmod.predict(X, output_margin=True), mod.predict(X_vec, y.shape[0], 5), rtol=0.0001)
