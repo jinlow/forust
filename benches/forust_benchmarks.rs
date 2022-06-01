@@ -48,7 +48,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     c.bench_function("Train Tree", |b| {
         b.iter(|| {
             let mut train_tree: Tree<f64> = Tree::new();
-            tree.fit(
+            train_tree.fit(
                 black_box(&bdata),
                 black_box(&bindata.cuts),
                 black_box(&g),

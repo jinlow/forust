@@ -55,21 +55,25 @@ import numpy as np
 from forust import GradientBooster
 
 df = pd.read_csv("../resources/titanic.csv") #.sample(100_000, replace=True, random_state=0)
-
-X = df.select_dtypes("number").drop(columns="survived").fillna(0).reset_index(drop=True)
-X_vec = X.to_numpy().ravel(order="F")
+# for i in range(0, 50):
+i = 1000
+X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True)
+X["age"] = X["age"] #.mul(-1)
+X_vec = X.to_numpy().ravel(order="F").astype("float64")
 y = df["survived"].to_numpy().astype("float64")
 mod = GradientBooster(
-        iterations=500,
-        learning_rate=0.3,
-        max_depth=5,
-        l2=1,
-        min_leaf_weight=1,
-        gamma=0,
-        objective_type="LogLoss",
+    iterations=i,
+    learning_rate=0.3,
+    max_depth=5,
+    l2=1,
+    min_leaf_weight=1,
+    gamma=1,
+    objective_type="LogLoss",
+    nbins=500,
+    parallel=False,
 )
-mod.fit(X_vec, y.shape[0], 5, y, np.ones(y.shape))
-print(mod.predict(X_vec, y.shape[0], 5)[0:10])
+mod.fit(X_vec, y.shape[0], 5, y, np.ones(y.shape, dtype="float64"))
+# print(mod.predict(X_vec, y.shape[0], 5)[0:10])
 
 from sklearn.ensemble import HistGradientBoostingClassifier
 
@@ -78,18 +82,32 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 # hgb.predict_proba(X)[0:10]
 
 from xgboost import XGBClassifier
-xmod = XGBClassifier(n_estimators=500, 
-    learning_rate=0.3,
-    max_depth=5,
-    reg_lambda=1,
-    min_child_weight=1,
-    gamma=0,
-    objective="binary:logitraw",
-    eval_metric="auc",
-    # tree_method="hist",
-    # max_bin=10000,
+xmod = XGBClassifier(
+n_estimators=i, 
+learning_rate=0.3,
+max_depth=5,
+reg_lambda=1,
+min_child_weight=1,
+gamma=1,
+objective="binary:logitraw",
+eval_metric="auc",
+tree_method="hist",
+max_bin=10000,
 )
 xmod.fit(X, y)
-print(xmod.predict(X, output_margin=True)[0:10])
-# print(xmod.get_booster().get_dump()[0])
-np.allclose(xmod.predict(X, output_margin=True), mod.predict(X_vec, y.shape[0], 5), rtol=0.0001)
+# print(xmod.predict(X, output_margin=True)[0:10])
+np.allclose(xmod.predict(X, output_margin=True).astype(np.float32), mod.predict(X_vec, y.shape[0], 5).astype(np.float32), rtol=0.001)
+# if not np.allclose(xmod.predict(X, output_margin=True).astype(np.float32), mod.predict(X_vec, y.shape[0], 5).astype(np.float32), rtol=0.1):
+    #     print(i)
+    #     break
+mp = mod.predict(X_vec, y.shape[0], 5)
+xp = xmod.predict(X, output_margin=True)
+print(mp[0:5])
+print(xp[0:5])
+
+mp[~np.isclose(mp, xp, rtol=0.01)]
+xp[~np.isclose(mp, xp, rtol=0.01)]
+
+
+print(xmod.get_booster().get_dump(with_stats=True)[-1])
+print(mod.text_dump()[-1])

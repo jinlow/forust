@@ -61,7 +61,8 @@ y = df["survived"]
 # print(m.trees_[0])
 
 from xgboost import XGBClassifier
-xmod = XGBClassifier(n_estimators=10, 
+xmod = XGBClassifier(
+    n_estimators=10, 
     learning_rate=0.3,
     max_depth=3,
     reg_lambda=1,
@@ -70,13 +71,13 @@ xmod = XGBClassifier(n_estimators=10,
     objective="binary:logitraw",
     eval_metric="auc",
     tree_method="hist",
-    base_score=0,
 )
 xmod.fit(X, y)
 print(xmod.get_booster().get_dump(with_stats=True)[0])
 print(xmod.predict(X, output_margin=True)[0:10])
 
-xmod = XGBClassifier(n_estimators=1, 
+xmod = XGBClassifier(
+    n_estimators=1, 
     learning_rate=0.3,
     max_depth=3,
     reg_lambda=1,

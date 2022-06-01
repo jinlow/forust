@@ -109,6 +109,16 @@ impl GradientBooster {
         };
         Ok(self.booster.predict(&data, parallel).into_pyarray(py))
     }
+
+    pub fn text_dump(
+        &self,
+    ) -> PyResult<Vec<String>> {
+        let mut trees = Vec::new();
+        for t in &self.booster.trees {
+            trees.push(format!("{}", t));
+        }
+        return Ok(trees)
+    }
 }
 
 #[pyfunction]

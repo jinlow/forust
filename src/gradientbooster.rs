@@ -169,25 +169,9 @@ mod tests {
         booster.iterations = 10;
         booster.nbins = 300;
         booster.max_depth = 3;
-        booster.parallel = false;
-        booster.base_score = 0.0;
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight, true).unwrap();
         let preds = booster.predict(&data, false);
-        // assert_eq!(39, booster.trees[0].nodes.len());
-        // assert_eq!(23, booster.trees.last().unwrap().nodes.len());
-        // for c in 0..data.cols {
-        //     println!("{} , {}", c, data.get_col(c).iter().map(|i| if i.is_nan() {1} else {0}).sum::<i32>())
-        // }
-
-
-        let b = bin_matrix(&data, &sample_weight, 10).unwrap();
-        let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-        
-
-        // for c in 0..bdata.cols {
-        //     println!("{} , {}", c, bdata.get_col(c).iter().map(|i| if *i == 0 {1} else {0}).sum::<u16>())
-        // }
         println!("{}", booster.trees[0]);
         println!("{}", booster.trees[0].nodes.len());
         println!("{}", booster.trees.last().unwrap().nodes.len());
