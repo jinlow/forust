@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash};
+use std::collections::HashMap;
 
 use crate::data::{Matrix, MatrixData};
 use rayon::prelude::*;
@@ -28,7 +28,7 @@ where
         }
     }
 
-    pub fn from_root_child(root_bin: &Bin<T>, child_bin: &Bin<T>) -> Self {
+    pub fn from_parent_child(root_bin: &Bin<T>, child_bin: &Bin<T>) -> Self {
         Bin {
             grad_sum: root_bin.grad_sum - child_bin.grad_sum,
             hess_sum: root_bin.hess_sum - child_bin.hess_sum,
@@ -39,6 +39,7 @@ where
 
 pub type Hist<T> = HashMap<u16, Bin<T>>;
 
+#[derive(Debug)]
 pub struct Histograms<T>(pub Vec<Hist<T>>);
 
 pub fn create_feature_histogram<T: MatrixData<T>>(
@@ -72,7 +73,7 @@ pub fn create_feature_histogram<T: MatrixData<T>>(
     histogram
 }
 
-pub fn create_feature_histogram_from_root_child<T: MatrixData<T>>(
+pub fn create_feature_histogram_from_parent_child<T: MatrixData<T>>(
     root_histogram: &Hist<T>,
     child_histogram: &Hist<T>,
 ) -> Hist<T> {
@@ -80,7 +81,7 @@ pub fn create_feature_histogram_from_root_child<T: MatrixData<T>>(
     root_histogram.keys().for_each(|k| {
         let root_bin = root_histogram.get(k).unwrap();
         let child_bin = child_histogram.get(k).unwrap();
-        histogram.insert(*k, Bin::from_root_child(root_bin, child_bin));
+        histogram.insert(*k, Bin::from_parent_child(root_bin, child_bin));
     });
     histogram
 }
@@ -103,7 +104,7 @@ where
                 col_index
                     .par_iter()
                     .map(|i| {
-                        create_feature_histogram(data.get_col(*i), &cuts[*i], grad, hess, &index)
+                        create_feature_histogram(data.get_col(*i), &cuts[*i], grad, hess, index)
                     })
                     .collect(),
             )
@@ -112,14 +113,14 @@ where
                 col_index
                     .iter()
                     .map(|i| {
-                        create_feature_histogram(data.get_col(*i), &cuts[*i], grad, hess, &index)
+                        create_feature_histogram(data.get_col(*i), &cuts[*i], grad, hess, index)
                     })
                     .collect(),
             )
         }
     }
 
-    pub fn from_root_child(
+    pub fn from_parent_child(
         root_histograms: &Histograms<T>,
         child_histograms: &Histograms<T>,
     ) -> Self {
@@ -129,12 +130,13 @@ where
         let histograms = root_hists
             .iter()
             .zip(child_hists)
-            .map(|(rh, ch)| create_feature_histogram_from_root_child(rh, &ch))
+            .map(|(rh, ch)| create_feature_histogram_from_parent_child(rh, ch))
             .collect();
         Histograms(histograms)
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::binning::bin_matrix;

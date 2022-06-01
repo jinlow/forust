@@ -1,6 +1,23 @@
 use crate::data::{Matrix, MatrixData};
-use crate::utils::{map_bin, percentiles};
 use crate::errors::ForustError;
+use crate::utils::{map_bin, percentiles};
+
+// If there are fewer unique values than their are
+// percentiles, just return the unique values of the
+// vectors.
+fn percentiles_or_value<T>(v: &[T], sample_weight: &[T], pcts: &[T]) -> Vec<T>
+where
+    T: MatrixData<T>,
+{
+    let mut v_u = v.to_owned();
+    v_u.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    v_u.dedup();
+    if v_u.len() <= pcts.len() + 1 {
+        v_u
+    } else {
+        percentiles(v, sample_weight, pcts)
+    }
+}
 
 // We want to be able to bin our dataset into discrete buckets.
 // First we will calculate percentils and the number of unique values
@@ -14,7 +31,6 @@ use crate::errors::ForustError;
 // [0.0, 7.8958, 14.4542, 31.0, 512.3292, inf]
 // We would have a number with bins 0 (missing), 1 [MIN, 0.0), 2 (0.0, 7], 3 [], 4, 5
 // a split that is [feature < 5] would translate to [feature < 31.0 ]
-
 pub struct BinnedData<T> {
     pub binned_data: Vec<u16>,
     pub cuts: Vec<Vec<T>>,
@@ -61,8 +77,7 @@ pub fn bin_matrix<T: MatrixData<T>>(
             .filter(|v| !v.is_nan())
             .copied()
             .collect();
-        let mut col_cuts = percentiles(&no_miss, sample_weight, &pcts);
-        // col_cuts.insert(0, T::MIN);
+        let mut col_cuts = percentiles_or_value(&no_miss, sample_weight, &pcts);
         col_cuts.push(T::MAX);
         col_cuts.dedup();
         if col_cuts.len() < 3 {
@@ -70,7 +85,7 @@ pub fn bin_matrix<T: MatrixData<T>>(
         }
         // There will be one less bins, then there are cuts.
         // The first value will be for missing.
-        nunique.push(col_cuts.len().clone());
+        nunique.push(col_cuts.len());
         cuts.push(col_cuts);
     }
 
@@ -83,6 +98,7 @@ pub fn bin_matrix<T: MatrixData<T>>(
     })
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;

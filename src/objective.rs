@@ -1,5 +1,7 @@
 use crate::data::MatrixData;
 
+type ObjFn<T> = fn(&[T], &[T], &[T]) -> Vec<T>;
+
 pub enum ObjectiveType {
     LogLoss,
     SquaredLoss,
@@ -7,10 +9,7 @@ pub enum ObjectiveType {
 
 pub fn gradient_hessian_callables<T: MatrixData<T>>(
     objective_type: &ObjectiveType,
-) -> (
-    fn(&[T], &[T], &[T]) -> Vec<T>,
-    fn(&[T], &[T], &[T]) -> Vec<T>,
-) {
+) -> (ObjFn<T>, ObjFn<T>) {
     match objective_type {
         ObjectiveType::LogLoss => (LogLoss::calc_grad, LogLoss::calc_hess),
         ObjectiveType::SquaredLoss => (SquaredLoss::calc_grad, SquaredLoss::calc_hess),

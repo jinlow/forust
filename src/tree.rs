@@ -1,6 +1,8 @@
 use crate::data::{Matrix, MatrixData};
+use crate::histogram::Histograms;
+use crate::histsplitter::HistogramSplitter;
 use crate::node::{SplittableNode, TreeNode};
-use crate::splitter::Splitter;
+use crate::utils::pivot_on_split;
 use rayon::prelude::*;
 use std::collections::VecDeque;
 use std::fmt;
@@ -21,32 +23,39 @@ impl<T: MatrixData<T>> Tree<T> {
         Tree { nodes: Vec::new() }
     }
 
-    pub fn fit<S: Splitter<T>>(
+    #[allow(clippy::too_many_arguments)]
+    pub fn fit(
         &mut self,
-        data: &Matrix<T>,
+        data: &Matrix<u16>,
+        cuts: &[Vec<T>],
         grad: &[T],
         hess: &[T],
-        splitter: &S,
+        splitter: &HistogramSplitter<T>,
         max_leaves: usize,
         max_depth: usize,
         index: &mut [usize],
+        parallel: bool,
     ) {
         let mut n_nodes = 1;
         let grad_sum: T = grad.iter().copied().sum();
         let hess_sum: T = hess.iter().copied().sum();
         let root_gain = splitter.gain(grad_sum, hess_sum);
         let root_weight = splitter.weight(grad_sum, hess_sum);
+        // Calculate the histograms for the root node.
+        let root_hists = Histograms::new(data, cuts, grad, hess, index, parallel);
         let root_node = SplittableNode::new(
             0,
-            // data.index.to_owned(),
+            root_hists,
             root_weight,
             root_gain,
             grad_sum,
             hess_sum,
             0,
+            true,
             0,
             data.rows,
         );
+        // Add the first node to the tree nodes.
         self.nodes.push(TreeNode::Splittable(root_node));
         let mut n_leaves = 1;
         let mut growable = VecDeque::new();
@@ -71,7 +80,7 @@ impl<T: MatrixData<T>> Tree<T> {
                 .expect("Growable buffer should not be empty.");
 
             let n = self.nodes.get_mut(n_idx);
-            // This should only be splittable nodes
+            // This will only be splittable nodes
             if let Some(TreeNode::Splittable(node)) = n {
                 let depth = node.depth + 1;
 
@@ -91,11 +100,13 @@ impl<T: MatrixData<T>> Tree<T> {
                 n_leaves -= 1;
 
                 // Try to find a valid split for this node.
-                let split_info = splitter.best_split(node, data, grad, hess, index);
+                let split_info = splitter.best_split(node);
 
                 // If this is None, this means there
                 // are no more valid nodes.
                 match split_info {
+                    // If the split info is None, we can't split
+                    // this node any further, make a leaf, and keep going.
                     None => {
                         n_leaves += 1;
                         self.nodes[n_idx] = node.as_leaf_node();
@@ -107,26 +118,79 @@ impl<T: MatrixData<T>> Tree<T> {
                         n_leaves += 2;
                         let left_idx = n_nodes;
                         let right_idx = left_idx + 1;
+                        
+                        // We need to move all of the index's above and bellow our
+                        // split value.
+                        // pivot the sub array that this node has on our split value
+                        let mut split_idx = pivot_on_split(
+                            &mut index[node.start_idx..node.stop_idx],
+                            data.get_col(info.split_feature),
+                            info.split_bin,
+                            info.missing_right,
+                        );
+
+                        // Calculate histograms
+                        let total_recs = node.stop_idx - node.start_idx;
+                        let n_right = total_recs - split_idx - 1;
+                        let n_left = total_recs - n_right;
+
+                        // Now that we have calculated the number of records
+                        // add the start index, to make the split_index
+                        // relative to the entire index array
+                        split_idx += node.start_idx;
+
+                        // Build the histograms for the smaller node.
+                        let left_histograms: Histograms<T>;
+                        let right_histograms: Histograms<T>;
+                        if n_left < n_right {
+                            left_histograms = Histograms::new(
+                                data,
+                                cuts,
+                                grad,
+                                hess,
+                                &index[node.start_idx..split_idx],
+                                parallel,
+                            );
+                            right_histograms =
+                                Histograms::from_parent_child(&node.histograms, &left_histograms);
+                        } else {
+                            right_histograms = Histograms::new(
+                                data,
+                                cuts,
+                                grad,
+                                hess,
+                                &index[split_idx..node.stop_idx],
+                                parallel,
+                            );
+                            left_histograms =
+                                Histograms::from_parent_child(&node.histograms, &right_histograms);
+                        }
+
                         node.update_children(left_idx, right_idx, &info);
+
                         let left_node = SplittableNode::new(
                             left_idx,
+                            left_histograms,
                             info.left_weight,
                             info.left_gain,
                             info.left_grad,
                             info.left_cover,
                             depth,
-                            info.left_start_idx,
-                            info.left_stop_idx,
+                            true,
+                            node.start_idx,
+                            split_idx,
                         );
                         let right_node = SplittableNode::new(
                             right_idx,
+                            right_histograms,
                             info.right_weight,
                             info.right_gain,
                             info.right_grad,
                             info.right_cover,
                             depth,
-                            info.right_start_idx,
-                            info.right_stop_idx,
+                            true,
+                            split_idx,
+                            node.stop_idx,
                         );
                         growable.push_front(left_idx);
                         growable.push_front(right_idx);
@@ -150,10 +214,18 @@ impl<T: MatrixData<T>> Tree<T> {
                     return node.weight_value;
                 }
                 TreeNode::Parent(node) => {
-                    if data.get(row, node.split_feature) < &node.split_value {
+                    let v = data.get(row, node.split_feature);
+                    if v < &node.split_value {
                         node_idx = node.left_child;
-                    } else {
+                    } else if v >= &node.split_value {
                         node_idx = node.right_child;
+                    } 
+                    else if v.is_nan() {
+                        if node.missing_right {
+                            node_idx = node.right_child;
+                        } else {
+                            node_idx = node.left_child;
+                        }
                     }
                 }
                 _ => unreachable!(),
@@ -221,7 +293,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::exactsplitter::ExactSplitter;
+    use crate::binning::bin_matrix;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use std::fs;
     #[test]
@@ -238,7 +310,7 @@ mod tests {
         let h = LogLoss::calc_hess(&y, &yhat, &w);
 
         let data = Matrix::new(&data_vec, 891, 5);
-        let splitter = ExactSplitter {
+        let splitter = HistogramSplitter {
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
@@ -247,7 +319,22 @@ mod tests {
         let mut tree = Tree::new();
         let mut index = data.index.to_owned();
         let index = index.as_mut();
-        tree.fit(&data, &g, &h, &splitter, usize::MAX, 5, index);
+
+        let b = bin_matrix(&data, &w, 300).unwrap();
+        let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
+
+        tree.fit(
+            &bdata,
+            &b.cuts,
+            &g,
+            &h,
+            &splitter,
+            usize::MAX,
+            5,
+            index,
+            true,
+        );
+
         println!("{}", tree);
         let preds = tree.predict(&data, false);
         println!("{:?}", &preds[0..10]);

@@ -1,5 +1,5 @@
-use crate::data::{Matrix, MatrixData};
-use crate::histogram::{Hist, Histograms};
+use crate::data::MatrixData;
+use crate::histogram::Histograms;
 use crate::node::SplittableNode;
 
 #[derive(Debug)]
@@ -7,6 +7,7 @@ pub struct SplitInfo<T> {
     pub split_gain: T,
     pub split_feature: usize,
     pub split_value: T,
+    pub split_bin: u16,
     pub missing_right: bool,
     pub left_grad: T,
     pub left_gain: T,
@@ -38,16 +39,12 @@ where
         }
     }
 
-    fn best_split(
-        &self,
-        node: &SplittableNode<T>,
-        histograms: &Histograms<T>,
-    ) -> Option<SplitInfo<T>> {
+    pub fn best_split(&self, node: &SplittableNode<T>) -> Option<SplitInfo<T>> {
         let mut best_split_info = None;
         let mut best_gain = T::ZERO;
-        let Histograms(hists) = histograms;
-        for (i, histogram) in hists.iter().enumerate() {
-            let split_info = self.best_feature_split(node, histogram, i);
+        let Histograms(hists) = &node.histograms;
+        for i in 0..hists.len() {
+            let split_info = self.best_feature_split(node, i);
             match split_info {
                 Some(info) => {
                     if info.split_gain > best_gain {
@@ -64,11 +61,12 @@ where
     pub fn best_feature_split(
         &self,
         node: &SplittableNode<T>,
-        histogram: &Hist<T>,
         feature: usize,
     ) -> Option<SplitInfo<T>> {
         let mut split_info: Option<SplitInfo<T>> = None;
         let mut max_gain: Option<T> = None;
+
+        let histogram = &node.histograms.0[feature];
 
         // We know that at least one value will be populated.
         let first_bin = histogram.get(&1).unwrap();
@@ -97,14 +95,8 @@ where
                 let mut missing_right = true;
                 let mut left_grad = cuml_grad;
                 let mut left_hess = cuml_hess;
-                let mut right_grad = node.grad_sum - cuml_grad;
-                let mut right_hess = node.hess_sum - cuml_hess;
-                if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
-                    // Update for new value
-                    cuml_grad += bin.grad_sum;
-                    cuml_hess += bin.hess_sum;
-                    continue;
-                }
+                let mut right_grad = node.grad_sum - cuml_grad - missing.grad_sum;
+                let mut right_hess = node.hess_sum - cuml_hess - missing.hess_sum;
 
                 let mut left_gain = self.gain(left_grad, left_hess);
                 let mut right_gain = self.gain(right_grad, right_hess);
@@ -112,25 +104,37 @@ where
                 // Check Missing direction
                 // Don't even worry about it, if there are no missing values
                 // in this bin.
-                if missing.grad_sum != T::ZERO {
+                if (missing.grad_sum != T::ZERO) && (missing.hess_sum != T::ZERO) {
                     // The gain if missing went left
                     let missing_left_gain =
                         self.gain(left_grad + missing.grad_sum, left_hess + missing.hess_sum);
                     // The gain is missing went right
                     let missing_right_gain =
                         self.gain(right_grad + missing.grad_sum, right_hess + missing.hess_sum);
-                    if (left_gain + missing_right_gain) > (missing_left_gain + right_gain) {
+
+                    if (missing_right_gain - right_gain) > (missing_left_gain - left_gain) {
                         // Missing goes right
-                        right_gain = missing_right_gain;
                         right_grad += missing.grad_sum;
                         right_hess += missing.hess_sum;
+                        right_gain = missing_right_gain;
+                        missing_right = true;
                     } else {
                         // Missing goes left
-                        left_gain = missing_left_gain;
                         left_grad += missing.grad_sum;
                         left_hess += missing.hess_sum;
+                        left_gain = missing_left_gain;
                         missing_right = false;
                     }
+                }
+
+                // Should this be after we add in the missing hessians?
+                // Right now this means that only real values will be considered
+                // in this calculation I think...
+                if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
+                    // Update for new value
+                    cuml_grad += bin.grad_sum;
+                    cuml_hess += bin.hess_sum;
+                    continue;
                 }
 
                 let split_gain = (left_gain + right_gain - node.gain_value) - self.get_gamma();
@@ -146,6 +150,7 @@ where
                         split_gain,
                         split_feature: feature,
                         split_value: bin.cut_value,
+                        split_bin: i,
                         missing_right,
                         left_grad,
                         left_gain,
@@ -165,35 +170,35 @@ where
         split_info
     }
 
-    fn gain(&self, grad_sum: T, hess_sum: T) -> T {
+    pub fn gain(&self, grad_sum: T, hess_sum: T) -> T {
         (grad_sum * grad_sum) / (hess_sum + self.get_l2())
     }
 
-    fn weight(&self, grad_sum: T, hess_sum: T) -> T {
+    pub fn weight(&self, grad_sum: T, hess_sum: T) -> T {
         -((grad_sum / (hess_sum + self.get_l2())) * self.get_learning_rate())
     }
 
-    fn get_l2(&self) -> T {
+    pub fn get_l2(&self) -> T {
         self.l2
     }
 
-    fn get_learning_rate(&self) -> T {
+    pub fn get_learning_rate(&self) -> T {
         self.learning_rate
     }
 
-    fn get_gamma(&self) -> T {
+    pub fn get_gamma(&self) -> T {
         self.gamma
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::binning::bin_matrix;
+    use crate::data::Matrix;
     use crate::node::SplittableNode;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use std::fs;
-    use crate::binning::bin_matrix;
     #[test]
     fn test_best_feature_split() {
         let d = vec![4., 2., 3., 4., 5., 1., 4.];
@@ -206,7 +211,7 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 10).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-        let mut index = data.index.to_owned();
+        let index = data.index.to_owned();
         let hists = Histograms::new(&bdata, &b.cuts, &grad, &hess, &index, true);
         let splitter = HistogramSplitter {
             l2: 0.0,
@@ -214,22 +219,20 @@ mod tests {
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
         };
-
         let mut n = SplittableNode::new(
             0,
             // vec![0, 1, 2, 3, 4, 5, 6],
+            hists,
             0.0,
             0.14,
             grad.iter().sum::<f64>(),
             hess.iter().sum::<f64>(),
             0,
+            true,
             0,
             grad.len(),
         );
-        let Histograms(hist) = hists;
-        let s = splitter
-            .best_feature_split(&mut n, &hist[0], 0)
-            .unwrap();
+        let s = splitter.best_feature_split(&mut n, 0).unwrap();
         println!("{:?}", s);
         assert_eq!(s.split_value, 4.0);
         assert_eq!(s.left_cover, 0.75);
@@ -251,7 +254,7 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 10).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-        let mut index = data.index.to_owned();
+        let index = data.index.to_owned();
         let hists = Histograms::new(&bdata, &b.cuts, &grad, &hess, &index, true);
 
         let splitter = HistogramSplitter {
@@ -263,15 +266,17 @@ mod tests {
         let mut n = SplittableNode::new(
             0,
             // vec![0, 1, 2, 3, 4, 5, 6],
+            hists,
             0.0,
             0.14,
             grad.iter().sum::<f64>(),
             hess.iter().sum::<f64>(),
             0,
+            true,
             0,
             grad.len(),
         );
-        let s = splitter.best_split(&mut n, &hists).unwrap();
+        let s = splitter.best_split(&mut n).unwrap();
         println!("{:?}", s);
         assert_eq!(s.split_feature, 1);
         assert_eq!(s.split_value, 4.);
@@ -309,25 +314,25 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 10).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-        let mut index = data.index.to_owned();
+        let index = data.index.to_owned();
         let hists = Histograms::new(&bdata, &b.cuts, &grad, &hess, &index, true);
 
         let mut n = SplittableNode::new(
             0,
             // (0..(data.rows - 1)).collect(),
+            hists,
             root_weight,
             root_gain,
             grad.iter().copied().sum::<f64>(),
             hess.iter().copied().sum::<f64>(),
             0,
+            true,
             0,
             grad.len(),
         );
-        let mut index = data.index.to_owned();
-        let s = splitter.best_split(&mut n, &hists).unwrap();
-        // n.update_children(1, 2, &s);
-        //println!("{}", n);
-        assert_eq!(0, 0);
+        let s = splitter.best_split(&mut n).unwrap();
+        println!("{:?}", s);
+        n.update_children(1, 2, &s);
+        assert_eq!(0, s.split_feature);
     }
 }
-
