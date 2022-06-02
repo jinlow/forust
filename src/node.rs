@@ -77,7 +77,7 @@ where
             split_value: T::ZERO,
             split_feature: 0,
             split_gain: T::ZERO,
-            missing_right: true,
+            missing_right: false,
             left_child: 0,
             right_child: 0,
             start_idx,

@@ -91,7 +91,7 @@ where
                 if (bin.grad_sum == T::ZERO) && (bin.hess_sum == T::ZERO) {
                     continue;
                 }
-                // By default missing values will go into the right node.
+                // By default missing values will go into the left node.
                 let mut missing_right = true;
                 let mut left_grad = cuml_grad;
                 let mut left_hess = cuml_hess;

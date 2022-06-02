@@ -51,7 +51,7 @@ impl<T: MatrixData<T>> Tree<T> {
             grad_sum,
             hess_sum,
             0,
-            true,
+            false,
             0,
             data.rows,
         );
@@ -118,7 +118,7 @@ impl<T: MatrixData<T>> Tree<T> {
                         n_leaves += 2;
                         let left_idx = n_nodes;
                         let right_idx = left_idx + 1;
-                        
+
                         // We need to move all of the index's above and bellow our
                         // split value.
                         // pivot the sub array that this node has on our split value
@@ -176,7 +176,7 @@ impl<T: MatrixData<T>> Tree<T> {
                             info.left_grad,
                             info.left_cover,
                             depth,
-                            true,
+                            false,
                             node.start_idx,
                             split_idx,
                         );
@@ -188,7 +188,7 @@ impl<T: MatrixData<T>> Tree<T> {
                             info.right_grad,
                             info.right_cover,
                             depth,
-                            true,
+                            false,
                             split_idx,
                             node.stop_idx,
                         );
@@ -215,17 +215,16 @@ impl<T: MatrixData<T>> Tree<T> {
                 }
                 TreeNode::Parent(node) => {
                     let v = data.get(row, node.split_feature);
-                    if v < &node.split_value {
-                        node_idx = node.left_child;
-                    } else if v >= &node.split_value {
-                        node_idx = node.right_child;
-                    } 
-                    else if v.is_nan() {
+                    if v.is_nan() {
                         if node.missing_right {
                             node_idx = node.right_child;
                         } else {
                             node_idx = node.left_child;
                         }
+                    } else if v < &node.split_value {
+                        node_idx = node.left_child;
+                    } else if v >= &node.split_value {
+                        node_idx = node.right_child;
                     }
                 }
                 _ => unreachable!(),
