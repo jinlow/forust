@@ -96,7 +96,7 @@ max_bin=10000,
 )
 xmod.fit(X, y)
 # print(xmod.predict(X, output_margin=True)[0:10])
-np.allclose(xmod.predict(X, output_margin=True).astype(np.float32), mod.predict(X_vec, y.shape[0], 5).astype(np.float32), rtol=0.001)
+np.allclose(xmod.predict(X, output_margin=True).astype(np.float32), mod.predict(X_vec, y.shape[0], 5).astype(np.float32), rtol=0.0001)
 # if not np.allclose(xmod.predict(X, output_margin=True).astype(np.float32), mod.predict(X_vec, y.shape[0], 5).astype(np.float32), rtol=0.1):
     #     print(i)
     #     break
@@ -105,8 +105,8 @@ xp = xmod.predict(X, output_margin=True)
 print(mp[0:5])
 print(xp[0:5])
 
-mp[~np.isclose(mp, xp, rtol=0.01)]
-xp[~np.isclose(mp, xp, rtol=0.01)]
+mp[~np.isclose(mp, xp, rtol=0.0001)]
+xp[~np.isclose(mp, xp, rtol=0.0001)]
 
 
 print(xmod.get_booster().get_dump(with_stats=True)[-1])
