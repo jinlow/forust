@@ -89,7 +89,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 # hgb.fit(X, y)
 # hgb.predict_proba(X)[0:10]
 
-from xgboost import XGBClassifier
+from xgboost import XGBClassifier, XGBRegressor
 
 xmod = XGBClassifier(
     n_estimators=i,
@@ -206,3 +206,53 @@ fmod_preds[~np.isclose(fmod_preds, xmod_preds, rtol=0.001)]
 xmod_preds[~np.isclose(fmod_preds, xmod_preds, atol=0.001)]
 fmod_preds[~np.isclose(fmod_preds, xmod_preds, atol=0.001)]
 assert np.allclose(fmod_preds, xmod_preds, rtol=0.001)
+
+
+# Trying regression
+import pandas as pd
+import numpy as np
+from forust import GradientBooster
+from xgboost import XGBClassifier
+
+
+df = (
+    pd.read_csv("../resources/titanic.csv")
+    .sample(100_000, replace=True, random_state=0)
+    .reset_index(drop=True)
+)
+X = df.select_dtypes("number").drop(columns="fare").reset_index(drop=True)
+y = df["fare"]
+
+# X = X.fillna(0)
+# w = X["fare"].to_numpy() + 1
+from xgboost import XGBRegressor
+xmod = XGBRegressor(
+    n_estimators=100,
+    learning_rate=0.3,
+    max_depth=5,
+    reg_lambda=1,
+    min_child_weight=1.0,
+    gamma=0.0,
+    objective="reg:squarederror",
+    eval_metric="auc",
+    # tree_method="hist",
+    # max_bin=1000,
+)
+xmod.fit(X, y)  # , sample_weight=w)
+xmod_preds = xmod.predict(X, output_margin=True)
+
+fmod = GradientBooster(
+    iterations=100,
+    learning_rate=0.3,
+    max_depth=5,
+    l2=1,
+    min_leaf_weight=1.0,
+    gamma=0.0,
+    objective_type="SquaredLoss",
+    dtype="float64",
+)
+fmod.fit(X, y=y)  # , sample_weight=w)
+fmod_preds = fmod.predict(X)
+
+print(fmod_preds[0:10])
+print(xmod_preds[0:10])
