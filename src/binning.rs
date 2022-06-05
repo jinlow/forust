@@ -2,9 +2,12 @@ use crate::data::{Matrix, MatrixData};
 use crate::errors::ForustError;
 use crate::utils::{map_bin, percentiles};
 
-// If there are fewer unique values than their are
-// percentiles, just return the unique values of the
-// vectors.
+/// If there are fewer unique values than their are
+/// percentiles, just return the unique values of the
+/// vectors.
+/// 
+/// * `v` - A numeric slice to calculate percentiles for.
+/// * `sample_weight` - Instance weights for each row in the data.
 fn percentiles_or_value<T>(v: &[T], sample_weight: &[T], pcts: &[T]) -> Vec<T>
 where
     T: MatrixData<T>,
@@ -38,6 +41,10 @@ pub struct BinnedData<T> {
 }
 
 /// Convert a matrix of data, into a binned matrix.
+/// 
+/// * `data` - Numeric data to be binned.
+/// * `cuts` - A slice of Vectors, where the vectors are the corresponding
+///     cut values for each of the columns.
 fn bin_matrix_from_cuts<T: std::cmp::PartialOrd>(data: &Matrix<T>, cuts: &[Vec<T>]) -> Vec<u16> {
     // loop through the matrix, binning the data.
     // We will determine the column we are in, by
@@ -54,6 +61,11 @@ fn bin_matrix_from_cuts<T: std::cmp::PartialOrd>(data: &Matrix<T>, cuts: &[Vec<T
         .collect()
 }
 
+/// Bin a numeric matrix.
+/// 
+/// * `data` - A numeric matrix, of data to be binned.
+/// * `sample_weight` - Instance weights for each row of the data.
+/// * `nbins` - The number of bins each column should be binned into.
 pub fn bin_matrix<T: MatrixData<T>>(
     data: &Matrix<T>,
     sample_weight: &[T],

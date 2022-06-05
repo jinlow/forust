@@ -3,6 +3,8 @@ use std::iter::Sum;
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 use std::str::FromStr;
 
+/// Data trait used throughout the package
+/// to control for floating point numbers.
 pub trait MatrixData<T>:
     Mul<Output = T>
     + Display
@@ -77,8 +79,9 @@ impl MatrixData<f32> for f32 {
     }
 }
 
-// Simple Contigious Matrix
-// This will likely be too generic for our needs
+/// Contigious Column major matrix data container. This is
+/// used throughout the crate, to house both the user provided data
+/// as well as the binned data.
 pub struct Matrix<'a, T> {
     pub data: &'a [T],
     pub index: Vec<usize>,
@@ -99,7 +102,11 @@ impl<'a, T> Matrix<'a, T> {
             stride2: 1,
         }
     }
-
+    
+    /// Get a single reference to an item in the matrix.
+    /// 
+    /// * `i` - The ith row of the data to get.
+    /// * `j` - the jth column of the data to get.
     pub fn get(&self, i: usize, j: usize) -> &T {
         &self.data[self.item_index(i, j)]
     }
@@ -111,12 +118,20 @@ impl<'a, T> Matrix<'a, T> {
         idx
     }
 
+    /// Get a slice of a column in the matrix.
+    /// 
+    /// * `col` - The index of the column to select.
+    /// * `start_row` - The index of the start of the slice.
+    /// * `end_row` - The index of the end of the slice of the column to select.
     pub fn get_col_slice(&self, col: usize, start_row: usize, end_row: usize) -> &[T] {
         let i = self.item_index(start_row, col);
         let j = self.item_index(end_row, col);
         &self.data[i..j]
     }
 
+    /// Get an entire column in the matrix.
+    /// 
+    /// * `col` - The index of the column to get.
     pub fn get_col(&self, col: usize) -> &[T] {
         self.get_col_slice(col, 0, self.rows)
     }

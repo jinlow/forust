@@ -5,6 +5,30 @@ use crate::histsplitter::HistogramSplitter;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
 use crate::tree::Tree;
 
+/// Gradient Booster object
+/// 
+/// * `objective_type` - The name of objective function used to optimize.
+///   Valid options include "LogLoss" to use logistic loss as the objective function,
+///   or "SquaredLoss" to use Squared Error as the objective function.
+/// * `iterations` - Total number of trees to train in the ensemble.
+/// * `learning_rate` - Step size to use at each iteration. Each
+///   leaf weight is multiplied by this number. The smaller the value, the more
+///   conservative the weights will be.
+/// * `max_depth` - Maximum depth of an individual tree. Valid values
+///   are 0 to infinity.
+/// * `max_leaves` - Maximum number of leaves allowed on a tree. Valid values
+///   are 0 to infinity. This is the total number of final nodes.
+/// * `l2` - L2 regularization term applied to the weights of the tree. Valid values
+///   are 0 to infinity.
+/// * `gamma` - The minimum amount of loss required to further split a node.
+///   Valid values are 0 to infinity.
+/// * `min_leaf_weight` - Minimum sum of the hessian values of the loss function
+///   required to be in a node.
+/// * `base_score` - The initial prediction value of the model.
+/// * `nbins` - Number of bins to calculate to partition the data. Setting this to
+///   a smaller number, will result in faster training time, while potentially sacrificing
+///   accuracy. If there are more bins, than unique values in a column, all unique values
+///   will be used.
 pub struct GradientBooster<T: MatrixData<T>> {
     pub objective_type: ObjectiveType,
     pub iterations: usize,
@@ -60,6 +84,30 @@ impl<T> GradientBooster<T>
 where
     T: MatrixData<T>,
 {
+    /// Gradient Booster object
+    /// 
+    /// * `objective_type` - The name of objective function used to optimize.
+    ///   Valid options include "LogLoss" to use logistic loss as the objective function,
+    ///   or "SquaredLoss" to use Squared Error as the objective function.
+    /// * `iterations` - Total number of trees to train in the ensemble.
+    /// * `learning_rate` - Step size to use at each iteration. Each
+    ///   leaf weight is multiplied by this number. The smaller the value, the more
+    ///   conservative the weights will be.
+    /// * `max_depth` - Maximum depth of an individual tree. Valid values
+    ///   are 0 to infinity.
+    /// * `max_leaves` - Maximum number of leaves allowed on a tree. Valid values
+    ///   are 0 to infinity. This is the total number of final nodes.
+    /// * `l2` - L2 regularization term applied to the weights of the tree. Valid values
+    ///   are 0 to infinity.
+    /// * `gamma` - The minimum amount of loss required to further split a node.
+    ///   Valid values are 0 to infinity.
+    /// * `min_leaf_weight` - Minimum sum of the hessian values of the loss function
+    ///   required to be in a node.
+    /// * `base_score` - The initial prediction value of the model.
+    /// * `nbins` - Number of bins to calculate to partition the data. Setting this to
+    ///   a smaller number, will result in faster training time, while potentially sacrificing
+    ///   accuracy. If there are more bins, than unique values in a column, all unique values
+    ///   will be used.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         objective_type: ObjectiveType,
@@ -90,6 +138,12 @@ where
         }
     }
 
+    /// Fit the gradient booster on a provided dataset.
+    /// 
+    /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
+    /// * `y` - Either a pandas Series, or a 1 dimensional numpy array.
+    /// * `sample_weight` - Instance weights to use when
+    /// training the model. If None is passed, a weight of 1 will be used for every record.
     pub fn fit(
         &mut self,
         data: &Matrix<T>,
@@ -139,6 +193,9 @@ where
         Ok(())
     }
 
+    /// Generate predictions on data using the gradient booster.
+    /// 
+    /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
     pub fn predict(&self, data: &Matrix<T>, parallel: bool) -> Vec<T> {
         let mut init_preds = vec![self.base_score; data.rows];
         self.trees.iter().for_each(|tree| {
