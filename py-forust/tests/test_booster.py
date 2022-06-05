@@ -20,7 +20,7 @@ def X_y() -> Tuple[pd.DataFrame, pd.Series]:
 
 @pytest.fixture
 def data_dtype():
-    return "float32"
+    return "float64"
 
 
 def test_booster_to_xgboosts(X_y, data_dtype):
@@ -119,4 +119,4 @@ def test_booster_to_xgboosts_weighted(X_y, data_dtype):
     )
     fmod.fit(X, y=y, sample_weight=w)
     fmod_preds = fmod.predict(X)
-    assert np.allclose(fmod_preds, xmod_preds, atol=0.001)
+    assert np.allclose(fmod_preds, xmod_preds, atol=0.0001)

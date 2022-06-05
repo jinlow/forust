@@ -2,9 +2,13 @@ import pandas as pd
 import numpy as np
 from forust import rust_bin_matrix
 
-df = pd.read_csv("../resources/titanic.csv") #.sample(1_000_000, replace=True, random_state=0)
+df = pd.read_csv(
+    "../resources/titanic.csv"
+)  # .sample(1_000_000, replace=True, random_state=0)
 
-X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True) #[["pclass"]].astype(float)
+X = (
+    df.select_dtypes("number").drop(columns="survived").reset_index(drop=True)
+)  # [["pclass"]].astype(float)
 X_vec = X.to_numpy().ravel(order="F")
 
 w = np.ones(X.shape[0])  # np.random.uniform(0.1, 100, X.shape[0]),
@@ -16,37 +20,40 @@ c[-1]
 
 X_rs = X.copy()
 for i in range(X.shape[1]):
-    X_rs.iloc[:,i] = pd.cut(X.iloc[:,i], c[i], right=False).cat.add_categories(0) # pd.Series(np.digitize(X.iloc[:,i], c[i], right=True))
-    X_rs.iloc[X.iloc[:,i].isna(),i] = 0
+    X_rs.iloc[:, i] = pd.cut(X.iloc[:, i], c[i], right=False).cat.add_categories(
+        0
+    )  # pd.Series(np.digitize(X.iloc[:,i], c[i], right=True))
+    X_rs.iloc[X.iloc[:, i].isna(), i] = 0
 
 for i in range(X.shape[1]):
-    X_rs.iloc[:,i].value_counts()
-    Xb.iloc[:,i].value_counts()
+    X_rs.iloc[:, i].value_counts()
+    Xb.iloc[:, i].value_counts()
 
-print(X_rs.iloc[:,0].value_counts().sort_index())
-print(Xb.iloc[:,0].value_counts().sort_index())
+print(X_rs.iloc[:, 0].value_counts().sort_index())
+print(Xb.iloc[:, 0].value_counts().sort_index())
 
-print(X_rs.iloc[:,-1].value_counts().sort_index())
-print(Xb.iloc[:,-1].value_counts().sort_index())
+print(X_rs.iloc[:, -1].value_counts().sort_index())
+print(Xb.iloc[:, -1].value_counts().sort_index())
 
 (X_rs.rename(columns={k: i for i, k in enumerate(X_rs.columns)}) == Xb).all()
 
-pd.concat([Xb.iloc[:,-1].head(),
-X.iloc[:,-1].head()], axis=1)
+pd.concat([Xb.iloc[:, -1].head(), X.iloc[:, -1].head()], axis=1)
 c[-1]
 ####
 import pandas as pd
 import numpy as np
-from forust import  percentiles
+from forust import percentiles
 
-df = pd.read_csv("../resources/titanic.csv").sample(2_000_000, replace=True, random_state=0)
+df = pd.read_csv("../resources/titanic.csv").sample(
+    2_000_000, replace=True, random_state=0
+)
 pcts = np.array([0.1, 0.2, 0.5, 0.78])
 pcts = np.linspace(0, 1, num=200, endpoint=True)
 p1 = percentiles(df["fare"].to_numpy(), np.ones(df.shape[0]), pcts)
 
 
 df["fare"].nunique()
-p2 = np.percentile(df["fare"], pcts*100)
+p2 = np.percentile(df["fare"], pcts * 100)
 np.allclose(p1, p2)
 
 ####
@@ -54,11 +61,13 @@ import pandas as pd
 import numpy as np
 from forust import GradientBooster
 
-df = pd.read_csv("../resources/titanic.csv") #.sample(100_000, replace=True, random_state=0)
+df = pd.read_csv(
+    "../resources/titanic.csv"
+)  # .sample(100_000, replace=True, random_state=0)
 # for i in range(0, 50):
 i = 1000
 X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True)
-X["age"] = X["age"] #.mul(-1)
+X["age"] = X["age"]  # .mul(-1)
 y = df["survived"].to_numpy().astype("float64")
 mod = GradientBooster(
     iterations=i,
@@ -81,24 +90,29 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 # hgb.predict_proba(X)[0:10]
 
 from xgboost import XGBClassifier
+
 xmod = XGBClassifier(
-n_estimators=i, 
-learning_rate=0.3,
-max_depth=5,
-reg_lambda=1,
-min_child_weight=1,
-gamma=1,
-objective="binary:logitraw",
-eval_metric="auc",
-tree_method="hist",
-max_bin=10000,
+    n_estimators=i,
+    learning_rate=0.3,
+    max_depth=5,
+    reg_lambda=1,
+    min_child_weight=1,
+    gamma=1,
+    objective="binary:logitraw",
+    eval_metric="auc",
+    tree_method="hist",
+    max_bin=10000,
 )
 xmod.fit(X, y)
 # print(xmod.predict(X, output_margin=True)[0:10])
-np.allclose(xmod.predict(X, output_margin=True).astype(np.float64), mod.predict(X).astype(np.float32), rtol=0.0001)
+np.allclose(
+    xmod.predict(X, output_margin=True).astype(np.float64),
+    mod.predict(X).astype(np.float32),
+    rtol=0.0001,
+)
 # if not np.allclose(xmod.predict(X, output_margin=True).astype(np.float32), mod.predict(X_vec, y.shape[0], 5).astype(np.float32), rtol=0.1):
-    #     print(i)
-    #     break
+#     print(i)
+#     break
 mp = mod.predict(X)
 xp = xmod.predict(X, output_margin=True)
 print(mp[0:5])
@@ -118,12 +132,16 @@ from forust import GradientBooster
 from xgboost import XGBClassifier
 
 
-df = pd.read_csv("../resources/titanic.csv")
+df = (
+    pd.read_csv("../resources/titanic.csv")
+    .sample(100_000, replace=True, random_state=0)
+    .reset_index(drop=True)
+)
 X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True)
 y = df["survived"]
 
-X = X.fillna(0)
-w = X["fare"].to_numpy() + 1
+# X = X.fillna(0)
+# w = X["fare"].to_numpy() + 1
 xmod = XGBClassifier(
     n_estimators=100,
     learning_rate=0.3,
@@ -132,11 +150,11 @@ xmod = XGBClassifier(
     min_child_weight=1.0,
     gamma=0.0,
     objective="binary:logitraw",
-    #tree_method="hist",
     eval_metric="auc",
-    #max_bin=1000,
+    tree_method="hist",
+    # max_bin=1000,
 )
-xmod.fit(X, y, sample_weight=w)
+xmod.fit(X, y)  # , sample_weight=w)
 xmod_preds = xmod.predict(X, output_margin=True)
 
 fmod = GradientBooster(
@@ -147,17 +165,43 @@ fmod = GradientBooster(
     min_leaf_weight=1.0,
     gamma=0.0,
     objective_type="LogLoss",
-    dtype="float32",
-    nbins=1000,
+    dtype="float64",
 )
-fmod.fit(X, y=y, sample_weight=w)
+fmod.fit(X, y=y)  # , sample_weight=w)
 fmod_preds = fmod.predict(X)
 
 print(fmod_preds[0:10])
 print(xmod_preds[0:10])
+print(np.allclose(fmod_preds, xmod_preds, atol=0.0001))
+
+from sklearn.metrics import roc_auc_score
+print(roc_auc_score(y, fmod_preds))
+print(roc_auc_score(y, xmod_preds))
+
+from forust import GradientBoosterF32
+import sys
+flat_data = X.to_numpy().ravel(order="F")
+mod = GradientBoosterF32(
+    objective_type = "LogLoss",
+        iterations = 100,
+        learning_rate = 0.3,
+        max_depth = 5,
+        max_leaves = sys.maxsize,
+        l2 = 1.0,
+        gamma = 0.0,
+        min_leaf_weight = 0.0,
+        base_score = 0.5,
+        nbins = 256,
+        parallel = True
+)
+mod.fit(
+    flat_data, *X.shape, y.to_numpy(), np.ones(y.shape, "float32")
+)
+
 print(fmod.text_dump()[0])
 print(xmod.get_booster().get_dump(with_stats=True)[0])
-    
+
+
 fmod_preds[~np.isclose(fmod_preds, xmod_preds, rtol=0.001)]
 xmod_preds[~np.isclose(fmod_preds, xmod_preds, atol=0.001)]
 fmod_preds[~np.isclose(fmod_preds, xmod_preds, atol=0.001)]
