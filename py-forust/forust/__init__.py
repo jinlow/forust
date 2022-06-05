@@ -29,7 +29,7 @@ class BoosterType:
         parallel: bool = True,
     ) -> np.ndarray:
         raise NotImplementedError()
-    
+
     def text_dump(self) -> List[str]:
         raise NotImplementedError()
 
@@ -147,9 +147,8 @@ class GradientBooster:
                 Defaults to None.
         """
         X_ = X.to_numpy() if isinstance(X, pd.DataFrame) else X
-        x_order = "F" if np.isfortran(X_) else "C"
         if not np.issubdtype(X_.dtype, self.dtype):
-            X_ = X_.astype(dtype=self.dtype, order=x_order, subok=True, copy=False)
+            X_ = X_.astype(dtype=self.dtype, copy=False)
 
         y_ = y.to_numpy() if isinstance(y, pd.Series) else y
         if not np.issubdtype(y_.dtype, self.dtype):
@@ -186,9 +185,8 @@ class GradientBooster:
             np.ndarray: Returns a numpy array of the predictions.
         """
         X_ = X.to_numpy() if isinstance(X, pd.DataFrame) else X
-        x_order = "F" if np.isfortran(X_) else "C"
         if not np.issubdtype(X_.dtype, self.dtype):
-            X_ = X_.astype(dtype=self.dtype, order=x_order, subok=True, copy=False)
+            X_ = X_.astype(dtype=self.dtype, copy=False)
 
         flat_data = X_.ravel(order="F")
         rows, cols = X_.shape
