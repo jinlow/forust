@@ -59,7 +59,6 @@ df = pd.read_csv("../resources/titanic.csv") #.sample(100_000, replace=True, ran
 i = 1000
 X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True)
 X["age"] = X["age"] #.mul(-1)
-X_vec = X.to_numpy().ravel(order="F").astype("float64")
 y = df["survived"].to_numpy().astype("float64")
 mod = GradientBooster(
     iterations=i,
@@ -72,7 +71,7 @@ mod = GradientBooster(
     nbins=500,
     parallel=False,
 )
-mod.fit(X_vec, y.shape[0], 5, y, np.ones(y.shape, dtype="float64"))
+mod.fit(X, y)
 # print(mod.predict(X_vec, y.shape[0], 5)[0:10])
 
 from sklearn.ensemble import HistGradientBoostingClassifier
@@ -96,11 +95,11 @@ max_bin=10000,
 )
 xmod.fit(X, y)
 # print(xmod.predict(X, output_margin=True)[0:10])
-np.allclose(xmod.predict(X, output_margin=True).astype(np.float32), mod.predict(X_vec, y.shape[0], 5).astype(np.float32), rtol=0.0001)
+np.allclose(xmod.predict(X, output_margin=True).astype(np.float64), mod.predict(X).astype(np.float32), rtol=0.0001)
 # if not np.allclose(xmod.predict(X, output_margin=True).astype(np.float32), mod.predict(X_vec, y.shape[0], 5).astype(np.float32), rtol=0.1):
     #     print(i)
     #     break
-mp = mod.predict(X_vec, y.shape[0], 5)
+mp = mod.predict(X)
 xp = xmod.predict(X, output_margin=True)
 print(mp[0:5])
 print(xp[0:5])
@@ -111,3 +110,55 @@ xp[~np.isclose(mp, xp, rtol=0.0001)]
 
 print(xmod.get_booster().get_dump(with_stats=True)[-1])
 print(mod.text_dump()[-1])
+
+### Testing weights
+import pandas as pd
+import numpy as np
+from forust import GradientBooster
+from xgboost import XGBClassifier
+
+
+df = pd.read_csv("../resources/titanic.csv")
+X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True)
+y = df["survived"]
+
+X = X.fillna(0)
+w = X["fare"].to_numpy() + 1
+xmod = XGBClassifier(
+    n_estimators=100,
+    learning_rate=0.3,
+    max_depth=5,
+    reg_lambda=1,
+    min_child_weight=1.0,
+    gamma=0.0,
+    objective="binary:logitraw",
+    #tree_method="hist",
+    eval_metric="auc",
+    #max_bin=1000,
+)
+xmod.fit(X, y, sample_weight=w)
+xmod_preds = xmod.predict(X, output_margin=True)
+
+fmod = GradientBooster(
+    iterations=100,
+    learning_rate=0.3,
+    max_depth=5,
+    l2=1,
+    min_leaf_weight=1.0,
+    gamma=0.0,
+    objective_type="LogLoss",
+    dtype="float32",
+    nbins=1000,
+)
+fmod.fit(X, y=y, sample_weight=w)
+fmod_preds = fmod.predict(X)
+
+print(fmod_preds[0:10])
+print(xmod_preds[0:10])
+print(fmod.text_dump()[0])
+print(xmod.get_booster().get_dump(with_stats=True)[0])
+    
+fmod_preds[~np.isclose(fmod_preds, xmod_preds, rtol=0.001)]
+xmod_preds[~np.isclose(fmod_preds, xmod_preds, atol=0.001)]
+fmod_preds[~np.isclose(fmod_preds, xmod_preds, atol=0.001)]
+assert np.allclose(fmod_preds, xmod_preds, rtol=0.001)
