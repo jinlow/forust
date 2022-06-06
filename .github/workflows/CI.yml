@@ -33,7 +33,7 @@ jobs:
         with:
           target: x86_64
           command: build
-          args: --release --strip --interpreter python
+          args: --release --strip --interpreter python --manifest-path py-forust/Cargo.toml
       - name: Install wheel
         run: pip install forust --no-index --find-links target/wheels --no-deps --force-reinstall
       - name: Run Package Tests
@@ -81,7 +81,7 @@ jobs:
         with:
           target: x86_64
           command: build
-          args: --release --strip --interpreter python${{ matrix.pyversion }} --no-sdist
+          args: --release --strip --interpreter python${{ matrix.pyversion }} --no-sdist --manifest-path py-forust/Cargo.toml
       - name: Install wheel
         run: pip install forust --no-index --find-links target/wheels --no-deps --force-reinstall
       - name: Run Package Tests
@@ -130,7 +130,7 @@ jobs:
         with:
           target: x86_64
           manylinux: auto
-          args: --release --strip --no-sdist --interpreter python${{ matrix.pyversion }}
+          args: --release --strip --no-sdist --interpreter python${{ matrix.pyversion }} --manifest-path py-forust/Cargo.toml
       - name: Install wheel
         run: pip install forust --no-index --find-links target/wheels --no-deps --force-reinstall
       - name: Run Package Tests
