@@ -20,7 +20,9 @@ jobs:
           architecture: x64
       - name: Install deps
         run: pip install numpy pandas seaborn xgboost scikit-learn
-      - run: cp README.md py-forust/README.md
+      - run: |
+          cp README.md py-forust/README.md
+          cp LICENSE py-forust/LICENSE
       - name: Build test data
         run: python resources/make_resources.py
       - name: Run Cargo tests
