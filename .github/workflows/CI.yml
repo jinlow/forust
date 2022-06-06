@@ -26,8 +26,6 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-      - name: Change Directories
-        run: cd py-forust
       - name: Build Wheels with maturin
         uses: messense/maturin-action@v1
         with:
@@ -35,9 +33,12 @@ jobs:
           command: build
           args: --release --strip --interpreter python --manifest-path py-forust/Cargo.toml
       - name: Install wheel
-        run: pip install forust --no-index --find-links ../target/wheels --no-deps --force-reinstall
+        run: pip install forust --no-index --find-links py-forust/target/wheels --no-deps --force-reinstall
       - name: Run Package Tests
-        run: pip install pytest && pytest tests
+        run: |
+          pip install pytest
+          cd py-forust
+          pytest tests
       - name: Save Artifacts
         uses: actions/upload-artifact@v2
         with:
@@ -48,98 +49,101 @@ jobs:
         uses: messense/maturin-action@v1
         with:
           command: publish
-          args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python --skip-existing
+          args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python --skip-existing --manifest-path py-forust/Cargo.toml
 
-  macos-build-test:
-    strategy:
-      matrix:
-        pyversion: ["3.8", "3.9", "3.10"]
-    runs-on: "macos-latest"
-    steps:
-      - uses: actions/checkout@v2
-      - name: Install latests stable Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-      - uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.pyversion }}
-          architecture: x64
-      - name: Install deps
-        run: pip install numpy pandas seaborn
-      - name: Build test data
-        run: python resources/make_resources.py
-      - name: Run Cargo tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-      - name: Change Directories
-        run: cd py-forust
-      - name: Build Wheels with maturin
-        uses: messense/maturin-action@v1
-        with:
-          target: x86_64
-          command: build
-          args: --release --strip --interpreter python${{ matrix.pyversion }} --no-sdist --manifest-path py-forust/Cargo.toml
-      - name: Install wheel
-        run: pip install forust --no-index --find-links ../target/wheels --no-deps --force-reinstall
-      - name: Run Package Tests
-        run: pip install --upgrade pytest && pytest tests
-      - name: Save Artifacts
-        uses: actions/upload-artifact@v2
-        with:
-          name: wheels
-          path: target/wheels
-      - if: "startsWith(github.ref, 'refs/tags/')"
-        name: Publish Wheels
-        uses: messense/maturin-action@v1
-        with:
-          command: publish
-          args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python${{ matrix.pyversion }} --skip-existing --no-sdist
+  # macos-build-test:
+  #   strategy:
+  #     matrix:
+  #       pyversion: ["3.8", "3.9", "3.10"]
+  #   runs-on: "macos-latest"
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - name: Install latests stable Rust
+  #       uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: stable
+  #         override: true
+  #     - uses: actions/setup-python@v2
+  #       with:
+  #         python-version: ${{ matrix.pyversion }}
+  #         architecture: x64
+  #     - name: Install deps
+  #       run: pip install numpy pandas seaborn
+  #     - name: Build test data
+  #       run: python resources/make_resources.py
+  #     - name: Run Cargo tests
+  #       uses: actions-rs/cargo@v1
+  #       with:
+  #         command: test
+  #     - name: Change Directories
+  #       run: cd py-forust
+  #     - name: Build Wheels with maturin
+  #       uses: messense/maturin-action@v1
+  #       with:
+  #         target: x86_64
+  #         command: build
+  #         args: --release --strip --interpreter python${{ matrix.pyversion }} --no-sdist --manifest-path py-forust/Cargo.toml
+  #     - name: Install wheel
+  #       run: pip install forust --no-index --find-links ../target/wheels --no-deps --force-reinstall
+  #     - name: Run Package Tests
+  #       run: pip install --upgrade pytest && pytest tests
+  #     - name: Save Artifacts
+  #       uses: actions/upload-artifact@v2
+  #       with:
+  #         name: wheels
+  #         path: target/wheels
+  #     - if: "startsWith(github.ref, 'refs/tags/')"
+  #       name: Publish Wheels
+  #       uses: messense/maturin-action@v1
+  #       with:
+  #         command: publish
+  #         args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python${{ matrix.pyversion }} --skip-existing --no-sdist --manifest-path py-forust/Cargo.toml
 
-  linux-build-test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        pyversion: ["3.8", "3.9", "3.10"]
-        # target: [x86_64, i686]
-    steps:
-      - uses: actions/checkout@v2
-      - name: Install latests stable Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-      - uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.pyversion }}
-          architecture: x64
-      - name: Install deps
-        run: pip install numpy pandas seaborn 
-      - name: Build test data
-        run: python resources/make_resources.py
-      - name: Run Cargo tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-      - name: Change Directories
-        run: cd py-forust
-      - name: Build Wheels
-        uses: messense/maturin-action@v1
-        with:
-          target: x86_64
-          manylinux: auto
-          args: --release --strip --no-sdist --interpreter python${{ matrix.pyversion }} --manifest-path py-forust/Cargo.toml
-      - name: Install wheel
-        run: pip install forust --no-index --find-links ../target/wheels --no-deps --force-reinstall
-      - name: Run Package Tests
-        run: pip install pytest && pytest tests
-      - if: "startsWith(github.ref, 'refs/tags/')"
-        name: Publish Wheels
-        uses: messense/maturin-action@v1
-        with:
-          command: publish
-          manylinux: auto
-          target: x86_64
-          args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python${{ matrix.pyversion }} --skip-existing --no-sdist
+  # linux-build-test:
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       pyversion: ["3.8", "3.9", "3.10"]
+  #       # target: [x86_64, i686]
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - name: Install latests stable Rust
+  #       uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: stable
+  #         override: true
+  #     - uses: actions/setup-python@v2
+  #       with:
+  #         python-version: ${{ matrix.pyversion }}
+  #         architecture: x64
+  #     - name: Install deps
+  #       run: pip install numpy pandas seaborn 
+  #     - name: Build test data
+  #       run: python resources/make_resources.py
+  #     - name: Run Cargo tests
+  #       uses: actions-rs/cargo@v1
+  #       with:
+  #         command: test
+  #     - name: Change Directories
+  #       run: cd py-forust
+  #     - name: Build Wheels
+  #       uses: messense/maturin-action@v1
+  #       with:
+  #         target: x86_64
+  #         manylinux: auto
+  #         args: --release --strip --no-sdist --interpreter python${{ matrix.pyversion }} --manifest-path py-forust/Cargo.toml
+  #     - name: Install wheel
+  #       run: pip install forust --no-index --find-links ../target/wheels --no-deps --force-reinstall
+  #     - name: Run Package Tests
+  #    |
+      #  run: pip install pytest
+      #  cd py-forust
+      #  pytest tests
+  #     - if: "startsWith(github.ref, 'refs/tags/')"
+  #       name: Publish Wheels
+  #       uses: messense/maturin-action@v1
+  #       with:
+  #         command: publish
+  #         manylinux: auto
+  #         target: x86_64
+  #         args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python${{ matrix.pyversion }} --skip-existing --no-sdist --manifest-path py-forust/Cargo.toml
