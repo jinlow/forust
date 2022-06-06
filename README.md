@@ -40,7 +40,8 @@ It can be initialized with the following arguments.
     are a numpy 32 bit float, or numpy 64 bit float. Using 32 bit float could be faster
     in some instances, however this may lead to less precise results. Defaults to "float64".
 
-Once, the booster has been initialized, it can be fit on provided dataset, and performance field. After fitting, the model can be used to predict on a dataset.
+Once, the booster has been initialized, it can be fit on a provided dataset, and performance field. After fitting, the model can be used to predict on a dataset.
+In the case of this example, the predictions are the log odds of a given record being 1.
 
 ```python
 # Small example dataset
