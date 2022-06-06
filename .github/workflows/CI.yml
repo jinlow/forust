@@ -14,14 +14,16 @@ jobs:
         with:
           toolchain: stable
           override: true
+      - uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.pyversion }}
+          architecture: x64
+      - name: Build test data
+        run: python resources/make_resources.py
       - name: Run Cargo tests
         uses: actions-rs/cargo@v1
         with:
           command: test
-      - name: Setup python
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.pyversion }}
       - name: Change Directories
         run: cd py-forust
       - name: Build Wheels with maturin
@@ -60,14 +62,16 @@ jobs:
         with:
           toolchain: stable
           override: true
+      - uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.pyversion }}
+          architecture: x64
+      - name: Build test data
+        run: python resources/make_resources.py
       - name: Run Cargo tests
         uses: actions-rs/cargo@v1
         with:
           command: test
-      - name: Setup python
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.pyversion }}
       - name: Change Directories
         run: cd py-forust
       - name: Build Wheels with maturin
@@ -107,14 +111,16 @@ jobs:
         with:
           toolchain: stable
           override: true
-      - name: Run Cargo tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
       - uses: actions/setup-python@v2
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
+      - name: Build test data
+        run: python resources/make_resources.py
+      - name: Run Cargo tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
       - name: Change Directories
         run: cd py-forust
       - name: Build Wheels
