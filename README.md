@@ -3,6 +3,8 @@
 
 Forust, is a lightweight package for building gradient boosted decision tree ensembles. All of the algorithm code is written in [Rust](https://www.rust-lang.org/), with a python wrapper. The rust package can be used directly, however, most examples shown here will be for the python wrapper. It implements the same algorithm as the [XGBoost](https://xgboost.readthedocs.io/en/stable/) package, and in many cases will give nearly identical results.
 
+I developed this package for a few reasons, mainly to better understand the XGBoost algorithm, additionally to have a fun project to work on in rust, and because I wanted to have finer control over some details of how the algorithm.
+
 ### Usage
 The `GradientBooster` class is currently the only public facing class in the package, and can be used to train gradient boosted decision tree ensembles with multiple objective functions.
 
@@ -79,3 +81,13 @@ model.text_dump()[0]
 #                         15:leaf=-0.15120,cover=0.23500
 #                         16:leaf=0.154097,cover=0.470007
 ```
+
+### TODOs
+This is still a work in progress
+- [ ] Early stopping rounds
+    * We should be able to accept a validation dataset, and this should be able to be used to determine when to stop training.
+- [ ] Monotonicity support
+    * Right now features are used in the model without any constraints.
+- [ ] Ability to save a model.
+    * The way the underlying trees are structured, they would lend themselves to being saved as JSon objects.
+- [ ] Clean up the CICD pipeline.
