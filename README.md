@@ -38,3 +38,44 @@ It can be initialized with the following arguments.
     are a numpy 32 bit float, or numpy 64 bit float. Using 32 bit float could be faster
     in some instances, however this may lead to less precise results. Defaults to "float64".
 
+Once, the booster has been initialized, it can be fit on provided dataset, and performance field. After fitting, the model can be used to predict on a dataset.
+
+```python
+# Small example dataset
+from seaborn import load_dataset
+
+df = load_dataset("titanic")
+X = df.select_dtypes("number").drop(column=["survived"])
+y = df["survived"]
+
+# Initialize a booster with defaults.
+from forust import GradientBooster
+model = GradientBooster(objective_type="LogLoss")
+model.fit(X, y)
+
+# Predict on data
+model.predict(X.head())
+# array([-1.94919663,  2.25863229,  0.32963671,  2.48732194, -3.00371813])
+```
+
+The `fit` method accepts the following arguments.
+ - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
+ - `y` ***(ArrayLike)***: Either a pandas Series, or a 1 dimensional numpy array.
+ - `sample_weight` ***(Optional[ArrayLike], optional)***: Instance weights to use when
+    training the model. If None is passed, a weight of 1 will be used for every record.
+    Defaults to None.
+
+The predict method accepts the following arguments.
+ - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
+
+Once the booster has been fit, each individual tree structure can be retrieved in text form, using the `text_dump` method. This method returns a list, the same length as the number of trees in the model.
+
+```python
+model.text_dump()[0]
+# 0:[0 < 3] yes=1,no=2,missing=2,gain=91.50833,cover=209.388307
+#       1:[4 < 13.7917] yes=3,no=4,missing=4,gain=28.185467,cover=94.00148
+#             3:[1 < 18] yes=7,no=8,missing=8,gain=1.4576768,cover=22.090348
+#                   7:[1 < 17] yes=15,no=16,missing=16,gain=0.691266,cover=0.705011
+#                         15:leaf=-0.15120,cover=0.23500
+#                         16:leaf=0.154097,cover=0.470007
+```

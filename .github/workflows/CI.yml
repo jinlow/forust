@@ -1,72 +1,139 @@
-name: CI
-
-on:
-  push:
-  pull_request:
+name: Test and Deploy
+on: [push]
 
 jobs:
-  linux:
-    runs-on: ubuntu-latest
+  windows-build-tests:
+    strategy:
+      matrix:
+        pyversion: ["3.8", "3.9", "3.10"]
+    runs-on: "windows-latest"
     steps:
-    - uses: actions/checkout@v2
-    - name: Change dir
-      run: cd py-forust
-    - uses: messense/maturin-action@v1
-      with:
-        manylinux: auto
-        command: build
-        args: --release -o dist
-    - name: Upload wheels
-      uses: actions/upload-artifact@v2
-      with:
-        name: wheels
-        path: dist
-
-  windows:
-    runs-on: windows-latest
-    steps:
-    - uses: actions/checkout@v2
-    - name: Change dir
-      run: cd py-forust
-    - uses: messense/maturin-action@v1
-      with:
-        command: build
-        args: --release --no-sdist -o dist
-    - name: Upload wheels
-      uses: actions/upload-artifact@v2
-      with:
-        name: wheels
-        path: dist
-
-  macos:
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v2
-    - name: Change dir
-      run: cd py-forust
-    - uses: messense/maturin-action@v1
-      with:
-        command: build
-        args: --release --no-sdist -o dist --universal2
-    - name: Upload wheels
-      uses: actions/upload-artifact@v2
-      with:
-        name: wheels
-        path: dist
-
-  release:
-    name: Release
-    runs-on: ubuntu-latest
-    if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [ macos, windows, linux ]
-    steps:
-      - uses: actions/download-artifact@v2
+      - uses: actions/checkout@v2
+      - name: Install latests stable Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Run Cargo tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+      - name: Setup python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.pyversion }}
+      - name: Change Directories
+        run: cd py-forust
+      - name: Build Wheels with maturin
+        uses: messense/maturin-action@v1
+        with:
+          target: x86_64
+          command: build
+          args: --release --strip --interpreter python
+      - name: Install wheel
+        run: |
+          pip install numpy pandas
+          pip install forust --no-index --find-links target/wheels --no-deps --force-reinstall
+      - name: Run Package Tests
+        run: pip install pytest && pytest tests
+      - name: Save Artifacts
+        uses: actions/upload-artifact@v2
         with:
           name: wheels
-      - name: Publish to PyPI
+          path: target/wheels
+      - if: "startsWith(github.ref, 'refs/tags/')"
+        name: Publish Wheels
         uses: messense/maturin-action@v1
-        env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         with:
-          command: upload
-          args: --skip-existing *
+          command: publish
+          args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python --skip-existing
+
+  macos-build-test:
+    strategy:
+      matrix:
+        pyversion: ["3.8", "3.9", "3.10"]
+    runs-on: "macos-latest"
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latests stable Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Run Cargo tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+      - name: Setup python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.pyversion }}
+      - name: Change Directories
+        run: cd py-forust
+      - name: Build Wheels with maturin
+        uses: messense/maturin-action@v1
+        with:
+          target: x86_64
+          command: build
+          args: --release --strip --interpreter python${{ matrix.pyversion }} --no-sdist
+      - name: Install wheel
+        run: |
+          pip install numpy pandas
+          pip install forust --no-index --find-links target/wheels --no-deps --force-reinstall
+      - name: Run Package Tests
+        run: pip install --upgrade pytest && pytest tests
+      - name: Save Artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheels
+          path: target/wheels
+      - if: "startsWith(github.ref, 'refs/tags/')"
+        name: Publish Wheels
+        uses: messense/maturin-action@v1
+        with:
+          command: publish
+          args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python${{ matrix.pyversion }} --skip-existing --no-sdist
+
+  linux-build-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pyversion: ["3.8", "3.9", "3.10"]
+        # target: [x86_64, i686]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latests stable Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Run Cargo tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+      - uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.pyversion }}
+          architecture: x64
+      - name: Change Directories
+        run: cd py-forust
+      - name: Build Wheels
+        uses: messense/maturin-action@v1
+        with:
+          target: x86_64
+          manylinux: auto
+          args: --release --strip --no-sdist --interpreter python${{ matrix.pyversion }}
+      - name: Install wheel
+        run: |
+          pip install numpy pandas
+          pip install forust --no-index --find-links target/wheels --no-deps --force-reinstall
+      - name: Run Package Tests
+        run: pip install pytest && pytest tests
+      - if: "startsWith(github.ref, 'refs/tags/')"
+        name: Publish Wheels
+        uses: messense/maturin-action@v1
+        with:
+          command: publish
+          manylinux: auto
+          target: x86_64
+          args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python${{ matrix.pyversion }} --skip-existing --no-sdist
