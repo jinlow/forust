@@ -18,6 +18,8 @@ jobs:
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
+      - name: Install deps
+        run: pip install numpy pandas seaborn
       - name: Build test data
         run: python resources/make_resources.py
       - name: Run Cargo tests
@@ -33,9 +35,7 @@ jobs:
           command: build
           args: --release --strip --interpreter python
       - name: Install wheel
-        run: |
-          pip install numpy pandas
-          pip install forust --no-index --find-links target/wheels --no-deps --force-reinstall
+        run: pip install forust --no-index --find-links target/wheels --no-deps --force-reinstall
       - name: Run Package Tests
         run: pip install pytest && pytest tests
       - name: Save Artifacts
@@ -67,7 +67,7 @@ jobs:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas
+        run: pip install numpy pandas seaborn
       - name: Build test data
         run: python resources/make_resources.py
       - name: Run Cargo tests
@@ -116,7 +116,7 @@ jobs:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas
+        run: pip install numpy pandas seaborn 
       - name: Build test data
         run: python resources/make_resources.py
       - name: Run Cargo tests
