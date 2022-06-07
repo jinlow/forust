@@ -1,7 +1,9 @@
 use crate::data::MatrixData;
+use serde::{Deserialize, Serialize};
 
 type ObjFn<T> = fn(&[T], &[T], &[T]) -> Vec<T>;
 
+#[derive(Debug, Deserialize, Serialize)]
 pub enum ObjectiveType {
     LogLoss,
     SquaredLoss,

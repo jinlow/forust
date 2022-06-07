@@ -1,8 +1,9 @@
+from __future__ import annotations
 from random import sample
 from .forust import GradientBoosterF32, GradientBoosterF64  # type: ignore
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, cast, List
+from typing import Any, Optional, Union, cast, List, Dict
 import sys
 
 ArrayLike = Union[pd.Series, np.ndarray]
@@ -31,6 +32,16 @@ class BoosterType:
         raise NotImplementedError()
 
     def text_dump(self) -> List[str]:
+        raise NotImplementedError()
+
+    @classmethod
+    def load_booster(cls, path: str) -> BoosterType:
+        raise NotImplementedError()
+
+    def save_booster(self, path: str):
+        raise NotImplementedError()
+
+    def get_params(self) -> Dict[str, Any]:
         raise NotImplementedError()
 
 
@@ -206,3 +217,13 @@ class GradientBooster:
                 of the tree.
         """
         return self.booster.text_dump()
+
+    @classmethod
+    def load_booster(cls, path: str) -> GradientBooster:
+        booster = GradientBoosterF64.load_booster(path)
+        c = cls(**booster.get_params())
+        c.booster = booster
+        return c
+
+    def save_booster(self, path: str):
+        self.booster.save_booster(path)

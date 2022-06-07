@@ -256,3 +256,7 @@ fmod_preds = fmod.predict(X)
 
 print(fmod_preds[0:10])
 print(xmod_preds[0:10])
+
+fmod.save_booster("mod2.json")
+fmod2 = GradientBooster.load_booster("mod2.json")
+fmod2.predict(X)

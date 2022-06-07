@@ -7,7 +7,9 @@ use rayon::prelude::*;
 use std::collections::VecDeque;
 use std::fmt;
 use std::str::FromStr;
+use serde::{Deserialize, Serialize};
 
+#[derive(Deserialize, Serialize)]
 pub struct Tree<T: MatrixData<T>> {
     pub nodes: Vec<TreeNode<T>>,
 }

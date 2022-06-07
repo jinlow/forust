@@ -2,9 +2,10 @@ use std::collections::HashMap;
 
 use crate::data::{Matrix, MatrixData};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 /// Struct to hold the information of a given bin.
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Bin<T> {
     /// The sum of the gradient for this bin.
     pub grad_sum: T,
@@ -39,7 +40,7 @@ where
 
 pub type Hist<T> = HashMap<u16, Bin<T>>;
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Histograms<T>(pub Vec<Hist<T>>);
 
 pub fn create_feature_histogram<T: MatrixData<T>>(

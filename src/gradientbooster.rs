@@ -4,9 +4,11 @@ use crate::errors::ForustError;
 use crate::histsplitter::HistogramSplitter;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
 use crate::tree::Tree;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::fs;
 
 /// Gradient Booster object
-/// 
+///
 /// * `objective_type` - The name of objective function used to optimize.
 ///   Valid options include "LogLoss" to use logistic loss as the objective function,
 ///   or "SquaredLoss" to use Squared Error as the objective function.
@@ -29,6 +31,7 @@ use crate::tree::Tree;
 ///   a smaller number, will result in faster training time, while potentially sacrificing
 ///   accuracy. If there are more bins, than unique values in a column, all unique values
 ///   will be used.
+#[derive(Deserialize, Serialize)]
 pub struct GradientBooster<T: MatrixData<T>> {
     pub objective_type: ObjectiveType,
     pub iterations: usize,
@@ -82,10 +85,10 @@ impl Default for GradientBooster<f32> {
 
 impl<T> GradientBooster<T>
 where
-    T: MatrixData<T>,
+    T: MatrixData<T> + Serialize + DeserializeOwned,
 {
     /// Gradient Booster object
-    /// 
+    ///
     /// * `objective_type` - The name of objective function used to optimize.
     ///   Valid options include "LogLoss" to use logistic loss as the objective function,
     ///   or "SquaredLoss" to use Squared Error as the objective function.
@@ -139,7 +142,7 @@ where
     }
 
     /// Fit the gradient booster on a provided dataset.
-    /// 
+    ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
     /// * `y` - Either a pandas Series, or a 1 dimensional numpy array.
     /// * `sample_weight` - Instance weights to use when
@@ -194,7 +197,7 @@ where
     }
 
     /// Generate predictions on data using the gradient booster.
-    /// 
+    ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
     pub fn predict(&self, data: &Matrix<T>, parallel: bool) -> Vec<T> {
         let mut init_preds = vec![self.base_score; data.rows];
@@ -204,6 +207,35 @@ where
             }
         });
         init_preds
+    }
+
+    /// Save a booster as a json object to a file.
+    ///
+    /// * `path` - Path to save booster.
+    pub fn save_booster(&self, path: &str) -> Result<(), ForustError> {
+        let model = match serde_json::to_string_pretty(self) {
+            Ok(s) => Ok(s),
+            Err(e) => Err(ForustError::UnableToWrite(e.to_string())),
+        }?;
+        match fs::write(path, model) {
+            Err(e) => Err(ForustError::UnableToWrite(e.to_string())),
+            Ok(_) => Ok(()),
+        }
+    }
+
+    /// Load a booster from a path to a json booster object.
+    ///
+    /// * `path` - Path to load booster from.
+    pub fn load_booster(path: &str) -> Result<Self, ForustError> {
+        let file = match fs::read_to_string(path) {
+            Ok(s) => Ok(s),
+            Err(e) => Err(ForustError::UnableToRead(e.to_string())),
+        }?;
+        let model = serde_json::from_str::<GradientBooster<T>>(&file);
+        match model {
+            Ok(m) => Ok(m),
+            Err(e) => Err(ForustError::UnableToRead(e.to_string())),
+        }
     }
 }
 
@@ -215,7 +247,10 @@ mod tests {
     fn test_tree_fit() {
         let file = fs::read_to_string("resources/contiguous_with_missing.csv")
             .expect("Something went wrong reading the file");
-        let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap_or(f64::NAN)).collect();
+        let data_vec: Vec<f64> = file
+            .lines()
+            .map(|x| x.parse::<f64>().unwrap_or(f64::NAN))
+            .collect();
         let file = fs::read_to_string("resources/performance.csv")
             .expect("Something went wrong reading the file");
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();

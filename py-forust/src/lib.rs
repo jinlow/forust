@@ -1,15 +1,18 @@
 use forust::binning::bin_matrix;
 use forust::data::Matrix;
-use forust::gradientbooster::GradientBooster as CrateGradienBooster;
+use forust::gradientbooster::GradientBooster as CrateGradientBooster;
 use forust::objective::ObjectiveType;
 use forust::utils::percentiles as crate_percentiles;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::IntoPyDict;
+use pyo3::types::PyType;
 
 // 32 bit implementation
 #[pyclass(subclass)]
 struct GradientBoosterF32 {
-    booster: CrateGradienBooster<f32>,
+    booster: CrateGradientBooster<f32>,
 }
 
 #[pymethods]
@@ -35,7 +38,7 @@ impl GradientBoosterF32 {
         } else {
             panic!("Not a valid objective type provided.")
         };
-        let booster = CrateGradienBooster::new(
+        let booster = CrateGradientBooster::new(
             objective_,
             iterations,
             learning_rate,
@@ -97,12 +100,53 @@ impl GradientBoosterF32 {
         }
         return Ok(trees);
     }
+
+    pub fn save_booster(&self, path: &str) -> PyResult<()> {
+        match self.booster.save_booster(path) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }
+    }
+
+    pub fn get_params<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
+        let objective_ = match self.booster.objective_type {
+            ObjectiveType::LogLoss => "logloss",
+            ObjectiveType::SquaredLoss => "SquaredLoss",
+        };
+        let key_vals: Vec<(&str, PyObject)> = vec![
+            ("objective_type", objective_.to_object(py)),
+            ("iterations", self.booster.iterations.to_object(py)),
+            ("learning_rate", self.booster.learning_rate.to_object(py)),
+            ("max_depth", self.booster.max_depth.to_object(py)),
+            ("max_leaves", self.booster.max_leaves.to_object(py)),
+            ("l2", self.booster.l2.to_object(py)),
+            ("gamma", self.booster.gamma.to_object(py)),
+            (
+                "min_leaf_weight",
+                self.booster.min_leaf_weight.to_object(py),
+            ),
+            ("base_score", self.booster.base_score.to_object(py)),
+            ("nbins", self.booster.nbins.to_object(py)),
+            ("parallel", self.booster.parallel.to_object(py)),
+        ];
+        let dict = key_vals.into_py_dict(py);
+        Ok(dict.to_object(py))
+    }
+
+    #[classmethod]
+    pub fn load_booster(_: &PyType, path: String) -> PyResult<Self> {
+        let booster = match CrateGradientBooster::load_booster(path.as_str()) {
+            Ok(m) => Ok(m),
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }?;
+        Ok(GradientBoosterF32 { booster })
+    }
 }
 
 // 64 bit implementation
 #[pyclass(subclass)]
 struct GradientBoosterF64 {
-    booster: CrateGradienBooster<f64>,
+    booster: CrateGradientBooster<f64>,
 }
 
 #[pymethods]
@@ -128,7 +172,7 @@ impl GradientBoosterF64 {
         } else {
             panic!("Not a valid objective type provided.")
         };
-        let booster = CrateGradienBooster::new(
+        let booster = CrateGradientBooster::new(
             objective_,
             iterations,
             learning_rate,
@@ -189,6 +233,47 @@ impl GradientBoosterF64 {
             trees.push(format!("{}", t));
         }
         return Ok(trees);
+    }
+
+    pub fn save_booster(&self, path: &str) -> PyResult<()> {
+        match self.booster.save_booster(path) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }
+    }
+
+    pub fn get_params<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
+        let objective_ = match self.booster.objective_type {
+            ObjectiveType::LogLoss => "logloss",
+            ObjectiveType::SquaredLoss => "SquaredLoss",
+        };
+        let key_vals: Vec<(&str, PyObject)> = vec![
+            ("objective_type", objective_.to_object(py)),
+            ("iterations", self.booster.iterations.to_object(py)),
+            ("learning_rate", self.booster.learning_rate.to_object(py)),
+            ("max_depth", self.booster.max_depth.to_object(py)),
+            ("max_leaves", self.booster.max_leaves.to_object(py)),
+            ("l2", self.booster.l2.to_object(py)),
+            ("gamma", self.booster.gamma.to_object(py)),
+            (
+                "min_leaf_weight",
+                self.booster.min_leaf_weight.to_object(py),
+            ),
+            ("base_score", self.booster.base_score.to_object(py)),
+            ("nbins", self.booster.nbins.to_object(py)),
+            ("parallel", self.booster.parallel.to_object(py)),
+        ];
+        let dict = key_vals.into_py_dict(py);
+        Ok(dict.to_object(py))
+    }
+
+    #[classmethod]
+    pub fn load_booster(_: &PyType, path: String) -> PyResult<Self> {
+        let booster = match CrateGradientBooster::load_booster(path.as_str()) {
+            Ok(m) => Ok(m),
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }?;
+        Ok(GradientBoosterF64 { booster })
     }
 }
 

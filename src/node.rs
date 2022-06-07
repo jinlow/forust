@@ -3,8 +3,9 @@ use crate::histogram::Histograms;
 use crate::histsplitter::SplitInfo;
 use std::fmt::{self, Debug};
 use std::str::FromStr;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct SplittableNode<T> {
     pub num: usize,
     pub histograms: Histograms<T>,
@@ -23,6 +24,7 @@ pub struct SplittableNode<T> {
     pub stop_idx: usize,
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct ParentNode<T> {
     num: usize,
     pub weight_value: T,
@@ -36,6 +38,7 @@ pub struct ParentNode<T> {
     pub right_child: usize,
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct LeafNode<T> {
     pub num: usize,
     pub weight_value: T,
@@ -43,6 +46,7 @@ pub struct LeafNode<T> {
     pub depth: usize,
 }
 
+#[derive(Deserialize, Serialize)]
 pub enum TreeNode<T> {
     Parent(ParentNode<T>),
     Leaf(LeafNode<T>),
