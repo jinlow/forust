@@ -102,9 +102,9 @@ impl<'a, T> Matrix<'a, T> {
             stride2: 1,
         }
     }
-    
+
     /// Get a single reference to an item in the matrix.
-    /// 
+    ///
     /// * `i` - The ith row of the data to get.
     /// * `j` - the jth column of the data to get.
     pub fn get(&self, i: usize, j: usize) -> &T {
@@ -119,7 +119,7 @@ impl<'a, T> Matrix<'a, T> {
     }
 
     /// Get a slice of a column in the matrix.
-    /// 
+    ///
     /// * `col` - The index of the column to select.
     /// * `start_row` - The index of the start of the slice.
     /// * `end_row` - The index of the end of the slice of the column to select.
@@ -130,7 +130,7 @@ impl<'a, T> Matrix<'a, T> {
     }
 
     /// Get an entire column in the matrix.
-    /// 
+    ///
     /// * `col` - The index of the column to get.
     pub fn get_col(&self, col: usize) -> &[T] {
         self.get_col_slice(col, 0, self.rows)

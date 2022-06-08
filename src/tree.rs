@@ -4,10 +4,10 @@ use crate::histsplitter::HistogramSplitter;
 use crate::node::{SplittableNode, TreeNode};
 use crate::utils::pivot_on_split;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt;
 use std::str::FromStr;
-use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
 pub struct Tree<T: MatrixData<T>> {

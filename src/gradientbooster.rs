@@ -5,6 +5,7 @@ use crate::histsplitter::HistogramSplitter;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
 use crate::tree::Tree;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::any::type_name;
 use std::fs;
 
 /// Gradient Booster object
@@ -44,6 +45,7 @@ pub struct GradientBooster<T: MatrixData<T>> {
     pub base_score: T,
     pub nbins: u16,
     pub parallel: bool,
+    pub dtype: String,
     pub trees: Vec<Tree<T>>,
 }
 
@@ -137,6 +139,7 @@ where
             base_score,
             nbins,
             parallel,
+            dtype: type_name::<T>().to_owned(),
             trees: Vec::new(),
         }
     }
@@ -213,13 +216,29 @@ where
     ///
     /// * `path` - Path to save booster.
     pub fn save_booster(&self, path: &str) -> Result<(), ForustError> {
-        let model = match serde_json::to_string_pretty(self) {
-            Ok(s) => Ok(s),
-            Err(e) => Err(ForustError::UnableToWrite(e.to_string())),
-        }?;
+        let model = self.json_dump()?;
         match fs::write(path, model) {
             Err(e) => Err(ForustError::UnableToWrite(e.to_string())),
             Ok(_) => Ok(()),
+        }
+    }
+
+    /// Dump a booster as a json object
+    pub fn json_dump(&self) -> Result<String, ForustError> {
+        match serde_json::to_string(self) {
+            Ok(s) => Ok(s),
+            Err(e) => Err(ForustError::UnableToWrite(e.to_string())),
+        }
+    }
+
+    /// Load a booster from Json string
+    ///
+    /// * `json_str` - String object, which can be serialized to json.
+    pub fn from_json(json_str: &str) -> Result<Self, ForustError> {
+        let model = serde_json::from_str::<GradientBooster<T>>(json_str);
+        match model {
+            Ok(m) => Ok(m),
+            Err(e) => Err(ForustError::UnableToRead(e.to_string())),
         }
     }
 
@@ -227,15 +246,11 @@ where
     ///
     /// * `path` - Path to load booster from.
     pub fn load_booster(path: &str) -> Result<Self, ForustError> {
-        let file = match fs::read_to_string(path) {
+        let json_str = match fs::read_to_string(path) {
             Ok(s) => Ok(s),
             Err(e) => Err(ForustError::UnableToRead(e.to_string())),
         }?;
-        let model = serde_json::from_str::<GradientBooster<T>>(&file);
-        match model {
-            Ok(m) => Ok(m),
-            Err(e) => Err(ForustError::UnableToRead(e.to_string())),
-        }
+        Self::from_json(&json_str)
     }
 }
 
@@ -243,6 +258,7 @@ where
 mod tests {
     use super::*;
     use std::fs;
+
     #[test]
     fn test_tree_fit() {
         let file = fs::read_to_string("resources/contiguous_with_missing.csv")
@@ -268,5 +284,58 @@ mod tests {
         println!("{}", booster.trees[0].nodes.len());
         println!("{}", booster.trees.last().unwrap().nodes.len());
         println!("{:?}", &preds[0..10]);
+    }
+
+    #[test]
+    fn test_tree_save() {
+        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file
+            .lines()
+            .map(|x| x.parse::<f64>().unwrap_or(f64::NAN))
+            .collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+
+        let data = Matrix::new(&data_vec, 891, 5);
+        //let data = Matrix::new(data.get_col(1), 891, 1);
+        let mut booster = GradientBooster::default();
+        booster.iterations = 10;
+        booster.nbins = 300;
+        booster.max_depth = 3;
+        let sample_weight = vec![1.; y.len()];
+        booster.fit(&data, &y, &sample_weight, true).unwrap();
+        let preds = booster.predict(&data, true);
+
+        booster.save_booster("resources/model.json").unwrap();
+        let booster2 = GradientBooster::<f64>::load_booster("resources/model.json").unwrap();
+        assert_eq!(booster2.predict(&data, true)[0..10], preds[0..10]);
+    }
+    #[test]
+    fn test_tree_save_f32() {
+        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f32> = file
+            .lines()
+            .map(|x| x.parse::<f32>().unwrap_or(f32::NAN))
+            .collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f32> = file.lines().map(|x| x.parse::<f32>().unwrap()).collect();
+
+        let data = Matrix::new(&data_vec, 891, 5);
+        //let data = Matrix::new(data.get_col(1), 891, 1);
+        let mut booster = GradientBooster::default();
+        booster.iterations = 10;
+        booster.nbins = 300;
+        booster.max_depth = 3;
+        let sample_weight = vec![1.; y.len()];
+        booster.fit(&data, &y, &sample_weight, true).unwrap();
+        let preds = booster.predict(&data, true);
+
+        booster.save_booster("resources/model.json").unwrap();
+        let booster2 = GradientBooster::<f32>::load_booster("resources/model.json").unwrap();
+        assert_eq!(booster2.predict(&data, true)[0..10], preds[0..10]);
     }
 }

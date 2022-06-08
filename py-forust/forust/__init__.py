@@ -1,10 +1,14 @@
 from __future__ import annotations
+
+import json
+import sys
 from random import sample
-from .forust import GradientBoosterF32, GradientBoosterF64  # type: ignore
+from typing import Any, Dict, List, Optional, Union, cast
+
 import numpy as np
 import pandas as pd
-from typing import Any, Optional, Union, cast, List, Dict
-import sys
+
+from .forust import GradientBoosterF32, GradientBoosterF64  # type: ignore
 
 ArrayLike = Union[pd.Series, np.ndarray]
 FrameLike = Union[pd.DataFrame, np.ndarray]
@@ -39,6 +43,13 @@ class BoosterType:
         raise NotImplementedError()
 
     def save_booster(self, path: str):
+        raise NotImplementedError()
+
+    @classmethod
+    def from_json(cls, json_str: str) -> BoosterType:
+        raise NotImplementedError()
+
+    def json_dump(self) -> str:
         raise NotImplementedError()
 
     def get_params(self) -> Dict[str, Any]:
@@ -218,12 +229,44 @@ class GradientBooster:
         """
         return self.booster.text_dump()
 
+    def json_dump(self) -> str:
+        """Return the booster object as a string.
+
+        Returns:
+            str: The booster dumped as a json object in string form.
+        """
+        return self.booster.json_dump()
+
     @classmethod
     def load_booster(cls, path: str) -> GradientBooster:
-        booster = GradientBoosterF64.load_booster(path)
-        c = cls(**booster.get_params())
+        """Load a booster object that was saved with the `save_booster` method.
+
+        Args:
+            path (str): Path to the saved booster file.
+
+        Returns:
+            GradientBooster: An initialized booster object.
+        """
+        with open(path, "r") as file:
+            model_json = json.load(file)
+        if model_json["dtype"] == "f32":
+            booster = GradientBoosterF32.load_booster(str(path))
+        else:
+            booster = GradientBoosterF64.load_booster(str(path))
+            
+        params = booster.get_params()
+        if params["dtype"] == "f64":
+            params["dtype"] = "float64"
+        else:
+            params["dtype"] = "float32"
+        c = cls(**params)
         c.booster = booster
         return c
 
     def save_booster(self, path: str):
-        self.booster.save_booster(path)
+        """Save a booster object, the underlying representation is a json file.
+
+        Args:
+            path (str): Path to save the booster object.
+        """
+        self.booster.save_booster(str(path))

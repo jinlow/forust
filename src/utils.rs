@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 
 /// Naive weighted percentiles calculation.
-/// 
+///
 /// Currently this function does not support missing values.
 ///   
 /// * `v` - A Vector of which to find percentiles for.
@@ -57,7 +57,7 @@ where
 // missing values.
 /// Return the index of the first value in a sorted
 /// vector that is greater than a provided value.
-/// 
+///
 /// * `x` - The sorted slice of values.
 /// * `v` - The value used to calculate the first
 ///   value larger than it.
@@ -82,7 +82,7 @@ pub fn map_bin<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> Option<u16> {
 /// around a specific split value so all of the values less
 /// than the split value are on one side, and then all of the
 /// values greater than or equal to the split value are above.
-/// 
+///
 /// * `index` - The index values to sort.
 /// * `feature` - The feature vector to use to sort the index by.
 /// * `split_value` - the split value to use to pivot on.

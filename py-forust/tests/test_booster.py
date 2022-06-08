@@ -120,3 +120,94 @@ def test_booster_to_xgboosts_weighted(X_y, data_dtype):
     fmod.fit(X, y=y, sample_weight=w)
     fmod_preds = fmod.predict(X)
     assert np.allclose(fmod_preds, xmod_preds, atol=0.0001)
+
+
+def test_booster_saving(X_y, tmp_path):
+    f32_model_path = tmp_path / "modelf32.json"
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="SquaredLoss",
+        nbins=500,
+        parallel=False,
+        dtype="float32",
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    fmod.save_booster(f32_model_path)
+    fmod_loaded = GradientBooster.load_booster(f32_model_path)
+    assert all(fmod_preds == fmod_loaded.predict(X))
+
+    f32_model_path = tmp_path / "modelf32.json"
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=False,
+        dtype="float32",
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    fmod.save_booster(f32_model_path)
+    fmod_loaded = GradientBooster.load_booster(f32_model_path)
+    assert all(fmod_preds == fmod_loaded.predict(X))
+
+    f64_model_path = tmp_path / "modelf64.json"
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="SquaredLoss",
+        nbins=500,
+        parallel=False,
+        dtype="float64",
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    fmod.save_booster(f64_model_path)
+    fmod_loaded = GradientBooster.load_booster(f64_model_path)
+    assert all(fmod_preds == fmod_loaded.predict(X))
+
+    f64_model_path = tmp_path / "modelf64.json"
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=False,
+        dtype="float64",
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    fmod.save_booster(f64_model_path)
+    fmod_loaded = GradientBooster.load_booster(f64_model_path)
+    assert all(fmod_preds == fmod_loaded.predict(X))
+
+    
+
+
+#    f32_model_path = tmp_path / "modelf32.json"

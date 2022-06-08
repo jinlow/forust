@@ -9,273 +9,162 @@ use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
 
-// 32 bit implementation
-#[pyclass(subclass)]
-struct GradientBoosterF32 {
-    booster: CrateGradientBooster<f32>,
+// This macro is used to define the base implementation of
+// the booster.
+macro_rules! generate_booster_pyclass {
+    ($name:ident, $type:ty) => {
+        #[pyclass(subclass)]
+        struct $name {
+            booster: CrateGradientBooster<$type>,
+        }
+
+        #[pymethods]
+        impl $name {
+            #[new]
+            pub fn new(
+                objective_type: &str,
+                iterations: usize,
+                learning_rate: $type,
+                max_depth: usize,
+                max_leaves: usize,
+                l2: $type,
+                gamma: $type,
+                min_leaf_weight: $type,
+                base_score: $type,
+                nbins: u16,
+                parallel: bool,
+            ) -> PyResult<Self> {
+                let objective_ = match objective_type {
+                    "LogLoss" => Ok(ObjectiveType::LogLoss),
+                    "SquaredLoss" => Ok(ObjectiveType::SquaredLoss),
+                    _ => Err(PyValueError::new_err(format!("Not a valid objective type passed, expected one of 'LogLoss', 'SquaredLoss', but '{}' was provied.", objective_type))),
+                }?;
+                let booster = CrateGradientBooster::<$type>::new(
+                    objective_,
+                    iterations,
+                    learning_rate,
+                    max_depth,
+                    max_leaves,
+                    l2,
+                    gamma,
+                    min_leaf_weight,
+                    base_score,
+                    nbins,
+                    parallel,
+                );
+                Ok($name { booster })
+            }
+
+            pub fn fit(
+                &mut self,
+                flat_data: PyReadonlyArray1<$type>,
+                rows: usize,
+                cols: usize,
+                y: PyReadonlyArray1<$type>,
+                sample_weight: PyReadonlyArray1<$type>,
+                parallel: Option<bool>,
+            ) -> PyResult<()> {
+                let flat_data = flat_data.as_slice()?;
+                let data = Matrix::new(flat_data, rows, cols);
+                let y = y.as_slice()?;
+                let sample_weight = sample_weight.as_slice()?;
+                let parallel = match parallel {
+                    None => true,
+                    Some(v) => v,
+                };
+                self.booster
+                    .fit(&data, &y, &sample_weight, parallel)
+                    .unwrap();
+                Ok(())
+            }
+            pub fn predict<'py>(
+                &self,
+                py: Python<'py>,
+                flat_data: PyReadonlyArray1<$type>,
+                rows: usize,
+                cols: usize,
+                parallel: Option<bool>,
+            ) -> PyResult<&'py PyArray1<$type>> {
+                let flat_data = flat_data.as_slice()?;
+                let data = Matrix::new(flat_data, rows, cols);
+                let parallel = match parallel {
+                    None => true,
+                    Some(v) => v,
+                };
+                Ok(self.booster.predict(&data, parallel).into_pyarray(py))
+            }
+
+            pub fn text_dump(&self) -> PyResult<Vec<String>> {
+                let mut trees = Vec::new();
+                for t in &self.booster.trees {
+                    trees.push(format!("{}", t));
+                }
+                return Ok(trees);
+            }
+
+            pub fn save_booster(&self, path: &str) -> PyResult<()> {
+                match self.booster.save_booster(path) {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err(PyValueError::new_err(e.to_string())),
+                }
+            }
+
+            pub fn json_dump(&self) -> PyResult<String> {
+                match self.booster.json_dump() {
+                    Ok(m) => Ok(m),
+                    Err(e) => Err(PyValueError::new_err(e.to_string())),
+                }
+            }
+
+            #[classmethod]
+            pub fn load_booster(_: &PyType, path: String) -> PyResult<Self> {
+                let booster = match CrateGradientBooster::load_booster(path.as_str()) {
+                    Ok(m) => Ok(m),
+                    Err(e) => Err(PyValueError::new_err(e.to_string())),
+                }?;
+                Ok($name { booster })
+            }
+
+            #[classmethod]
+            pub fn from_json(_: &PyType, json_str: &str) -> PyResult<Self> {
+                let booster = match CrateGradientBooster::from_json(json_str) {
+                    Ok(m) => Ok(m),
+                    Err(e) => Err(PyValueError::new_err(e.to_string())),
+                }?;
+                Ok($name { booster })
+            }
+
+            pub fn get_params<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
+                let objective_ = match self.booster.objective_type {
+                    ObjectiveType::LogLoss => "LogLoss",
+                    ObjectiveType::SquaredLoss => "SquaredLoss",
+                };
+                let key_vals: Vec<(&str, PyObject)> = vec![
+                    ("objective_type", objective_.to_object(py)),
+                    ("iterations", self.booster.iterations.to_object(py)),
+                    ("learning_rate", self.booster.learning_rate.to_object(py)),
+                    ("max_depth", self.booster.max_depth.to_object(py)),
+                    ("max_leaves", self.booster.max_leaves.to_object(py)),
+                    ("l2", self.booster.l2.to_object(py)),
+                    ("gamma", self.booster.gamma.to_object(py)),
+                    (
+                        "min_leaf_weight",
+                        self.booster.min_leaf_weight.to_object(py),
+                    ),
+                    ("base_score", self.booster.base_score.to_object(py)),
+                    ("nbins", self.booster.nbins.to_object(py)),
+                    ("parallel", self.booster.parallel.to_object(py)),
+                    ("dtype", self.booster.dtype.to_object(py))
+                ];
+                let dict = key_vals.into_py_dict(py);
+                Ok(dict.to_object(py))
+            }
+        }
+    };
 }
 
-#[pymethods]
-impl GradientBoosterF32 {
-    #[new]
-    pub fn new(
-        objective_type: &str,
-        iterations: usize,
-        learning_rate: f32,
-        max_depth: usize,
-        max_leaves: usize,
-        l2: f32,
-        gamma: f32,
-        min_leaf_weight: f32,
-        base_score: f32,
-        nbins: u16,
-        parallel: bool,
-    ) -> Self {
-        let objective_ = if objective_type == "LogLoss" {
-            ObjectiveType::LogLoss
-        } else if objective_type == "SquaredLoss" {
-            ObjectiveType::SquaredLoss
-        } else {
-            panic!("Not a valid objective type provided.")
-        };
-        let booster = CrateGradientBooster::new(
-            objective_,
-            iterations,
-            learning_rate,
-            max_depth,
-            max_leaves,
-            l2,
-            gamma,
-            min_leaf_weight,
-            base_score,
-            nbins,
-            parallel,
-        );
-        GradientBoosterF32 { booster }
-    }
-
-    pub fn fit(
-        &mut self,
-        flat_data: PyReadonlyArray1<f32>,
-        rows: usize,
-        cols: usize,
-        y: PyReadonlyArray1<f32>,
-        sample_weight: PyReadonlyArray1<f32>,
-        parallel: Option<bool>,
-    ) -> PyResult<()> {
-        let flat_data = flat_data.as_slice()?;
-        let data = Matrix::new(flat_data, rows, cols);
-        let y = y.as_slice()?;
-        let sample_weight = sample_weight.as_slice()?;
-        let parallel = match parallel {
-            None => true,
-            Some(v) => v,
-        };
-        self.booster
-            .fit(&data, &y, &sample_weight, parallel)
-            .unwrap();
-        Ok(())
-    }
-    pub fn predict<'py>(
-        &self,
-        py: Python<'py>,
-        flat_data: PyReadonlyArray1<f32>,
-        rows: usize,
-        cols: usize,
-        parallel: Option<bool>,
-    ) -> PyResult<&'py PyArray1<f32>> {
-        let flat_data = flat_data.as_slice()?;
-        let data = Matrix::new(flat_data, rows, cols);
-        let parallel = match parallel {
-            None => true,
-            Some(v) => v,
-        };
-        Ok(self.booster.predict(&data, parallel).into_pyarray(py))
-    }
-
-    pub fn text_dump(&self) -> PyResult<Vec<String>> {
-        let mut trees = Vec::new();
-        for t in &self.booster.trees {
-            trees.push(format!("{}", t));
-        }
-        return Ok(trees);
-    }
-
-    pub fn save_booster(&self, path: &str) -> PyResult<()> {
-        match self.booster.save_booster(path) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(PyValueError::new_err(e.to_string())),
-        }
-    }
-
-    pub fn get_params<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
-        let objective_ = match self.booster.objective_type {
-            ObjectiveType::LogLoss => "logloss",
-            ObjectiveType::SquaredLoss => "SquaredLoss",
-        };
-        let key_vals: Vec<(&str, PyObject)> = vec![
-            ("objective_type", objective_.to_object(py)),
-            ("iterations", self.booster.iterations.to_object(py)),
-            ("learning_rate", self.booster.learning_rate.to_object(py)),
-            ("max_depth", self.booster.max_depth.to_object(py)),
-            ("max_leaves", self.booster.max_leaves.to_object(py)),
-            ("l2", self.booster.l2.to_object(py)),
-            ("gamma", self.booster.gamma.to_object(py)),
-            (
-                "min_leaf_weight",
-                self.booster.min_leaf_weight.to_object(py),
-            ),
-            ("base_score", self.booster.base_score.to_object(py)),
-            ("nbins", self.booster.nbins.to_object(py)),
-            ("parallel", self.booster.parallel.to_object(py)),
-        ];
-        let dict = key_vals.into_py_dict(py);
-        Ok(dict.to_object(py))
-    }
-
-    #[classmethod]
-    pub fn load_booster(_: &PyType, path: String) -> PyResult<Self> {
-        let booster = match CrateGradientBooster::load_booster(path.as_str()) {
-            Ok(m) => Ok(m),
-            Err(e) => Err(PyValueError::new_err(e.to_string())),
-        }?;
-        Ok(GradientBoosterF32 { booster })
-    }
-}
-
-// 64 bit implementation
-#[pyclass(subclass)]
-struct GradientBoosterF64 {
-    booster: CrateGradientBooster<f64>,
-}
-
-#[pymethods]
-impl GradientBoosterF64 {
-    #[new]
-    pub fn new(
-        objective_type: &str,
-        iterations: usize,
-        learning_rate: f64,
-        max_depth: usize,
-        max_leaves: usize,
-        l2: f64,
-        gamma: f64,
-        min_leaf_weight: f64,
-        base_score: f64,
-        nbins: u16,
-        parallel: bool,
-    ) -> Self {
-        let objective_ = if objective_type == "LogLoss" {
-            ObjectiveType::LogLoss
-        } else if objective_type == "SquaredLoss" {
-            ObjectiveType::SquaredLoss
-        } else {
-            panic!("Not a valid objective type provided.")
-        };
-        let booster = CrateGradientBooster::new(
-            objective_,
-            iterations,
-            learning_rate,
-            max_depth,
-            max_leaves,
-            l2,
-            gamma,
-            min_leaf_weight,
-            base_score,
-            nbins,
-            parallel,
-        );
-        GradientBoosterF64 { booster }
-    }
-
-    pub fn fit(
-        &mut self,
-        flat_data: PyReadonlyArray1<f64>,
-        rows: usize,
-        cols: usize,
-        y: PyReadonlyArray1<f64>,
-        sample_weight: PyReadonlyArray1<f64>,
-        parallel: Option<bool>,
-    ) -> PyResult<()> {
-        let flat_data = flat_data.as_slice()?;
-        let data = Matrix::new(flat_data, rows, cols);
-        let y = y.as_slice()?;
-        let sample_weight = sample_weight.as_slice()?;
-        let parallel = match parallel {
-            None => true,
-            Some(v) => v,
-        };
-        self.booster
-            .fit(&data, &y, &sample_weight, parallel)
-            .unwrap();
-        Ok(())
-    }
-    pub fn predict<'py>(
-        &self,
-        py: Python<'py>,
-        flat_data: PyReadonlyArray1<f64>,
-        rows: usize,
-        cols: usize,
-        parallel: Option<bool>,
-    ) -> PyResult<&'py PyArray1<f64>> {
-        let flat_data = flat_data.as_slice()?;
-        let data = Matrix::new(flat_data, rows, cols);
-        let parallel = match parallel {
-            None => true,
-            Some(v) => v,
-        };
-        Ok(self.booster.predict(&data, parallel).into_pyarray(py))
-    }
-
-    pub fn text_dump(&self) -> PyResult<Vec<String>> {
-        let mut trees = Vec::new();
-        for t in &self.booster.trees {
-            trees.push(format!("{}", t));
-        }
-        return Ok(trees);
-    }
-
-    pub fn save_booster(&self, path: &str) -> PyResult<()> {
-        match self.booster.save_booster(path) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(PyValueError::new_err(e.to_string())),
-        }
-    }
-
-    pub fn get_params<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
-        let objective_ = match self.booster.objective_type {
-            ObjectiveType::LogLoss => "logloss",
-            ObjectiveType::SquaredLoss => "SquaredLoss",
-        };
-        let key_vals: Vec<(&str, PyObject)> = vec![
-            ("objective_type", objective_.to_object(py)),
-            ("iterations", self.booster.iterations.to_object(py)),
-            ("learning_rate", self.booster.learning_rate.to_object(py)),
-            ("max_depth", self.booster.max_depth.to_object(py)),
-            ("max_leaves", self.booster.max_leaves.to_object(py)),
-            ("l2", self.booster.l2.to_object(py)),
-            ("gamma", self.booster.gamma.to_object(py)),
-            (
-                "min_leaf_weight",
-                self.booster.min_leaf_weight.to_object(py),
-            ),
-            ("base_score", self.booster.base_score.to_object(py)),
-            ("nbins", self.booster.nbins.to_object(py)),
-            ("parallel", self.booster.parallel.to_object(py)),
-        ];
-        let dict = key_vals.into_py_dict(py);
-        Ok(dict.to_object(py))
-    }
-
-    #[classmethod]
-    pub fn load_booster(_: &PyType, path: String) -> PyResult<Self> {
-        let booster = match CrateGradientBooster::load_booster(path.as_str()) {
-            Ok(m) => Ok(m),
-            Err(e) => Err(PyValueError::new_err(e.to_string())),
-        }?;
-        Ok(GradientBoosterF64 { booster })
-    }
-}
+generate_booster_pyclass!(GradientBoosterF32, f32);
+generate_booster_pyclass!(GradientBoosterF64, f64);
 
 #[pyfunction]
 fn rust_bin_matrix<'py>(

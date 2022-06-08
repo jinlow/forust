@@ -1,9 +1,9 @@
 use crate::data::MatrixData;
 use crate::histogram::Histograms;
 use crate::histsplitter::SplitInfo;
+use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 use std::str::FromStr;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SplittableNode<T> {
