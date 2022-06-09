@@ -308,8 +308,8 @@ mod tests {
         booster.fit(&data, &y, &sample_weight, true).unwrap();
         let preds = booster.predict(&data, true);
 
-        booster.save_booster("resources/model.json").unwrap();
-        let booster2 = GradientBooster::<f64>::load_booster("resources/model.json").unwrap();
+        booster.save_booster("resources/model64.json").unwrap();
+        let booster2 = GradientBooster::<f64>::load_booster("resources/model64.json").unwrap();
         assert_eq!(booster2.predict(&data, true)[0..10], preds[0..10]);
     }
     #[test]
@@ -334,8 +334,8 @@ mod tests {
         booster.fit(&data, &y, &sample_weight, true).unwrap();
         let preds = booster.predict(&data, true);
 
-        booster.save_booster("resources/model.json").unwrap();
-        let booster2 = GradientBooster::<f32>::load_booster("resources/model.json").unwrap();
+        booster.save_booster("resources/model32.json").unwrap();
+        let booster2 = GradientBooster::<f32>::load_booster("resources/model32.json").unwrap();
         assert_eq!(booster2.predict(&data, true)[0..10], preds[0..10]);
     }
 }
