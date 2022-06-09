@@ -6,7 +6,7 @@ authors = ["James Inlow <james.d.inlow@gmail.com>"]
 homepage = "https://github.com/jinlow/forust"
 description = "A lightweight gradient boosting implementation in Rust."
 license = "LICENSE"
-readme = "README"
+readme = "README.md"
 repository = "https://github.com/jinlow/forust"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
