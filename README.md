@@ -1,8 +1,6 @@
 <p align="center">
-  <img  height="300" src="resources/tree-image-crop.png">
+  <img  height="340" src="resources/tree-image-crop.png">
 </p>
-
-
 
 
 <div align="center">
