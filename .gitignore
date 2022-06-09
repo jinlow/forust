@@ -6,5 +6,6 @@ py-forust/Cargo.lock
 resources/*
 !resources/make_resources.py
 !resources/titanic.csv
+!resources/tree-image-crop.png
 py-forust/LICENSE
 py-forust/README.md
