@@ -5,7 +5,7 @@ Forust, is a lightweight package for building gradient boosted decision tree ens
 
 I developed this package for a few reasons, mainly to better understand the XGBoost algorithm, additionally to have a fun project to work on in rust, and because I wanted to be able to experiment with adding new features to the algorithm in a smaller simpler codebase.
 
-### Usage
+## Usage
 The `GradientBooster` class is currently the only public facing class in the package, and can be used to train gradient boosted decision tree ensembles with multiple objective functions.
 
 It can be initialized with the following arguments.
@@ -40,6 +40,8 @@ It can be initialized with the following arguments.
     are a numpy 32 bit float, or numpy 64 bit float. Using 32 bit float could be faster
     in some instances, however this may lead to less precise results. Defaults to "float64".
 
+### Training and Predicting
+
 Once, the booster has been initialized, it can be fit on a provided dataset, and performance field. After fitting, the model can be used to predict on a dataset.
 In the case of this example, the predictions are the log odds of a given record being 1.
 
@@ -71,6 +73,8 @@ The `fit` method accepts the following arguments.
 The predict method accepts the following arguments.
  - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
 
+### Inspecting the Model
+
 Once the booster has been fit, each individual tree structure can be retrieved in text form, using the `text_dump` method. This method returns a list, the same length as the number of trees in the model.
 
 ```python
@@ -83,12 +87,24 @@ model.text_dump()[0]
 #                         16:leaf=0.154097,cover=0.470007
 ```
 
-### TODOs
+The `json_dump` method performs the same action, but returns the model as a json representation rather than a text string.
+
+### Saving the model
+To save and subsequently load a trained booster, the `save_booster` and `load_booster` methods can be used. Each accepts a path, which is used to write the model to. The model is saved and loaded as a json object.
+
+```python
+trained_model.save_booster("model_path.json")
+
+# To load a model from a json path.
+loaded_model = GradientBooster.load_model("model_path.json")
+```
+
+## TODOs
 This is still a work in progress
 - [ ] Early stopping rounds
     * We should be able to accept a validation dataset, and this should be able to be used to determine when to stop training.
 - [ ] Monotonicity support
     * Right now features are used in the model without any constraints.
-- [ ] Ability to save a model.
+- [x] Ability to save a model.
     * The way the underlying trees are structured, they would lend themselves to being saved as JSon objects.
 - [ ] Clean up the CICD pipeline.

@@ -5,7 +5,7 @@ jobs:
   windows-build-tests:
     strategy:
       matrix:
-        pyversion: ["3.9"] # ["3.8", "3.9", "3.10"]
+        pyversion: ["3.8", "3.9", "3.10"]
     runs-on: "windows-latest"
     steps:
       - uses: actions/checkout@v2
