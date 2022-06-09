@@ -7,6 +7,12 @@ Forust, is a lightweight package for building gradient boosted decision tree ens
 
 I developed this package for a few reasons, mainly to better understand the XGBoost algorithm, additionally to have a fun project to work on in rust, and because I wanted to be able to experiment with adding new features to the algorithm in a smaller simpler codebase.
 
+## Installation
+The package can be installed directly from [pypi](https://pypi.org/project/forust/).
+```shell
+pip install forust
+```
+
 ## Usage
 The `GradientBooster` class is currently the only public facing class in the package, and can be used to train gradient boosted decision tree ensembles with multiple objective functions.
 
