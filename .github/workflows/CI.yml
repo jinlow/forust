@@ -106,6 +106,7 @@ jobs:
         uses: messense/maturin-action@v1
         with:
           command: publish
+          target: x86_64
           args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python --skip-existing --manifest-path py-forust/Cargo.toml
 
   linux-build-test:
@@ -161,4 +162,6 @@ jobs:
         uses: messense/maturin-action@v1
         with:
           command: publish
-          args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python --skip-existing --manifest-path py-forust/Cargo.toml
+          target: x86_64
+          manylinux: auto
+          args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python${{ matrix.pyversion }} --skip-existing --manifest-path py-forust/Cargo.toml
