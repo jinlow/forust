@@ -5,7 +5,6 @@ edition = "2021"
 authors = ["James Inlow <james.d.inlow@gmail.com>"]
 homepage = "https://github.com/jinlow/forust"
 description = "A lightweight gradient boosting implementation in Rust."
-license = "Apache License 2.0"
 license-file = "LICENSE"
 readme = "README.md"
 repository = "https://github.com/jinlow/forust"
