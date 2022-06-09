@@ -1,8 +1,8 @@
-use forust::binning::bin_matrix;
-use forust::data::Matrix;
-use forust::gradientbooster::GradientBooster as CrateGradientBooster;
-use forust::objective::ObjectiveType;
-use forust::utils::percentiles as crate_percentiles;
+use forust_ml::binning::bin_matrix;
+use forust_ml::data::Matrix;
+use forust_ml::gradientbooster::GradientBooster as CrateGradientBooster;
+use forust_ml::objective::ObjectiveType;
+use forust_ml::utils::percentiles as crate_percentiles;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;

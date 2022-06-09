@@ -1,10 +1,10 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use forust::binning::bin_matrix;
-use forust::data::Matrix;
-use forust::gradientbooster::GradientBooster;
-use forust::histsplitter::HistogramSplitter;
-use forust::objective::{LogLoss, ObjectiveFunction};
-use forust::tree::Tree;
+use forust_ml::binning::bin_matrix;
+use forust_ml::data::Matrix;
+use forust_ml::gradientbooster::GradientBooster;
+use forust_ml::histsplitter::HistogramSplitter;
+use forust_ml::objective::{LogLoss, ObjectiveFunction};
+use forust_ml::tree::Tree;
 use std::fs;
 
 pub fn tree_benchmarks(c: &mut Criterion) {
@@ -48,7 +48,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     c.bench_function("Train Tree", |b| {
         b.iter(|| {
             let mut train_tree: Tree<f64> = Tree::new();
-            train_tree.fit(
+            tree.fit(
                 black_box(&bdata),
                 black_box(&bindata.cuts),
                 black_box(&g),
