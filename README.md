@@ -91,6 +91,10 @@ The `fit` method accepts the following arguments.
 
 The predict method accepts the following arguments.
  - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
+ - `parallel` ***(Optional[bool], optional)***: Optionally specify if the predict
+   function should run in parallel on multiple threads. If `None` is
+   passed, the `parallel` attribute of the booster will be used.
+   Defaults to `None`.
 
 ### Inspecting the Model
 
@@ -124,6 +128,6 @@ This is still a work in progress
     * We should be able to accept a validation dataset, and this should be able to be used to determine when to stop training.
 - [ ] Monotonicity support
     * Right now features are used in the model without any constraints.
-- [x] Ability to save a model.
+- [X] Ability to save a model.
     * The way the underlying trees are structured, they would lend themselves to being saved as JSon objects.
 - [ ] Clean up the CICD pipeline.

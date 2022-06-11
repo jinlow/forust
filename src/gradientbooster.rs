@@ -155,7 +155,6 @@ where
         data: &Matrix<T>,
         y: &[T],
         sample_weight: &[T],
-        parallel: bool,
     ) -> Result<(), ForustError> {
         let splitter = HistogramSplitter {
             l2: self.l2,
@@ -189,7 +188,7 @@ where
             );
             yhat = yhat
                 .iter()
-                .zip(tree.predict(data, parallel))
+                .zip(tree.predict(data, self.parallel))
                 .map(|(i, j)| *i + j)
                 .collect();
             self.trees.push(tree);
@@ -278,7 +277,7 @@ mod tests {
         booster.nbins = 300;
         booster.max_depth = 3;
         let sample_weight = vec![1.; y.len()];
-        booster.fit(&data, &y, &sample_weight, true).unwrap();
+        booster.fit(&data, &y, &sample_weight).unwrap();
         let preds = booster.predict(&data, false);
         println!("{}", booster.trees[0]);
         println!("{}", booster.trees[0].nodes.len());
@@ -305,7 +304,7 @@ mod tests {
         booster.nbins = 300;
         booster.max_depth = 3;
         let sample_weight = vec![1.; y.len()];
-        booster.fit(&data, &y, &sample_weight, true).unwrap();
+        booster.fit(&data, &y, &sample_weight).unwrap();
         let preds = booster.predict(&data, true);
 
         booster.save_booster("resources/model64.json").unwrap();
@@ -331,7 +330,7 @@ mod tests {
         booster.nbins = 300;
         booster.max_depth = 3;
         let sample_weight = vec![1.; y.len()];
-        booster.fit(&data, &y, &sample_weight, true).unwrap();
+        booster.fit(&data, &y, &sample_weight).unwrap();
         let preds = booster.predict(&data, true);
 
         booster.save_booster("resources/model32.json").unwrap();

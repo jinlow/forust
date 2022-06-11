@@ -62,18 +62,13 @@ macro_rules! generate_booster_pyclass {
                 cols: usize,
                 y: PyReadonlyArray1<$type>,
                 sample_weight: PyReadonlyArray1<$type>,
-                parallel: Option<bool>,
             ) -> PyResult<()> {
                 let flat_data = flat_data.as_slice()?;
                 let data = Matrix::new(flat_data, rows, cols);
                 let y = y.as_slice()?;
                 let sample_weight = sample_weight.as_slice()?;
-                let parallel = match parallel {
-                    None => true,
-                    Some(v) => v,
-                };
                 self.booster
-                    .fit(&data, &y, &sample_weight, parallel)
+                    .fit(&data, &y, &sample_weight)
                     .unwrap();
                 Ok(())
             }
