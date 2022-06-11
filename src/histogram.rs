@@ -66,12 +66,18 @@ pub fn create_feature_histogram<T: MatrixData<T>>(
     // Add the missing bin
     histogram.insert(0, Bin::new(T::NAN));
     // Now add all of the stats
-    index.iter().for_each(|i| {
-        if let Some(v) = histogram.get_mut(&feature[*i]) {
-            v.grad_sum += grad[*i];
-            v.hess_sum += hess[*i];
+    // index.iter().for_each(|i| {
+    //     if let Some(v) = histogram.get_mut(&feature[*i]) {
+    //         v.grad_sum += grad[*i];
+    //         v.hess_sum += hess[*i];
+    //     }
+    // });
+    for i in 0..index.len() {
+        if let Some(v) = histogram.get_mut(&feature[index[i]]) {
+            v.grad_sum += grad[i];
+            v.hess_sum += hess[i];
         }
-    });
+    }
     histogram
 }
 
@@ -102,12 +108,25 @@ where
         parallel: bool,
     ) -> Self {
         let col_index: Vec<usize> = (0..data.cols).collect();
+        // Sort gradients and hessians to reduce cache hits.
+        let mut sorted_grad = vec![T::ZERO; index.len()];
+        let mut sorted_hess = vec![T::ZERO; index.len()];
+        for i in 0..index.len() {
+            sorted_grad[i] = grad[index[i]];
+            sorted_hess[i] = hess[index[i]];
+        }
         if parallel {
             Histograms(
                 col_index
                     .par_iter()
                     .map(|i| {
-                        create_feature_histogram(data.get_col(*i), &cuts[*i], grad, hess, index)
+                        create_feature_histogram(
+                            data.get_col(*i),
+                            &cuts[*i],
+                            &sorted_grad,
+                            &sorted_hess,
+                            index,
+                        )
                     })
                     .collect(),
             )
@@ -116,7 +135,13 @@ where
                 col_index
                     .iter()
                     .map(|i| {
-                        create_feature_histogram(data.get_col(*i), &cuts[*i], grad, hess, index)
+                        create_feature_histogram(
+                            data.get_col(*i),
+                            &cuts[*i],
+                            &sorted_grad,
+                            &sorted_hess,
+                            index,
+                        )
                     })
                     .collect(),
             )
