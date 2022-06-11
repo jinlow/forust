@@ -197,11 +197,15 @@ class GradientBooster:
             sample_weight=sample_weight_,
         )
 
-    def predict(self, X: FrameLike, parallel: Optional[bool] = True) -> np.ndarray:
+    def predict(self, X: FrameLike, parallel: Optional[bool] = None) -> np.ndarray:
         """Predict with the fitted booster on new data.
 
         Args:
             X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
+            parallel (Optional[bool], optional): Optionally specify if the predict
+                function should run in parallel on multiple threads. If `None` is
+                passed, the `parallel` attribute of the booster will be used.
+                Defaults to `None`.
 
         Returns:
             np.ndarray: Returns a numpy array of the predictions.
