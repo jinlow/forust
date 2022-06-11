@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use nohash_hasher::BuildNoHashHasher;
 
 use crate::data::{Matrix, MatrixData};
 use rayon::prelude::*;
@@ -38,7 +39,7 @@ where
     }
 }
 
-pub type Hist<T> = HashMap<u16, Bin<T>>;
+pub type Hist<T> = HashMap<u16, Bin<T>, BuildNoHashHasher<u16>>;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Histograms<T>(pub Vec<Hist<T>>);
@@ -78,7 +79,7 @@ pub fn create_feature_histogram_from_parent_child<T: MatrixData<T>>(
     root_histogram: &Hist<T>,
     child_histogram: &Hist<T>,
 ) -> Hist<T> {
-    let mut histogram: Hist<T> = HashMap::new();
+    let mut histogram: Hist<T> = HashMap::with_capacity_and_hasher(root_histogram.len(), BuildNoHashHasher::default());
     root_histogram.keys().for_each(|k| {
         let root_bin = root_histogram.get(k).unwrap();
         let child_bin = child_histogram.get(k).unwrap();

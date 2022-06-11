@@ -134,7 +134,7 @@ from xgboost import XGBClassifier
 
 df = (
     pd.read_csv("../resources/titanic.csv")
-    .sample(100_000, replace=True, random_state=0)
+    .sample(500_000, replace=True, random_state=0)
     .reset_index(drop=True)
 )
 X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True)
@@ -165,7 +165,7 @@ fmod = GradientBooster(
     min_leaf_weight=1.0,
     gamma=0.0,
     objective_type="LogLoss",
-    dtype="float32",
+    dtype="float64",
 )
 fmod.fit(X, y=y)  # , sample_weight=w)
 fmod_preds = fmod.predict(X)

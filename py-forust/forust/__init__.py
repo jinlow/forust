@@ -195,10 +195,9 @@ class GradientBooster:
             cols=cols,
             y=y_,
             sample_weight=sample_weight_,
-            parallel=self.parallel,
         )
 
-    def predict(self, X: FrameLike) -> np.ndarray:
+    def predict(self, X: FrameLike, parallel: Optional[bool] = True) -> np.ndarray:
         """Predict with the fitted booster on new data.
 
         Args:
@@ -211,13 +210,14 @@ class GradientBooster:
         if not np.issubdtype(X_.dtype, self.dtype):
             X_ = X_.astype(dtype=self.dtype, copy=False)
 
+        parallel_ = self.parallel if parallel is None else parallel
         flat_data = X_.ravel(order="F")
         rows, cols = X_.shape
         return self.booster.predict(
             flat_data=flat_data,
             rows=rows,
             cols=cols,
-            parallel=self.parallel,
+            parallel=parallel_,
         )
 
     def text_dump(self) -> List[str]:
