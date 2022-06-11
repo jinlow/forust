@@ -112,8 +112,7 @@ impl<'a, T> Matrix<'a, T> {
     }
 
     fn item_index(&self, i: usize, j: usize) -> usize {
-        let mut idx: usize;
-        idx = self.stride2 * i;
+        let mut idx = self.stride2 * i;
         idx += j * self.stride1;
         idx
     }

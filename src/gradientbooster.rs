@@ -154,7 +154,7 @@ where
         &mut self,
         data: &Matrix<T>,
         y: &[T],
-        sample_weight: &[T]
+        sample_weight: &[T],
     ) -> Result<(), ForustError> {
         let splitter = HistogramSplitter {
             l2: self.l2,
