@@ -1,4 +1,4 @@
-use crate::data::MatrixData;
+use crate::data::FloatData;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 ///     values from 0 to 1, and in sorted order.
 pub fn percentiles<T>(v: &[T], sample_weight: &[T], percentiles: &[T]) -> Vec<T>
 where
-    T: MatrixData<T>,
+    T: FloatData<T>,
 {
     let mut idx: Vec<usize> = (0..v.len()).collect();
     idx.sort_unstable_by(|a, b| v[*a].partial_cmp(&v[*b]).unwrap());

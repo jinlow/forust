@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug, Display};
 use std::iter::Sum;
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
@@ -5,7 +6,7 @@ use std::str::FromStr;
 
 /// Data trait used throughout the package
 /// to control for floating point numbers.
-pub trait MatrixData<T>:
+pub trait FloatData<T>:
     Mul<Output = T>
     + Display
     + Add<Output = T>
@@ -33,7 +34,7 @@ pub trait MatrixData<T>:
     fn ln(self) -> T;
     fn exp(self) -> T;
 }
-impl MatrixData<f64> for f64 {
+impl FloatData<f64> for f64 {
     const ZERO: f64 = 0.0;
     const ONE: f64 = 1.0;
     const MIN: f64 = f64::MIN;
@@ -56,7 +57,7 @@ impl MatrixData<f64> for f64 {
     }
 }
 
-impl MatrixData<f32> for f32 {
+impl FloatData<f32> for f32 {
     const ZERO: f32 = 0.0;
     const ONE: f32 = 1.0;
     const MIN: f32 = f32::MIN;
@@ -158,11 +159,61 @@ where
     }
 }
 
+/// A jagged column aligned matrix, that owns it's data contents.
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct JaggedMatrix<T> {
+    /// The contents of the matrix.
+    pub data: Vec<T>,
+    /// The end index's of the matrix.
+    pub ends: Vec<usize>,
+}
+
+impl<T> JaggedMatrix<T>
+where
+    T: Copy,
+{
+    /// Generate a jagged array from a vector of vectors
+    pub fn from_vecs(vecs: &Vec<Vec<T>>) -> Self {
+        let mut data = Vec::new();
+        let mut ends = Vec::new();
+        let mut e = 0;
+        for vec in vecs {
+            for v in vec {
+                data.push(*v);
+            }
+            e += vec.len();
+            ends.push(e);
+        }
+        JaggedMatrix { data, ends }
+    }
+}
+
+impl<T> JaggedMatrix<T> {
+    pub fn new() -> Self {
+        JaggedMatrix {
+            data: Vec::new(),
+            ends: Vec::new(),
+        }
+    }
+
+    /// Get the column of a jagged array.
+    pub fn get_col(&self, col: usize) -> &[T] {
+        assert!(col < self.ends.len());
+        let (i, j) = if col == 0 {
+            (0, self.ends[col])
+        } else {
+            (self.ends[col - 1], self.ends[col])
+        };
+        &self.data[i..j]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn test_get() {
+    fn test_matrix_get() {
         let v = vec![1, 2, 3, 5, 6, 7];
         let m = Matrix::new(&v, 2, 3);
         println!("{}", m);
@@ -170,7 +221,7 @@ mod tests {
         assert_eq!(m.get(1, 0), &2);
     }
     #[test]
-    fn test_get_col_slice() {
+    fn test_matrix_get_col_slice() {
         let v = vec![1, 2, 3, 5, 6, 7];
         let m = Matrix::new(&v, 3, 2);
         assert_eq!(m.get_col_slice(0, 0, 3), &vec![1, 2, 3]);
@@ -180,9 +231,18 @@ mod tests {
     }
 
     #[test]
-    fn test_get_col() {
+    fn test_matrix_get_col() {
         let v = vec![1, 2, 3, 5, 6, 7];
         let m = Matrix::new(&v, 3, 2);
         assert_eq!(m.get_col(1), &vec![5, 6, 7]);
+    }
+
+    #[test]
+    fn test_jaggedmatrix_get_col() {
+        let vecs = vec![vec![0], vec![5, 4, 3, 2], vec![4, 5]];
+        let jmatrix = JaggedMatrix::from_vecs(&vecs);
+        assert_eq!(jmatrix.get_col(1), vec![5, 4, 3, 2]);
+        assert_eq!(jmatrix.get_col(0), vec![0]);
+        assert_eq!(jmatrix.get_col(2), vec![4, 5]);
     }
 }

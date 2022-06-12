@@ -1,4 +1,4 @@
-use crate::data::{Matrix, MatrixData};
+use crate::data::{Matrix, FloatData, JaggedMatrix};
 use crate::histogram::Histograms;
 use crate::histsplitter::HistogramSplitter;
 use crate::node::{SplittableNode, TreeNode};
@@ -10,17 +10,17 @@ use std::fmt;
 use std::str::FromStr;
 
 #[derive(Deserialize, Serialize)]
-pub struct Tree<T: MatrixData<T>> {
+pub struct Tree<T: FloatData<T>> {
     pub nodes: Vec<TreeNode<T>>,
 }
 
-impl<T: MatrixData<T>> Default for Tree<T> {
+impl<T: FloatData<T>> Default for Tree<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: MatrixData<T>> Tree<T> {
+impl<T: FloatData<T>> Tree<T> {
     pub fn new() -> Self {
         Tree { nodes: Vec::new() }
     }
@@ -29,7 +29,7 @@ impl<T: MatrixData<T>> Tree<T> {
     pub fn fit(
         &mut self,
         data: &Matrix<u16>,
-        cuts: &[Vec<T>],
+        cuts: &JaggedMatrix<T>,
         grad: &[T],
         hess: &[T],
         splitter: &HistogramSplitter<T>,
@@ -259,7 +259,7 @@ impl<T: MatrixData<T>> Tree<T> {
 
 impl<T> fmt::Display for Tree<T>
 where
-    T: FromStr + std::fmt::Display + MatrixData<T>,
+    T: FromStr + std::fmt::Display + FloatData<T>,
     <T as FromStr>::Err: 'static + std::error::Error,
 {
     // This trait requires `fmt` with this exact signature.

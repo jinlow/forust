@@ -162,22 +162,6 @@ generate_booster_pyclass!(GradientBoosterF32, f32);
 generate_booster_pyclass!(GradientBoosterF64, f64);
 
 #[pyfunction]
-fn rust_bin_matrix<'py>(
-    py: Python<'py>,
-    flat_data: PyReadonlyArray1<f32>,
-    rows: usize,
-    cols: usize,
-    sample_weight: PyReadonlyArray1<f32>,
-    nbins: u16,
-) -> PyResult<(&'py PyArray1<u16>, Vec<Vec<f32>>, Vec<usize>)> {
-    let flat_data = flat_data.as_slice()?;
-    let sample_weight = sample_weight.as_slice()?;
-    let data = Matrix::new(flat_data, rows, cols);
-    let r = bin_matrix(&data, sample_weight, nbins).unwrap();
-    Ok((r.binned_data.into_pyarray(py), r.cuts, r.nunique))
-}
-
-#[pyfunction]
 fn print_matrix(x: PyReadonlyArray1<f32>, rows: usize, cols: usize) -> PyResult<()> {
     let m = Matrix::new(x.as_slice()?, rows, cols);
     println!("{}", m);
@@ -203,7 +187,6 @@ fn percentiles<'py>(
 fn forust(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(print_matrix, m)?)?;
     m.add_function(wrap_pyfunction!(percentiles, m)?)?;
-    m.add_function(wrap_pyfunction!(rust_bin_matrix, m)?)?;
     m.add_class::<GradientBoosterF32>()?;
     m.add_class::<GradientBoosterF64>()?;
     Ok(())

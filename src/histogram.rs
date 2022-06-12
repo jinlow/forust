@@ -1,12 +1,12 @@
 use nohash_hasher::BuildNoHashHasher;
 use std::collections::HashMap;
 
-use crate::data::{Matrix, MatrixData};
+use crate::data::{FloatData, JaggedMatrix, Matrix};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Struct to hold the information of a given bin.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Bin<T> {
     /// The sum of the gradient for this bin.
     pub grad_sum: T,
@@ -20,7 +20,7 @@ pub struct Bin<T> {
 
 impl<T> Bin<T>
 where
-    T: MatrixData<T>,
+    T: FloatData<T>,
 {
     pub fn new(cut_value: T) -> Self {
         Bin {
@@ -41,10 +41,27 @@ where
 
 pub type Hist<T> = HashMap<u16, Bin<T>, BuildNoHashHasher<u16>>;
 
+/// Histograms implemented as as jagged matrix.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct HistogramMatrix<T>(pub JaggedMatrix<Bin<T>>);
+
+impl<T> HistogramMatrix<T>
+where
+    T: FloatData<T>,
+{
+    pub fn from_jagged_matrix(matrix: &JaggedMatrix<T>) -> Self {
+        let data: Vec<Bin<T>> = matrix.data.iter().map(|v| Bin::new(*v)).collect();
+        HistogramMatrix(JaggedMatrix {
+            data,
+            ends: matrix.ends.to_owned(),
+        })
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Histograms<T>(pub Vec<Hist<T>>);
 
-pub fn create_feature_histogram<T: MatrixData<T>>(
+pub fn create_feature_histogram<T: FloatData<T>>(
     feature: &[u16],
     cuts: &[T],
     grad: &[T],
@@ -81,7 +98,7 @@ pub fn create_feature_histogram<T: MatrixData<T>>(
     histogram
 }
 
-pub fn create_feature_histogram_from_parent_child<T: MatrixData<T>>(
+pub fn create_feature_histogram_from_parent_child<T: FloatData<T>>(
     root_histogram: &Hist<T>,
     child_histogram: &Hist<T>,
 ) -> Hist<T> {
@@ -97,11 +114,11 @@ pub fn create_feature_histogram_from_parent_child<T: MatrixData<T>>(
 
 impl<T> Histograms<T>
 where
-    T: MatrixData<T>,
+    T: FloatData<T>,
 {
     pub fn new(
         data: &Matrix<u16>,
-        cuts: &[Vec<T>],
+        cuts: &JaggedMatrix<T>,
         grad: &[T],
         hess: &[T],
         index: &[usize],
@@ -109,6 +126,8 @@ where
     ) -> Self {
         let col_index: Vec<usize> = (0..data.cols).collect();
         // Sort gradients and hessians to reduce cache hits.
+        // This made a really sizeable difference on larger datasets
+        // Bringing training time down from nearly 6 minutes, to 2 minutes.
         let mut sorted_grad = vec![T::ZERO; index.len()];
         let mut sorted_hess = vec![T::ZERO; index.len()];
         for i in 0..index.len() {
@@ -122,7 +141,7 @@ where
                     .map(|i| {
                         create_feature_histogram(
                             data.get_col(*i),
-                            &cuts[*i],
+                            &cuts.get_col(*i),
                             &sorted_grad,
                             &sorted_hess,
                             index,
@@ -137,7 +156,7 @@ where
                     .map(|i| {
                         create_feature_histogram(
                             data.get_col(*i),
-                            &cuts[*i],
+                            &cuts.get_col(*i),
                             &sorted_grad,
                             &sorted_hess,
                             index,
@@ -184,7 +203,8 @@ mod tests {
         let w = vec![1.; y.len()];
         let g = LogLoss::calc_grad(&y, &yhat, &w);
         let h = LogLoss::calc_hess(&y, &yhat, &w);
-        let hist = create_feature_histogram(&bdata.get_col(1), &b.cuts[1], &g, &h, &bdata.index);
+        let hist =
+            create_feature_histogram(&bdata.get_col(1), &b.cuts.get_col(1), &g, &h, &bdata.index);
         // println!("{:?}", hist);
         let mut f = bdata.get_col(1).to_owned();
         f.sort();

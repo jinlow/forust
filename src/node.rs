@@ -1,4 +1,4 @@
-use crate::data::MatrixData;
+use crate::data::FloatData;
 use crate::histogram::Histograms;
 use crate::histsplitter::SplitInfo;
 use serde::{Deserialize, Serialize};
@@ -55,7 +55,7 @@ pub enum TreeNode<T> {
 
 impl<'a, T> SplittableNode<T>
 where
-    T: MatrixData<T>,
+    T: FloatData<T>,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -128,7 +128,7 @@ where
 
 impl<'a, T> fmt::Display for TreeNode<T>
 where
-    T: FromStr + std::fmt::Display + MatrixData<T>,
+    T: FromStr + std::fmt::Display + FloatData<T>,
     <T as FromStr>::Err: 'static + std::error::Error,
 {
     // This trait requires `fmt` with this exact signature.

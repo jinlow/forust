@@ -1,5 +1,5 @@
 use crate::binning::bin_matrix;
-use crate::data::{Matrix, MatrixData};
+use crate::data::{Matrix, FloatData};
 use crate::errors::ForustError;
 use crate::histsplitter::HistogramSplitter;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
@@ -33,7 +33,7 @@ use std::fs;
 ///   accuracy. If there are more bins, than unique values in a column, all unique values
 ///   will be used.
 #[derive(Deserialize, Serialize)]
-pub struct GradientBooster<T: MatrixData<T>> {
+pub struct GradientBooster<T: FloatData<T>> {
     pub objective_type: ObjectiveType,
     pub iterations: usize,
     pub learning_rate: T,
@@ -87,7 +87,7 @@ impl Default for GradientBooster<f32> {
 
 impl<T> GradientBooster<T>
 where
-    T: MatrixData<T> + Serialize + DeserializeOwned,
+    T: FloatData<T> + Serialize + DeserializeOwned,
 {
     /// Gradient Booster object
     ///

@@ -1,4 +1,4 @@
-use crate::data::MatrixData;
+use crate::data::FloatData;
 use serde::{Deserialize, Serialize};
 
 type ObjFn<T> = fn(&[T], &[T], &[T]) -> Vec<T>;
@@ -9,7 +9,7 @@ pub enum ObjectiveType {
     SquaredLoss,
 }
 
-pub fn gradient_hessian_callables<T: MatrixData<T>>(
+pub fn gradient_hessian_callables<T: FloatData<T>>(
     objective_type: &ObjectiveType,
 ) -> (ObjFn<T>, ObjFn<T>) {
     match objective_type {
@@ -20,7 +20,7 @@ pub fn gradient_hessian_callables<T: MatrixData<T>>(
 
 pub trait ObjectiveFunction<T>
 where
-    T: MatrixData<T>,
+    T: FloatData<T>,
 {
     fn calc_loss(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T>;
     fn calc_grad(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T>;
@@ -32,8 +32,9 @@ pub struct LogLoss {}
 
 impl<T> ObjectiveFunction<T> for LogLoss
 where
-    T: MatrixData<T>,
+    T: FloatData<T>,
 {
+    #[inline]
     fn calc_loss(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
         y.iter()
             .zip(yhat)
@@ -46,6 +47,7 @@ where
             .collect()
     }
 
+    #[inline]
     fn calc_grad(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
         y.iter()
             .zip(yhat)
@@ -57,7 +59,7 @@ where
             .map(|(l, w)| l * *w)
             .collect()
     }
-
+    #[inline]
     fn calc_hess(_: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
         yhat.iter()
             .map(|yhat_| {
@@ -75,8 +77,9 @@ pub struct SquaredLoss {}
 
 impl<T> ObjectiveFunction<T> for SquaredLoss
 where
-    T: MatrixData<T>,
+    T: FloatData<T>,
 {
+    #[inline]
     fn calc_loss(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
         y.iter()
             .zip(yhat)
@@ -89,6 +92,7 @@ where
             .collect()
     }
 
+    #[inline]
     fn calc_grad(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
         y.iter()
             .zip(yhat)
@@ -98,6 +102,7 @@ where
             .collect()
     }
 
+    #[inline]
     fn calc_hess(_: &[T], _: &[T], sample_weight: &[T]) -> Vec<T> {
         sample_weight.to_vec()
     }

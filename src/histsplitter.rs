@@ -1,4 +1,4 @@
-use crate::data::MatrixData;
+use crate::data::FloatData;
 use crate::histogram::Histograms;
 use crate::node::SplittableNode;
 
@@ -28,7 +28,7 @@ pub struct HistogramSplitter<T> {
 
 impl<T> HistogramSplitter<T>
 where
-    T: MatrixData<T>,
+    T: FloatData<T>,
 {
     pub fn new(l2: T, gamma: T, min_leaf_weight: T, learning_rate: T) -> Self {
         HistogramSplitter {
