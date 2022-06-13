@@ -54,6 +54,8 @@ where
         HistogramMatrix(JaggedMatrix {
             data,
             ends: matrix.ends.to_owned(),
+            cols: matrix.ends.len(),
+            n_records: matrix.ends.iter().sum(),
         })
     }
 }
@@ -64,55 +66,27 @@ pub struct Histograms<T>(pub Vec<Hist<T>>);
 pub fn create_feature_histogram<T: FloatData<T>>(
     feature: &[u16],
     cuts: &[T],
-    grad: &[T],
-    hess: &[T],
+    sorted_grad: &[T],
+    sorted_hess: &[T],
     index: &[usize],
-) -> Hist<T> {
-    let mut histogram: Hist<T> = cuts[..(cuts.len() - 1)]
+) -> Vec<Bin<T>> {
+    let mut histogram: Vec<Bin<T>> = Vec::with_capacity(cuts.len());
+    histogram.push(Bin::new(T::NAN));
+    histogram.extend(cuts[..(cuts.len() - 1)].iter().map(|c| Bin::new(*c)));
+    index
         .iter()
-        .enumerate()
-        .map(|(i, c)| {
-            (
-                // This should never panic, because the maximum number
-                // of cuts possible is u16::MAX
-                u16::try_from(i).expect("To many bins for a u16.") + 1,
-                Bin::new(*c),
-            )
-        })
-        .collect();
-    // Add the missing bin
-    histogram.insert(0, Bin::new(T::NAN));
-    // Now add all of the stats
-    // index.iter().for_each(|i| {
-    //     if let Some(v) = histogram.get_mut(&feature[*i]) {
-    //         v.grad_sum += grad[*i];
-    //         v.hess_sum += hess[*i];
-    //     }
-    // });
-    for i in 0..index.len() {
-        if let Some(v) = histogram.get_mut(&feature[index[i]]) {
-            v.grad_sum += grad[i];
-            v.hess_sum += hess[i];
-        }
-    }
+        .zip(sorted_grad)
+        .zip(sorted_hess)
+        .for_each(|((i, g), h)| {
+            if let Some(v) = histogram.get_mut(feature[*i] as usize) {
+                v.grad_sum += *g;
+                v.hess_sum += *h;
+            }
+        });
     histogram
 }
 
-pub fn create_feature_histogram_from_parent_child<T: FloatData<T>>(
-    root_histogram: &Hist<T>,
-    child_histogram: &Hist<T>,
-) -> Hist<T> {
-    let mut histogram: Hist<T> =
-        HashMap::with_capacity_and_hasher(root_histogram.len(), BuildNoHashHasher::default());
-    root_histogram.keys().for_each(|k| {
-        let root_bin = root_histogram.get(k).unwrap();
-        let child_bin = child_histogram.get(k).unwrap();
-        histogram.insert(*k, Bin::from_parent_child(root_bin, child_bin));
-    });
-    histogram
-}
-
-impl<T> Histograms<T>
+impl<T> HistogramMatrix<T>
 where
     T: FloatData<T>,
 {
@@ -128,58 +102,61 @@ where
         // Sort gradients and hessians to reduce cache hits.
         // This made a really sizeable difference on larger datasets
         // Bringing training time down from nearly 6 minutes, to 2 minutes.
-        let mut sorted_grad = vec![T::ZERO; index.len()];
-        let mut sorted_hess = vec![T::ZERO; index.len()];
-        for i in 0..index.len() {
-            sorted_grad[i] = grad[index[i]];
-            sorted_hess[i] = hess[index[i]];
-        }
-        if parallel {
-            Histograms(
-                col_index
-                    .par_iter()
-                    .map(|i| {
-                        create_feature_histogram(
-                            data.get_col(*i),
-                            &cuts.get_col(*i),
-                            &sorted_grad,
-                            &sorted_hess,
-                            index,
-                        )
-                    })
-                    .collect(),
-            )
+        let sorted_grad: Vec<T> = index.iter().map(|i| grad[*i]).collect();
+        let sorted_hess: Vec<T> = index.iter().map(|i| hess[*i]).collect();
+        let histograms = if parallel {
+            col_index
+                .par_iter()
+                .flat_map(|col| {
+                    create_feature_histogram(
+                        data.get_col(*col),
+                        cuts.get_col(*col),
+                        &sorted_grad,
+                        &sorted_hess,
+                        index,
+                    )
+                })
+                .collect::<Vec<Bin<T>>>()
         } else {
-            Histograms(
-                col_index
-                    .iter()
-                    .map(|i| {
-                        create_feature_histogram(
-                            data.get_col(*i),
-                            &cuts.get_col(*i),
-                            &sorted_grad,
-                            &sorted_hess,
-                            index,
-                        )
-                    })
-                    .collect(),
-            )
-        }
+            col_index
+                .iter()
+                .flat_map(|col| {
+                    create_feature_histogram(
+                        data.get_col(*col),
+                        cuts.get_col(*col),
+                        &sorted_grad,
+                        &sorted_hess,
+                        index,
+                    )
+                })
+                .collect::<Vec<Bin<T>>>()
+        };
+        HistogramMatrix(JaggedMatrix {
+            data: histograms,
+            ends: cuts.ends.to_owned(),
+            cols: cuts.cols,
+            n_records: cuts.n_records,
+        })
     }
 
     pub fn from_parent_child(
-        root_histograms: &Histograms<T>,
-        child_histograms: &Histograms<T>,
+        root_histogram: &HistogramMatrix<T>,
+        child_histogram: &HistogramMatrix<T>,
     ) -> Self {
-        let Histograms(root_hists) = root_histograms;
-        let Histograms(child_hists) = child_histograms;
-
-        let histograms = root_hists
+        let HistogramMatrix(root) = root_histogram;
+        let HistogramMatrix(child) = child_histogram;
+        let histograms = root
+            .data
             .iter()
-            .zip(child_hists)
-            .map(|(rh, ch)| create_feature_histogram_from_parent_child(rh, ch))
+            .zip(child.data.iter())
+            .map(|(root_bin, child_bin)| Bin::from_parent_child(root_bin, child_bin))
             .collect();
-        Histograms(histograms)
+        HistogramMatrix(JaggedMatrix {
+            data: histograms,
+            ends: child.ends.to_owned(),
+            cols: child.cols,
+            n_records: child.n_records,
+        })
     }
 }
 
@@ -207,6 +184,7 @@ mod tests {
             create_feature_histogram(&bdata.get_col(1), &b.cuts.get_col(1), &g, &h, &bdata.index);
         // println!("{:?}", hist);
         let mut f = bdata.get_col(1).to_owned();
+        println!("{:?}", hist);
         f.sort();
         f.dedup();
         assert_eq!(f.len() + 1, hist.len());

@@ -167,6 +167,10 @@ pub struct JaggedMatrix<T> {
     pub data: Vec<T>,
     /// The end index's of the matrix.
     pub ends: Vec<usize>,
+    /// Number of columns in the matrix
+    pub cols: usize,
+    /// The number of elements in the matrix.
+    pub n_records: usize,
 }
 
 impl<T> JaggedMatrix<T>
@@ -178,14 +182,23 @@ where
         let mut data = Vec::new();
         let mut ends = Vec::new();
         let mut e = 0;
+        let mut n_records = 0;
         for vec in vecs {
             for v in vec {
                 data.push(*v);
             }
             e += vec.len();
             ends.push(e);
+            n_records += e;
         }
-        JaggedMatrix { data, ends }
+        let cols = vecs.len();
+
+        JaggedMatrix {
+            data,
+            ends,
+            cols,
+            n_records,
+        }
     }
 }
 
@@ -194,6 +207,8 @@ impl<T> JaggedMatrix<T> {
         JaggedMatrix {
             data: Vec::new(),
             ends: Vec::new(),
+            cols: 0,
+            n_records: 0,
         }
     }
 
@@ -206,6 +221,23 @@ impl<T> JaggedMatrix<T> {
             (self.ends[col - 1], self.ends[col])
         };
         &self.data[i..j]
+    }
+
+    /// Get a mutable reference to a column of the array.
+    pub fn get_col_mut(&mut self, col: usize) -> &mut [T] {
+        assert!(col < self.ends.len());
+        let (i, j) = if col == 0 {
+            (0, self.ends[col])
+        } else {
+            (self.ends[col - 1], self.ends[col])
+        };
+        &mut self.data[i..j]
+    }
+}
+
+impl<T> Default for JaggedMatrix<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

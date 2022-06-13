@@ -5,6 +5,7 @@ use forust_ml::gradientbooster::GradientBooster;
 use forust_ml::histsplitter::HistogramSplitter;
 use forust_ml::objective::{LogLoss, ObjectiveFunction};
 use forust_ml::tree::Tree;
+use forust_ml::utils::{fast_sum, naive_sum};
 use std::fs;
 
 pub fn tree_benchmarks(c: &mut Criterion) {
@@ -18,6 +19,14 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     let w = vec![1.; y.len()];
     let g = LogLoss::calc_grad(&y, &yhat, &w);
     let h = LogLoss::calc_hess(&y, &yhat, &w);
+
+    c.bench_function("calc_grad", |b| {
+        b.iter(|| LogLoss::calc_grad(black_box(&y), black_box(&yhat), black_box(&w)))
+    });
+
+    c.bench_function("calc_hess", |b| {
+        b.iter(|| LogLoss::calc_hess(black_box(&y), black_box(&yhat), black_box(&w)))
+    });
 
     let data = Matrix::new(&data_vec, y.len(), 5);
     let splitter = HistogramSplitter {
@@ -81,8 +90,12 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     let mut booster = GradientBooster::default();
     booster.fit(&data, &y, &w).unwrap();
     c.bench_function("Predict Booster", |b| {
-        b.iter(|| booster.predict(&data, true))
+        b.iter(|| booster.predict(black_box(&data), true))
     });
+
+    let v: Vec<f64> = vec![10.; 10000];
+    c.bench_function("Niave Sum", |b| b.iter(|| naive_sum(black_box(&v))));
+    c.bench_function("fast sum", |b| b.iter(|| fast_sum(black_box(&v))));
 }
 
 criterion_group!(benches, tree_benchmarks);

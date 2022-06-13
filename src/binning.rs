@@ -59,7 +59,7 @@ fn bin_matrix_from_cuts<T: std::cmp::PartialOrd>(
             let col = i / data.rows;
             // This will always be smaller than u16::MAX so we
             // are good to just unwrap here.
-            map_bin(&cuts.get_col(col), v).unwrap()
+            map_bin(cuts.get_col(col), v).unwrap()
         })
         .collect()
 }
@@ -108,6 +108,8 @@ pub fn bin_matrix<T: FloatData<T>>(
             None => l,
         };
         cuts.ends.push(e);
+        cuts.cols = cuts.ends.len();
+        cuts.n_records = cuts.ends.iter().sum();
     }
 
     let binned_data = bin_matrix_from_cuts(data, &cuts);

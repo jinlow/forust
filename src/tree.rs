@@ -1,8 +1,8 @@
-use crate::data::{Matrix, FloatData, JaggedMatrix};
-use crate::histogram::Histograms;
+use crate::data::{FloatData, JaggedMatrix, Matrix};
+use crate::histogram::HistogramMatrix;
 use crate::histsplitter::HistogramSplitter;
 use crate::node::{SplittableNode, TreeNode};
-use crate::utils::pivot_on_split;
+use crate::utils::{fast_sum, pivot_on_split};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -39,12 +39,12 @@ impl<T: FloatData<T>> Tree<T> {
         parallel: bool,
     ) {
         let mut n_nodes = 1;
-        let grad_sum: T = grad.iter().copied().sum();
-        let hess_sum: T = hess.iter().copied().sum();
+        let grad_sum: T = fast_sum(grad);
+        let hess_sum: T = fast_sum(hess);
         let root_gain = splitter.gain(grad_sum, hess_sum);
         let root_weight = splitter.weight(grad_sum, hess_sum);
         // Calculate the histograms for the root node.
-        let root_hists = Histograms::new(data, cuts, grad, hess, index, parallel);
+        let root_hists = HistogramMatrix::new(data, cuts, grad, hess, index, parallel);
         let root_node = SplittableNode::new(
             0,
             root_hists,
@@ -142,10 +142,10 @@ impl<T: FloatData<T>> Tree<T> {
                         split_idx += node.start_idx;
 
                         // Build the histograms for the smaller node.
-                        let left_histograms: Histograms<T>;
-                        let right_histograms: Histograms<T>;
+                        let left_histograms: HistogramMatrix<T>;
+                        let right_histograms: HistogramMatrix<T>;
                         if n_left < n_right {
-                            left_histograms = Histograms::new(
+                            left_histograms = HistogramMatrix::new(
                                 data,
                                 cuts,
                                 grad,
@@ -153,10 +153,12 @@ impl<T: FloatData<T>> Tree<T> {
                                 &index[node.start_idx..split_idx],
                                 parallel,
                             );
-                            right_histograms =
-                                Histograms::from_parent_child(&node.histograms, &left_histograms);
+                            right_histograms = HistogramMatrix::from_parent_child(
+                                &node.histograms,
+                                &left_histograms,
+                            );
                         } else {
-                            right_histograms = Histograms::new(
+                            right_histograms = HistogramMatrix::new(
                                 data,
                                 cuts,
                                 grad,
@@ -164,8 +166,10 @@ impl<T: FloatData<T>> Tree<T> {
                                 &index[split_idx..node.stop_idx],
                                 parallel,
                             );
-                            left_histograms =
-                                Histograms::from_parent_child(&node.histograms, &right_histograms);
+                            left_histograms = HistogramMatrix::from_parent_child(
+                                &node.histograms,
+                                &right_histograms,
+                            );
                         }
 
                         node.update_children(left_idx, right_idx, &info);

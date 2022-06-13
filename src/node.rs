@@ -1,5 +1,5 @@
 use crate::data::FloatData;
-use crate::histogram::Histograms;
+use crate::histogram::HistogramMatrix;
 use crate::histsplitter::SplitInfo;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
@@ -8,7 +8,7 @@ use std::str::FromStr;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SplittableNode<T> {
     pub num: usize,
-    pub histograms: Histograms<T>,
+    pub histograms: HistogramMatrix<T>,
     pub weight_value: T,
     pub gain_value: T,
     pub grad_sum: T,
@@ -60,7 +60,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         num: usize,
-        histograms: Histograms<T>,
+        histograms: HistogramMatrix<T>,
         weight_value: T,
         gain_value: T,
         grad_sum: T,

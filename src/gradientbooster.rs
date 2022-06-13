@@ -1,5 +1,5 @@
 use crate::binning::bin_matrix;
-use crate::data::{Matrix, FloatData};
+use crate::data::{FloatData, Matrix};
 use crate::errors::ForustError;
 use crate::histsplitter::HistogramSplitter;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
@@ -186,11 +186,8 @@ where
                 index,
                 self.parallel,
             );
-            yhat = yhat
-                .iter()
-                .zip(tree.predict(data, self.parallel))
-                .map(|(i, j)| *i + j)
-                .collect();
+            let preds = tree.predict(data, self.parallel);
+            yhat = yhat.iter().zip(preds).map(|(i, j)| *i + j).collect();
             self.trees.push(tree);
             grad = calc_grad(y, &yhat, sample_weight);
             hess = calc_hess(y, &yhat, sample_weight);

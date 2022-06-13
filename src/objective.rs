@@ -38,12 +38,11 @@ where
     fn calc_loss(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
         y.iter()
             .zip(yhat)
-            .map(|(y_, yhat_)| {
-                let yhat_ = T::ONE / (T::ONE + (-*yhat_).exp());
-                -(*y_ * yhat_.ln() + (T::ONE - *y_) * ((T::ONE - yhat_).ln()))
-            })
             .zip(sample_weight)
-            .map(|(l, w)| l * *w)
+            .map(|((y_, yhat_), w_)| {
+                let yhat_ = T::ONE / (T::ONE + (-*yhat_).exp());
+                -(*y_ * yhat_.ln() + (T::ONE - *y_) * ((T::ONE - yhat_).ln())) * *w_
+            })
             .collect()
     }
 
@@ -51,23 +50,21 @@ where
     fn calc_grad(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
         y.iter()
             .zip(yhat)
-            .map(|(y_, yhat_)| {
-                let yhat_ = T::ONE / (T::ONE + (-*yhat_).exp());
-                yhat_ - *y_
-            })
             .zip(sample_weight)
-            .map(|(l, w)| l * *w)
+            .map(|((y_, yhat_), w_)| {
+                let yhat_ = T::ONE / (T::ONE + (-*yhat_).exp());
+                (yhat_ - *y_) * *w_
+            })
             .collect()
     }
     #[inline]
     fn calc_hess(_: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
         yhat.iter()
-            .map(|yhat_| {
-                let yhat_ = T::ONE / (T::ONE + (-*yhat_).exp());
-                yhat_ * (T::ONE - yhat_)
-            })
             .zip(sample_weight)
-            .map(|(l, w)| l * *w)
+            .map(|(yhat_, w_)| {
+                let yhat_ = T::ONE / (T::ONE + (-*yhat_).exp());
+                yhat_ * (T::ONE - yhat_) * *w_
+            })
             .collect()
     }
 }
@@ -83,12 +80,11 @@ where
     fn calc_loss(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
         y.iter()
             .zip(yhat)
-            .map(|(y_, yhat_)| {
-                let s = *y_ - *yhat_;
-                s * s
-            })
             .zip(sample_weight)
-            .map(|(l, w)| l * *w)
+            .map(|((y_, yhat_), w_)| {
+                let s = *y_ - *yhat_;
+                s * s * *w_
+            })
             .collect()
     }
 
@@ -96,9 +92,8 @@ where
     fn calc_grad(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
         y.iter()
             .zip(yhat)
-            .map(|(y_, yhat_)| *yhat_ - *y_)
             .zip(sample_weight)
-            .map(|(l, w)| l * *w)
+            .map(|((y_, yhat_), w_)| (*yhat_ - *y_) * *w_)
             .collect()
     }
 
