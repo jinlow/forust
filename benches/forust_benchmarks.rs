@@ -36,8 +36,6 @@ pub fn tree_benchmarks(c: &mut Criterion) {
         learning_rate: 0.3,
     };
     let mut tree = Tree::new();
-    let mut index = data.index.to_owned();
-    let index = index.as_mut();
 
     let bindata = bin_matrix(&data, &w, 300).unwrap();
     let bdata = Matrix::new(&bindata.binned_data, data.rows, data.cols);
@@ -50,7 +48,6 @@ pub fn tree_benchmarks(c: &mut Criterion) {
         &splitter,
         usize::MAX,
         5,
-        index,
         true,
     );
     println!("{}", tree.nodes.len());
@@ -65,7 +62,6 @@ pub fn tree_benchmarks(c: &mut Criterion) {
                 black_box(&splitter),
                 black_box(usize::MAX),
                 black_box(5),
-                black_box(index),
                 black_box(true),
             );
         })

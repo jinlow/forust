@@ -35,16 +35,16 @@ impl<T: FloatData<T>> Tree<T> {
         splitter: &HistogramSplitter<T>,
         max_leaves: usize,
         max_depth: usize,
-        index: &mut [usize],
         parallel: bool,
     ) {
+        let mut index = data.index.to_owned();
         let mut n_nodes = 1;
         let grad_sum: T = fast_sum(grad);
         let hess_sum: T = fast_sum(hess);
         let root_gain = splitter.gain(grad_sum, hess_sum);
         let root_weight = splitter.weight(grad_sum, hess_sum);
         // Calculate the histograms for the root node.
-        let root_hists = HistogramMatrix::new(data, cuts, grad, hess, index, parallel);
+        let root_hists = HistogramMatrix::new(data, cuts, grad, hess, &index, parallel, true);
         let root_node = SplittableNode::new(
             0,
             root_hists,
@@ -152,6 +152,7 @@ impl<T: FloatData<T>> Tree<T> {
                                 hess,
                                 &index[node.start_idx..split_idx],
                                 parallel,
+                                false,
                             );
                             right_histograms = HistogramMatrix::from_parent_child(
                                 &node.histograms,
@@ -165,6 +166,7 @@ impl<T: FloatData<T>> Tree<T> {
                                 hess,
                                 &index[split_idx..node.stop_idx],
                                 parallel,
+                                false,
                             );
                             left_histograms = HistogramMatrix::from_parent_child(
                                 &node.histograms,
@@ -322,8 +324,6 @@ mod tests {
             learning_rate: 0.3,
         };
         let mut tree = Tree::new();
-        let mut index = data.index.to_owned();
-        let index = index.as_mut();
 
         let b = bin_matrix(&data, &w, 300).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
@@ -336,7 +336,6 @@ mod tests {
             &splitter,
             usize::MAX,
             5,
-            index,
             true,
         );
 

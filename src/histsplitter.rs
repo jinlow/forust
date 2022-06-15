@@ -214,7 +214,7 @@ mod tests {
         let b = bin_matrix(&data, &w, 10).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true);
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
         let splitter = HistogramSplitter {
             l2: 0.0,
             gamma: 0.0,
@@ -258,7 +258,7 @@ mod tests {
         let b = bin_matrix(&data, &w, 10).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true);
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
         println!("{:?}", hists);
         let splitter = HistogramSplitter {
             l2: 0.0,
@@ -318,7 +318,7 @@ mod tests {
         let b = bin_matrix(&data, &w, 10).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true);
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
 
         let mut n = SplittableNode::new(
             0,

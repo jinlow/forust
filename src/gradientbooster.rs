@@ -166,13 +166,11 @@ where
         let (calc_grad, calc_hess) = gradient_hessian_callables(&self.objective_type);
         let mut grad = calc_grad(y, &yhat, sample_weight);
         let mut hess = calc_hess(y, &yhat, sample_weight);
-        let mut index = data.index.to_owned();
 
         // Generate binned data
         let binned_data = bin_matrix(data, sample_weight, self.nbins)?;
         let bdata = Matrix::new(&binned_data.binned_data, data.rows, data.cols);
 
-        let index = index.as_mut();
         for _ in 0..self.iterations {
             let mut tree = Tree::new();
             tree.fit(
@@ -183,7 +181,6 @@ where
                 &splitter,
                 self.max_leaves,
                 self.max_depth,
-                index,
                 self.parallel,
             );
             let preds = tree.predict(data, self.parallel);

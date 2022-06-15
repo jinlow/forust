@@ -97,13 +97,27 @@ where
         hess: &[T],
         index: &[usize],
         parallel: bool,
+        root_node: bool,
     ) -> Self {
         let col_index: Vec<usize> = (0..data.cols).collect();
         // Sort gradients and hessians to reduce cache hits.
         // This made a really sizeable difference on larger datasets
         // Bringing training time down from nearly 6 minutes, to 2 minutes.
-        let sorted_grad: Vec<T> = index.iter().map(|i| grad[*i]).collect();
-        let sorted_hess: Vec<T> = index.iter().map(|i| hess[*i]).collect();
+        // Sort gradients and hessians to reduce cache hits.
+        // This made a really sizeable difference on larger datasets
+        // Bringing training time down from nearly 6 minutes, to 2 minutes.
+        let sorted_grad = if root_node {
+            grad.to_vec()
+        } else {
+            index.iter().map(|i| grad[*i]).collect::<Vec<T>>()
+        };
+
+        let sorted_hess = if root_node {
+            hess.to_vec()
+        } else {
+            index.iter().map(|i| hess[*i]).collect::<Vec<T>>()
+        };
+
         let histograms = if parallel {
             col_index
                 .par_iter()
