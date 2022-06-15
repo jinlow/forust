@@ -1,26 +1,25 @@
-use crate::data::{FloatData, JaggedMatrix, Matrix};
+use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
 use crate::histsplitter::HistogramSplitter;
 use crate::node::{SplittableNode, TreeNode};
-use crate::utils::{fast_sum, pivot_on_split};
+use crate::utils::pivot_on_split;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt;
-use std::str::FromStr;
 
 #[derive(Deserialize, Serialize)]
-pub struct Tree<T: FloatData<T>> {
-    pub nodes: Vec<TreeNode<T>>,
+pub struct Tree {
+    pub nodes: Vec<TreeNode>,
 }
 
-impl<T: FloatData<T>> Default for Tree<T> {
+impl Default for Tree {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: FloatData<T>> Tree<T> {
+impl Tree {
     pub fn new() -> Self {
         Tree { nodes: Vec::new() }
     }
@@ -29,22 +28,36 @@ impl<T: FloatData<T>> Tree<T> {
     pub fn fit(
         &mut self,
         data: &Matrix<u16>,
-        cuts: &JaggedMatrix<T>,
-        grad: &[T],
-        hess: &[T],
-        splitter: &HistogramSplitter<T>,
+        cuts: &JaggedMatrix<f64>,
+        grad: &[f32],
+        hess: &[f32],
+        splitter: &HistogramSplitter,
         max_leaves: usize,
         max_depth: usize,
-        index: &mut [usize],
         parallel: bool,
     ) {
+        let mut index = data.index.to_owned();
         let mut n_nodes = 1;
-        let grad_sum: T = fast_sum(grad);
-        let hess_sum: T = fast_sum(hess);
+        let grad_sum = grad.iter().sum();
+        let hess_sum = hess.iter().sum();
         let root_gain = splitter.gain(grad_sum, hess_sum);
         let root_weight = splitter.weight(grad_sum, hess_sum);
+        println!("Grad Sum: {}, Hess Sum: {}", grad_sum, hess_sum);
+        println!("{}", hess.len());
+        println!("{}", &hess[0..10].iter().sum::<f32>());
+        let mut h_copy = hess.to_vec();
+        h_copy.sort_by(|a,b| a.partial_cmp(b).unwrap());
+        h_copy.dedup();
+        println!("All of hess: {:?}", h_copy);
+        println!("Sum Hess: {}", (hess.len() as f32) * h_copy[0]);
+        println!("Sum Hess: {}", hess.iter().fold(0., |sum, val| sum + val));
+        
+        
         // Calculate the histograms for the root node.
-        let root_hists = HistogramMatrix::new(data, cuts, grad, hess, index, parallel);
+        let root_hists = HistogramMatrix::new(data, cuts, grad, hess, &index, parallel, true);
+
+        println!("{:?}", root_hists.0.get_col(20));
+
         let root_node = SplittableNode::new(
             0,
             root_hists,
@@ -142,8 +155,8 @@ impl<T: FloatData<T>> Tree<T> {
                         split_idx += node.start_idx;
 
                         // Build the histograms for the smaller node.
-                        let left_histograms: HistogramMatrix<T>;
-                        let right_histograms: HistogramMatrix<T>;
+                        let left_histograms: HistogramMatrix;
+                        let right_histograms: HistogramMatrix;
                         if n_left < n_right {
                             left_histograms = HistogramMatrix::new(
                                 data,
@@ -152,6 +165,7 @@ impl<T: FloatData<T>> Tree<T> {
                                 hess,
                                 &index[node.start_idx..split_idx],
                                 parallel,
+                                false,
                             );
                             right_histograms = HistogramMatrix::from_parent_child(
                                 &node.histograms,
@@ -165,6 +179,7 @@ impl<T: FloatData<T>> Tree<T> {
                                 hess,
                                 &index[split_idx..node.stop_idx],
                                 parallel,
+                                false,
                             );
                             left_histograms = HistogramMatrix::from_parent_child(
                                 &node.histograms,
@@ -211,13 +226,13 @@ impl<T: FloatData<T>> Tree<T> {
         }
     }
 
-    pub fn predict_row(&self, data: &Matrix<T>, row: usize) -> T {
+    pub fn predict_row(&self, data: &Matrix<f64>, row: usize) -> f64 {
         let mut node_idx = 0;
         loop {
             let n = &self.nodes[node_idx];
             match n {
                 TreeNode::Leaf(node) => {
-                    return node.weight_value;
+                    return node.weight_value as f64;
                 }
                 TreeNode::Parent(node) => {
                     let v = data.get(row, node.split_feature);
@@ -238,21 +253,21 @@ impl<T: FloatData<T>> Tree<T> {
         }
     }
 
-    fn predict_single_threaded(&self, data: &Matrix<T>) -> Vec<T> {
+    fn predict_single_threaded(&self, data: &Matrix<f64>) -> Vec<f64> {
         data.index
             .iter()
             .map(|i| self.predict_row(data, *i))
             .collect()
     }
 
-    fn predict_parallel(&self, data: &Matrix<T>) -> Vec<T> {
+    fn predict_parallel(&self, data: &Matrix<f64>) -> Vec<f64> {
         data.index
             .par_iter()
             .map(|i| self.predict_row(data, *i))
             .collect()
     }
 
-    pub fn predict(&self, data: &Matrix<T>, parallel: bool) -> Vec<T> {
+    pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
         if parallel {
             self.predict_parallel(data)
         } else {
@@ -261,11 +276,7 @@ impl<T: FloatData<T>> Tree<T> {
     }
 }
 
-impl<T> fmt::Display for Tree<T>
-where
-    T: FromStr + std::fmt::Display + FloatData<T>,
-    <T as FromStr>::Err: 'static + std::error::Error,
-{
+impl fmt::Display for Tree {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut print_buffer: Vec<usize> = vec![0];
@@ -322,27 +333,52 @@ mod tests {
             learning_rate: 0.3,
         };
         let mut tree = Tree::new();
-        let mut index = data.index.to_owned();
-        let index = index.as_mut();
 
         let b = bin_matrix(&data, &w, 300).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
 
-        tree.fit(
-            &bdata,
-            &b.cuts,
-            &g,
-            &h,
-            &splitter,
-            usize::MAX,
-            5,
-            index,
-            true,
-        );
+        tree.fit(&bdata, &b.cuts, &g, &h, &splitter, usize::MAX, 5, true);
 
         println!("{}", tree);
         let preds = tree.predict(&data, false);
         println!("{:?}", &preds[0..10]);
         assert_eq!(25, tree.nodes.len())
+    }
+
+    #[test]
+    fn test_tree_fit_another() {
+        let file =
+            fs::read_to_string("../forust-profile/resources/contiguous_no_missing_no_sample.csv")
+                .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let file = fs::read_to_string("../forust-profile/resources/performance_no_sample.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let yhat = vec![0.5; y.len()];
+        let w = vec![1.; y.len()];
+        let g = LogLoss::calc_grad(&y, &yhat, &w);
+        let h = LogLoss::calc_hess(&y, &yhat, &w);
+
+        let n_cols = data_vec.len() / y.len();
+
+        let data = Matrix::new(&data_vec, y.len(), n_cols);
+        let data = Matrix::new(data.get_col(88), y.len(), 1);
+
+        let splitter = HistogramSplitter {
+            l2: 1.0,
+            gamma: 3.0,
+            min_leaf_weight: 1.0,
+            learning_rate: 0.3,
+        };
+        let mut tree = Tree::new();
+
+        let b = bin_matrix(&data, &w, 300).unwrap();
+        let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
+
+        tree.fit(&bdata, &b.cuts, &g, &h, &splitter, usize::MAX, 5, true);
+
+        println!("{}", tree);
+        let preds = tree.predict(&data, false);
+        println!("{:?}", &preds[0..10]);
     }
 }

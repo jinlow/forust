@@ -1,7 +1,6 @@
-use crate::data::FloatData;
 use serde::{Deserialize, Serialize};
 
-type ObjFn<T> = fn(&[T], &[T], &[T]) -> Vec<T>;
+type ObjFn = fn(&[f64], &[f64], &[f64]) -> Vec<f32>;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ObjectiveType {
@@ -9,61 +8,53 @@ pub enum ObjectiveType {
     SquaredLoss,
 }
 
-pub fn gradient_hessian_callables<T: FloatData<T>>(
-    objective_type: &ObjectiveType,
-) -> (ObjFn<T>, ObjFn<T>) {
+pub fn gradient_hessian_callables(objective_type: &ObjectiveType) -> (ObjFn, ObjFn) {
     match objective_type {
         ObjectiveType::LogLoss => (LogLoss::calc_grad, LogLoss::calc_hess),
         ObjectiveType::SquaredLoss => (SquaredLoss::calc_grad, SquaredLoss::calc_hess),
     }
 }
 
-pub trait ObjectiveFunction<T>
-where
-    T: FloatData<T>,
-{
-    fn calc_loss(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T>;
-    fn calc_grad(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T>;
-    fn calc_hess(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T>;
+pub trait ObjectiveFunction {
+    fn calc_loss(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32>;
+    fn calc_grad(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32>;
+    fn calc_hess(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32>;
 }
 
 #[derive(Default)]
 pub struct LogLoss {}
 
-impl<T> ObjectiveFunction<T> for LogLoss
-where
-    T: FloatData<T>,
-{
+impl ObjectiveFunction for LogLoss {
     #[inline]
-    fn calc_loss(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
+    fn calc_loss(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
         y.iter()
             .zip(yhat)
             .zip(sample_weight)
             .map(|((y_, yhat_), w_)| {
-                let yhat_ = T::ONE / (T::ONE + (-*yhat_).exp());
-                -(*y_ * yhat_.ln() + (T::ONE - *y_) * ((T::ONE - yhat_).ln())) * *w_
+                let yhat_ = 1. / (1. + (-*yhat_).exp());
+                (-(*y_ * yhat_.ln() + (1. - *y_) * ((1. - yhat_).ln())) * *w_) as f32
             })
             .collect()
     }
 
     #[inline]
-    fn calc_grad(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
+    fn calc_grad(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
         y.iter()
             .zip(yhat)
             .zip(sample_weight)
             .map(|((y_, yhat_), w_)| {
-                let yhat_ = T::ONE / (T::ONE + (-*yhat_).exp());
-                (yhat_ - *y_) * *w_
+                let yhat_ = 1. / (1. + (-*yhat_).exp());
+                ((yhat_ - *y_) * *w_) as f32
             })
             .collect()
     }
     #[inline]
-    fn calc_hess(_: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
+    fn calc_hess(_: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
         yhat.iter()
             .zip(sample_weight)
             .map(|(yhat_, w_)| {
-                let yhat_ = T::ONE / (T::ONE + (-*yhat_).exp());
-                yhat_ * (T::ONE - yhat_) * *w_
+                let yhat_ = 1. / (1. + (-*yhat_).exp());
+                (yhat_ * (1. - yhat_) * *w_) as f32
             })
             .collect()
     }
@@ -72,34 +63,31 @@ where
 #[derive(Default)]
 pub struct SquaredLoss {}
 
-impl<T> ObjectiveFunction<T> for SquaredLoss
-where
-    T: FloatData<T>,
-{
+impl ObjectiveFunction for SquaredLoss {
     #[inline]
-    fn calc_loss(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
+    fn calc_loss(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
         y.iter()
             .zip(yhat)
             .zip(sample_weight)
             .map(|((y_, yhat_), w_)| {
                 let s = *y_ - *yhat_;
-                s * s * *w_
+                (s * s * *w_) as f32
             })
             .collect()
     }
 
     #[inline]
-    fn calc_grad(y: &[T], yhat: &[T], sample_weight: &[T]) -> Vec<T> {
+    fn calc_grad(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
         y.iter()
             .zip(yhat)
             .zip(sample_weight)
-            .map(|((y_, yhat_), w_)| (*yhat_ - *y_) * *w_)
+            .map(|((y_, yhat_), w_)| ((*yhat_ - *y_) * *w_) as f32)
             .collect()
     }
 
     #[inline]
-    fn calc_hess(_: &[T], _: &[T], sample_weight: &[T]) -> Vec<T> {
-        sample_weight.to_vec()
+    fn calc_hess(_: &[f64], _: &[f64], sample_weight: &[f64]) -> Vec<f32> {
+        sample_weight.iter().map(|v| *v as f32).collect()
     }
 }
 
@@ -114,7 +102,7 @@ mod tests {
         let l1 = LogLoss::calc_loss(&y, &yhat1, &w);
         let yhat2 = vec![0.0, 0.0, -1.0, 1.0, 0.0, 1.0];
         let l2 = LogLoss::calc_loss(&y, &yhat2, &w);
-        assert!(l1.iter().sum::<f64>() < l2.iter().sum::<f64>());
+        assert!(l1.iter().sum::<f32>() < l2.iter().sum::<f32>());
     }
 
     #[test]
@@ -125,7 +113,7 @@ mod tests {
         let g1 = LogLoss::calc_grad(&y, &yhat1, &w);
         let yhat2 = vec![0.0, 0.0, -1.0, 1.0, 0.0, 1.0];
         let g2 = LogLoss::calc_grad(&y, &yhat2, &w);
-        assert!(g1.iter().sum::<f64>() < g2.iter().sum::<f64>());
+        assert!(g1.iter().sum::<f32>() < g2.iter().sum::<f32>());
     }
 
     #[test]
@@ -136,6 +124,6 @@ mod tests {
         let h1 = LogLoss::calc_hess(&y, &yhat1, &w);
         let yhat2 = vec![0.0, 0.0, -1.0, 1.0, 0.0, 1.0];
         let h2 = LogLoss::calc_hess(&y, &yhat2, &w);
-        assert!(h1.iter().sum::<f64>() < h2.iter().sum::<f64>());
+        assert!(h1.iter().sum::<f32>() < h2.iter().sum::<f32>());
     }
 }

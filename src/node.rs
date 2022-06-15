@@ -1,22 +1,20 @@
-use crate::data::FloatData;
 use crate::histogram::HistogramMatrix;
 use crate::histsplitter::SplitInfo;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
-use std::str::FromStr;
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct SplittableNode<T> {
+pub struct SplittableNode {
     pub num: usize,
-    pub histograms: HistogramMatrix<T>,
-    pub weight_value: T,
-    pub gain_value: T,
-    pub grad_sum: T,
-    pub hess_sum: T,
+    pub histograms: HistogramMatrix,
+    pub weight_value: f32,
+    pub gain_value: f32,
+    pub grad_sum: f32,
+    pub hess_sum: f32,
     pub depth: usize,
-    pub split_value: T,
+    pub split_value: f64,
     pub split_feature: usize,
-    pub split_gain: T,
+    pub split_gain: f32,
     pub missing_right: bool,
     pub left_child: usize,
     pub right_child: usize,
@@ -25,46 +23,44 @@ pub struct SplittableNode<T> {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct ParentNode<T> {
+pub struct ParentNode {
     num: usize,
-    pub weight_value: T,
-    hess_sum: T,
+    pub weight_value: f32,
+    hess_sum: f32,
     pub depth: usize,
-    pub split_value: T,
+    pub split_value: f64,
     pub split_feature: usize,
-    split_gain: T,
+    split_gain: f32,
     pub missing_right: bool,
     pub left_child: usize,
     pub right_child: usize,
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct LeafNode<T> {
+pub struct LeafNode {
     pub num: usize,
-    pub weight_value: T,
-    pub hess_sum: T,
+    pub weight_value: f32,
+    pub hess_sum: f32,
     pub depth: usize,
 }
 
 #[derive(Deserialize, Serialize)]
-pub enum TreeNode<T> {
-    Parent(ParentNode<T>),
-    Leaf(LeafNode<T>),
-    Splittable(SplittableNode<T>),
+pub enum TreeNode {
+    Parent(ParentNode),
+    Leaf(LeafNode),
+    Splittable(SplittableNode),
 }
 
-impl<'a, T> SplittableNode<T>
-where
-    T: FloatData<T>,
+impl<'a> SplittableNode
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         num: usize,
-        histograms: HistogramMatrix<T>,
-        weight_value: T,
-        gain_value: T,
-        grad_sum: T,
-        hess_sum: T,
+        histograms: HistogramMatrix,
+        weight_value: f32,
+        gain_value: f32,
+        grad_sum: f32,
+        hess_sum: f32,
         depth: usize,
         missing_right: bool,
         start_idx: usize,
@@ -78,9 +74,9 @@ where
             grad_sum,
             hess_sum,
             depth,
-            split_value: T::ZERO,
+            split_value: 0.,
             split_feature: 0,
-            split_gain: T::ZERO,
+            split_gain: 0.,
             missing_right,
             left_child: 0,
             right_child: 0,
@@ -93,7 +89,7 @@ where
         &mut self,
         left_child: usize,
         right_child: usize,
-        split_info: &SplitInfo<T>,
+        split_info: &SplitInfo,
     ) {
         self.left_child = left_child;
         self.right_child = right_child;
@@ -102,7 +98,7 @@ where
         self.split_value = split_info.split_value;
         self.missing_right = split_info.missing_right;
     }
-    pub fn as_leaf_node(&self) -> TreeNode<T> {
+    pub fn as_leaf_node(&self) -> TreeNode {
         TreeNode::Leaf(LeafNode {
             num: self.num,
             weight_value: self.weight_value,
@@ -110,7 +106,7 @@ where
             depth: self.depth,
         })
     }
-    pub fn as_parent_node(&self) -> TreeNode<T> {
+    pub fn as_parent_node(&self) -> TreeNode {
         TreeNode::Parent(ParentNode {
             num: self.num,
             weight_value: self.weight_value,
@@ -126,10 +122,7 @@ where
     }
 }
 
-impl<'a, T> fmt::Display for TreeNode<T>
-where
-    T: FromStr + std::fmt::Display + FloatData<T>,
-    <T as FromStr>::Err: 'static + std::error::Error,
+impl<'a> fmt::Display for TreeNode
 {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
