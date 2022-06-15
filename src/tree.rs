@@ -37,6 +37,9 @@ impl<T: FloatData<T>> Tree<T> {
         max_depth: usize,
         parallel: bool,
     ) {
+        // Recreating the index for each tree, ensures that the tree construction is faster
+        // for the root node. This also ensures that sorting the records is always fast,
+        // because we are starting from a nearly sorted array.
         let mut index = data.index.to_owned();
         let mut n_nodes = 1;
         let grad_sum: T = fast_sum(grad);
