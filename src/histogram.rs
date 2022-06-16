@@ -1,6 +1,3 @@
-use nohash_hasher::BuildNoHashHasher;
-use std::collections::HashMap;
-
 use crate::data::{FloatData, JaggedMatrix, Matrix};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -15,22 +12,19 @@ pub struct Bin<T> {
     /// The value used to split at, this is for deciding
     /// the split value for non-binned values.
     /// This value will be missing for the missing bin.
-    pub cut_value: T,
+    pub cut_value: f64,
 }
 
-impl<T> Bin<T>
-where
-    T: FloatData<T>,
-{
-    pub fn new(cut_value: T) -> Self {
+impl Bin<f32> {
+    pub fn new_f32(cut_value: f64) -> Self {
         Bin {
-            grad_sum: T::ZERO,
-            hess_sum: T::ZERO,
+            grad_sum: f32::ZERO,
+            hess_sum: f32::ZERO,
             cut_value,
         }
     }
 
-    pub fn from_parent_child(root_bin: &Bin<T>, child_bin: &Bin<T>) -> Self {
+    pub fn from_parent_child(root_bin: &Bin<f32>, child_bin: &Bin<f32>) -> Self {
         Bin {
             grad_sum: root_bin.grad_sum - child_bin.grad_sum,
             hess_sum: root_bin.hess_sum - child_bin.hess_sum,
@@ -39,62 +33,62 @@ where
     }
 }
 
-pub type Hist<T> = HashMap<u16, Bin<T>, BuildNoHashHasher<u16>>;
+impl Bin<f64> {
+    pub fn new_f64(cut_value: f64) -> Self {
+        Bin {
+            grad_sum: f64::ZERO,
+            hess_sum: f64::ZERO,
+            cut_value,
+        }
+    }
 
-/// Histograms implemented as as jagged matrix.
-#[derive(Debug, Deserialize, Serialize)]
-pub struct HistogramMatrix<T>(pub JaggedMatrix<Bin<T>>);
-
-impl<T> HistogramMatrix<T>
-where
-    T: FloatData<T>,
-{
-    pub fn from_jagged_matrix(matrix: &JaggedMatrix<T>) -> Self {
-        let data: Vec<Bin<T>> = matrix.data.iter().map(|v| Bin::new(*v)).collect();
-        HistogramMatrix(JaggedMatrix {
-            data,
-            ends: matrix.ends.to_owned(),
-            cols: matrix.ends.len(),
-            n_records: matrix.ends.iter().sum(),
-        })
+    pub fn into_f32(&self) -> Bin<f32> {
+        Bin {
+            grad_sum: self.grad_sum as f32,
+            hess_sum: self.hess_sum as f32,
+            cut_value: self.cut_value,
+        }
     }
 }
 
+/// Histograms implemented as as jagged matrix.
 #[derive(Debug, Deserialize, Serialize)]
-pub struct Histograms<T>(pub Vec<Hist<T>>);
+pub struct HistogramMatrix(pub JaggedMatrix<Bin<f32>>);
 
-pub fn create_feature_histogram<T: FloatData<T>>(
+
+/// Create a histogram for a given feature, we use f64
+/// values to accumulate, so that we don't lose precision,
+/// but then still return f32 values for memory efficiency
+/// and speed.
+pub fn create_feature_histogram(
     feature: &[u16],
-    cuts: &[T],
-    sorted_grad: &[T],
-    sorted_hess: &[T],
+    cuts: &[f64],
+    sorted_grad: &[f32],
+    sorted_hess: &[f32],
     index: &[usize],
-) -> Vec<Bin<T>> {
-    let mut histogram: Vec<Bin<T>> = Vec::with_capacity(cuts.len());
-    histogram.push(Bin::new(T::NAN));
-    histogram.extend(cuts[..(cuts.len() - 1)].iter().map(|c| Bin::new(*c)));
+) -> Vec<Bin<f32>> {
+    let mut histogram: Vec<Bin<f64>> = Vec::with_capacity(cuts.len());
+    histogram.push(Bin::new_f64(f64::NAN));
+    histogram.extend(cuts[..(cuts.len() - 1)].iter().map(|c| Bin::new_f64(*c)));
     index
         .iter()
         .zip(sorted_grad)
         .zip(sorted_hess)
         .for_each(|((i, g), h)| {
             if let Some(v) = histogram.get_mut(feature[*i] as usize) {
-                v.grad_sum += *g;
-                v.hess_sum += *h;
+                v.grad_sum += f64::from(*g);
+                v.hess_sum += f64::from(*h);
             }
         });
-    histogram
+    histogram.iter().map(|b| b.into_f32()).collect()
 }
 
-impl<T> HistogramMatrix<T>
-where
-    T: FloatData<T>,
-{
+impl HistogramMatrix {
     pub fn new(
         data: &Matrix<u16>,
-        cuts: &JaggedMatrix<T>,
-        grad: &[T],
-        hess: &[T],
+        cuts: &JaggedMatrix<f64>,
+        grad: &[f32],
+        hess: &[f32],
         index: &[usize],
         parallel: bool,
         root_node: bool,
@@ -109,13 +103,13 @@ where
         let sorted_grad = if root_node {
             grad.to_vec()
         } else {
-            index.iter().map(|i| grad[*i]).collect::<Vec<T>>()
+            index.iter().map(|i| grad[*i]).collect::<Vec<f32>>()
         };
 
         let sorted_hess = if root_node {
             hess.to_vec()
         } else {
-            index.iter().map(|i| hess[*i]).collect::<Vec<T>>()
+            index.iter().map(|i| hess[*i]).collect::<Vec<f32>>()
         };
 
         let histograms = if parallel {
@@ -130,7 +124,7 @@ where
                         index,
                     )
                 })
-                .collect::<Vec<Bin<T>>>()
+                .collect::<Vec<Bin<f32>>>()
         } else {
             col_index
                 .iter()
@@ -143,7 +137,7 @@ where
                         index,
                     )
                 })
-                .collect::<Vec<Bin<T>>>()
+                .collect::<Vec<Bin<f32>>>()
         };
         HistogramMatrix(JaggedMatrix {
             data: histograms,
@@ -154,8 +148,8 @@ where
     }
 
     pub fn from_parent_child(
-        root_histogram: &HistogramMatrix<T>,
-        child_histogram: &HistogramMatrix<T>,
+        root_histogram: &HistogramMatrix,
+        child_histogram: &HistogramMatrix,
     ) -> Self {
         let HistogramMatrix(root) = root_histogram;
         let HistogramMatrix(child) = child_histogram;

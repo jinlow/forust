@@ -3,34 +3,32 @@ use crate::histogram::HistogramMatrix;
 use crate::node::SplittableNode;
 
 #[derive(Debug)]
-pub struct SplitInfo<T> {
-    pub split_gain: T,
+pub struct SplitInfo {
+    pub split_gain: f32,
     pub split_feature: usize,
-    pub split_value: T,
+    pub split_value: f64,
     pub split_bin: u16,
     pub missing_right: bool,
-    pub left_grad: T,
-    pub left_gain: T,
-    pub left_cover: T,
-    pub left_weight: T,
-    pub right_grad: T,
-    pub right_gain: T,
-    pub right_cover: T,
-    pub right_weight: T,
+    pub left_grad: f32,
+    pub left_gain: f32,
+    pub left_cover: f32,
+    pub left_weight: f32,
+    pub right_grad: f32,
+    pub right_gain: f32,
+    pub right_cover: f32,
+    pub right_weight: f32,
 }
 
-pub struct HistogramSplitter<T> {
-    pub l2: T,
-    pub gamma: T,
-    pub min_leaf_weight: T,
-    pub learning_rate: T,
+pub struct HistogramSplitter {
+    pub l2: f32,
+    pub gamma: f32,
+    pub min_leaf_weight: f32,
+    pub learning_rate: f32,
 }
 
-impl<T> HistogramSplitter<T>
-where
-    T: FloatData<T>,
+impl HistogramSplitter
 {
-    pub fn new(l2: T, gamma: T, min_leaf_weight: T, learning_rate: T) -> Self {
+    pub fn new(l2: f32, gamma: f32, min_leaf_weight: f32, learning_rate: f32) -> Self {
         HistogramSplitter {
             l2,
             gamma,
@@ -39,9 +37,9 @@ where
         }
     }
 
-    pub fn best_split(&self, node: &SplittableNode<T>) -> Option<SplitInfo<T>> {
+    pub fn best_split(&self, node: &SplittableNode) -> Option<SplitInfo> {
         let mut best_split_info = None;
-        let mut best_gain = T::ZERO;
+        let mut best_gain = f32::ZERO;
         let HistogramMatrix(histograms) = &node.histograms;
         for i in 0..histograms.cols {
             let split_info = self.best_feature_split(node, i);
@@ -60,11 +58,11 @@ where
 
     pub fn best_feature_split(
         &self,
-        node: &SplittableNode<T>,
+        node: &SplittableNode,
         feature: usize,
-    ) -> Option<SplitInfo<T>> {
-        let mut split_info: Option<SplitInfo<T>> = None;
-        let mut max_gain: Option<T> = None;
+    ) -> Option<SplitInfo> {
+        let mut split_info: Option<SplitInfo> = None;
+        let mut max_gain: Option<f32> = None;
 
         let HistogramMatrix(histograms) = &node.histograms;
         let histogram = histograms.get_col(feature);
@@ -91,7 +89,7 @@ where
         for bin in &histogram[2..] {
             i += 1;
             // If this bin is empty, continue...
-            if (bin.grad_sum == T::ZERO) && (bin.hess_sum == T::ZERO) {
+            if (bin.grad_sum == f32::ZERO) && (bin.hess_sum == f32::ZERO) {
                 continue;
             }
             // By default missing values will go into the left node.
@@ -107,7 +105,9 @@ where
             // Check Missing direction
             // Don't even worry about it, if there are no missing values
             // in this bin.
-            if (missing.grad_sum != T::ZERO) && (missing.hess_sum != T::ZERO) {
+            if (missing.grad_sum != f32::ZERO) && (missing.hess_sum != f32::ZERO) {
+                // TODO: Consider making this safer, by casting to f64, summing, and then
+                // back to f32...
                 // The gain if missing went left
                 let missing_left_gain =
                     self.gain(left_grad + missing.grad_sum, left_hess + missing.hess_sum);
@@ -141,7 +141,7 @@ where
             }
 
             let split_gain = (left_gain + right_gain - node.gain_value) - self.get_gamma();
-            if split_gain <= T::ZERO {
+            if split_gain <= f32::ZERO {
                 // Update for new value
                 cuml_grad += bin.grad_sum;
                 cuml_hess += bin.hess_sum;
@@ -172,23 +172,23 @@ where
         split_info
     }
 
-    pub fn gain(&self, grad_sum: T, hess_sum: T) -> T {
+    pub fn gain(&self, grad_sum: f32, hess_sum: f32) -> f32 {
         (grad_sum * grad_sum) / (hess_sum + self.get_l2())
     }
 
-    pub fn weight(&self, grad_sum: T, hess_sum: T) -> T {
+    pub fn weight(&self, grad_sum: f32, hess_sum: f32) -> f32 {
         -((grad_sum / (hess_sum + self.get_l2())) * self.get_learning_rate())
     }
 
-    pub fn get_l2(&self) -> T {
+    pub fn get_l2(&self) -> f32 {
         self.l2
     }
 
-    pub fn get_learning_rate(&self) -> T {
+    pub fn get_learning_rate(&self) -> f32 {
         self.learning_rate
     }
 
-    pub fn get_gamma(&self) -> T {
+    pub fn get_gamma(&self) -> f32 {
         self.gamma
     }
 }
@@ -228,8 +228,8 @@ mod tests {
             hists,
             0.0,
             0.14,
-            grad.iter().sum::<f64>(),
-            hess.iter().sum::<f64>(),
+            grad.iter().sum::<f32>(),
+            hess.iter().sum::<f32>(),
             0,
             true,
             0,
@@ -272,8 +272,8 @@ mod tests {
             hists,
             0.0,
             0.14,
-            grad.iter().sum::<f64>(),
-            hess.iter().sum::<f64>(),
+            grad.iter().sum::<f32>(),
+            hess.iter().sum::<f32>(),
             0,
             true,
             0,
@@ -326,8 +326,8 @@ mod tests {
             hists,
             root_weight,
             root_gain,
-            grad.iter().copied().sum::<f64>(),
-            hess.iter().copied().sum::<f64>(),
+            grad.iter().copied().sum::<f32>(),
+            hess.iter().copied().sum::<f32>(),
             0,
             true,
             0,

@@ -29,6 +29,33 @@ pub fn fast_sum<T: FloatData<T>>(values: &[T]) -> T {
     reduced + remainder
 }
 
+/// Fast summation, but using f64 as the internal representation so that
+/// we don't have issues with the precision.
+/// This way, we can still work with f32 values, but get the correct sum
+/// value.
+pub fn fast_f64_sum(values: &[f32]) -> f32 {
+    let chunks = values.chunks_exact(LANES);
+    let remainder = chunks.remainder();
+
+    let sum = chunks.fold([f64::ZERO; LANES], |mut acc, chunk| {
+        let chunk: [f32; LANES] = chunk.try_into().unwrap();
+        for i in 0..LANES {
+            acc[i] += f64::from(chunk[i]);
+        }
+        acc
+    });
+
+    let remainder: f64 = remainder
+        .iter()
+        .fold(f64::ZERO, |acc, b| acc + f64::from(*b));
+
+    let mut reduced: f64 = 0.;
+    for s in sum.iter().take(LANES) {
+        reduced += *s;
+    }
+    (reduced + remainder) as f32
+}
+
 pub fn naive_sum<T: FloatData<T>>(values: &[T]) -> T {
     values.iter().copied().sum()
 }
@@ -240,5 +267,16 @@ mod tests {
         for i in idx[split_i..].iter() {
             assert!((f[*i] >= 10) || (f[*i] != 0));
         }
+    }
+
+    #[test]
+    fn test_fast_f64_sum() {
+        let records = 300000;
+        let vec = vec![0.23500371; records];
+        assert_ne!(vec.iter().sum::<f32>(), vec[0] * (records as f32));
+        assert_eq!(vec[0] * (records as f32), fast_f64_sum(&vec));
+        // println!("Sum Result: {}", vec.iter().sum::<f32>());
+        // println!("Multiplication Results {}", vec[0] * (records as f32));
+        // println!("f64_sum Results {}", f64_sum(&vec));
     }
 }

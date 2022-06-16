@@ -165,7 +165,6 @@ fmod = GradientBooster(
     min_leaf_weight=1.0,
     gamma=0.0,
     objective_type="LogLoss",
-    dtype="float64",
 )
 fmod.fit(X, y=y)  # , sample_weight=w)
 fmod_preds = fmod.predict(X)
@@ -257,7 +256,6 @@ fmod = GradientBooster(
     min_leaf_weight=1.0,
     gamma=0.0,
     objective_type="SquaredLoss",
-    dtype="float64",
 )
 fmod.fit(X, y=y)  # , sample_weight=w)
 fmod_preds = fmod.predict(X)

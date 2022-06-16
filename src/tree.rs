@@ -1,26 +1,25 @@
-use crate::data::{FloatData, JaggedMatrix, Matrix};
+use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
 use crate::histsplitter::HistogramSplitter;
 use crate::node::{SplittableNode, TreeNode};
-use crate::utils::{fast_sum, pivot_on_split};
+use crate::utils::{pivot_on_split, fast_f64_sum};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::fmt;
-use std::str::FromStr;
+use std::fmt::{self, Display};
 
 #[derive(Deserialize, Serialize)]
-pub struct Tree<T: FloatData<T>> {
-    pub nodes: Vec<TreeNode<T>>,
+pub struct Tree {
+    pub nodes: Vec<TreeNode>,
 }
 
-impl<T: FloatData<T>> Default for Tree<T> {
+impl Default for Tree {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: FloatData<T>> Tree<T> {
+impl Tree {
     pub fn new() -> Self {
         Tree { nodes: Vec::new() }
     }
@@ -29,10 +28,10 @@ impl<T: FloatData<T>> Tree<T> {
     pub fn fit(
         &mut self,
         data: &Matrix<u16>,
-        cuts: &JaggedMatrix<T>,
-        grad: &[T],
-        hess: &[T],
-        splitter: &HistogramSplitter<T>,
+        cuts: &JaggedMatrix<f64>,
+        grad: &[f32],
+        hess: &[f32],
+        splitter: &HistogramSplitter,
         max_leaves: usize,
         max_depth: usize,
         parallel: bool,
@@ -42,8 +41,8 @@ impl<T: FloatData<T>> Tree<T> {
         // because we are starting from a nearly sorted array.
         let mut index = data.index.to_owned();
         let mut n_nodes = 1;
-        let grad_sum: T = fast_sum(grad);
-        let hess_sum: T = fast_sum(hess);
+        let grad_sum = fast_f64_sum(grad);
+        let hess_sum = fast_f64_sum(hess);
         let root_gain = splitter.gain(grad_sum, hess_sum);
         let root_weight = splitter.weight(grad_sum, hess_sum);
         // Calculate the histograms for the root node.
@@ -145,8 +144,8 @@ impl<T: FloatData<T>> Tree<T> {
                         split_idx += node.start_idx;
 
                         // Build the histograms for the smaller node.
-                        let left_histograms: HistogramMatrix<T>;
-                        let right_histograms: HistogramMatrix<T>;
+                        let left_histograms: HistogramMatrix;
+                        let right_histograms: HistogramMatrix;
                         if n_left < n_right {
                             left_histograms = HistogramMatrix::new(
                                 data,
@@ -216,13 +215,13 @@ impl<T: FloatData<T>> Tree<T> {
         }
     }
 
-    pub fn predict_row(&self, data: &Matrix<T>, row: usize) -> T {
+    pub fn predict_row(&self, data: &Matrix<f64>, row: usize) -> f64 {
         let mut node_idx = 0;
         loop {
             let n = &self.nodes[node_idx];
             match n {
                 TreeNode::Leaf(node) => {
-                    return node.weight_value;
+                    return node.weight_value as f64;
                 }
                 TreeNode::Parent(node) => {
                     let v = data.get(row, node.split_feature);
@@ -243,21 +242,21 @@ impl<T: FloatData<T>> Tree<T> {
         }
     }
 
-    fn predict_single_threaded(&self, data: &Matrix<T>) -> Vec<T> {
+    fn predict_single_threaded(&self, data: &Matrix<f64>) -> Vec<f64> {
         data.index
             .iter()
             .map(|i| self.predict_row(data, *i))
             .collect()
     }
 
-    fn predict_parallel(&self, data: &Matrix<T>) -> Vec<T> {
+    fn predict_parallel(&self, data: &Matrix<f64>) -> Vec<f64> {
         data.index
             .par_iter()
             .map(|i| self.predict_row(data, *i))
             .collect()
     }
 
-    pub fn predict(&self, data: &Matrix<T>, parallel: bool) -> Vec<T> {
+    pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
         if parallel {
             self.predict_parallel(data)
         } else {
@@ -266,10 +265,7 @@ impl<T: FloatData<T>> Tree<T> {
     }
 }
 
-impl<T> fmt::Display for Tree<T>
-where
-    T: FromStr + std::fmt::Display + FloatData<T>,
-    <T as FromStr>::Err: 'static + std::error::Error,
+impl Display for Tree
 {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

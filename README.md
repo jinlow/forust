@@ -55,9 +55,6 @@ It can be initialized with the following arguments.
     will be used. Defaults to 256.
  - `parallel` ***(bool, optional)***: Should multiple cores be used when training and predicting
     with this model? Defaults to True.
- - `dtype` ***(Union[np.dtype, str], optional)***: Datatype used for the model. Valid options
-    are a numpy 32 bit float, or numpy 64 bit float. Using 32 bit float could be faster
-    in some instances, however this may lead to less precise results. Defaults to "float64".
 
 ### Training and Predicting
 
