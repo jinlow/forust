@@ -17,13 +17,7 @@ def X_y() -> Tuple[pd.DataFrame, pd.Series]:
     y = df["survived"]
     return X, y
 
-
-@pytest.fixture
-def data_dtype():
-    return "float64"
-
-
-def test_booster_to_xgboosts(X_y, data_dtype):
+def test_booster_to_xgboosts(X_y):
     X, y = X_y
     X = X.fillna(0)
     xmod = XGBClassifier(
@@ -47,14 +41,13 @@ def test_booster_to_xgboosts(X_y, data_dtype):
         min_leaf_weight=1.0,
         gamma=0,
         objective_type="LogLoss",
-        dtype=data_dtype,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
-    assert np.allclose(fmod_preds, xmod_preds, atol=0.0001)
+    assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
 
 
-def test_booster_to_xgboosts_with_missing(X_y, data_dtype):
+def test_booster_to_xgboosts_with_missing(X_y):
     X, y = X_y
     X = X
     xmod = XGBClassifier(
@@ -82,19 +75,18 @@ def test_booster_to_xgboosts_with_missing(X_y, data_dtype):
         objective_type="LogLoss",
         nbins=500,
         parallel=False,
-        dtype=data_dtype,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
-    assert np.allclose(fmod_preds, xmod_preds, atol=0.0001)
+    assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
 
 
-def test_booster_to_xgboosts_weighted(X_y, data_dtype):
+def test_booster_to_xgboosts_weighted(X_y):
     X, y = X_y
     X = X.fillna(0)
-    w = X["fare"].to_numpy().astype(data_dtype) + 1
+    w = X["fare"].to_numpy() + 1
     xmod = XGBClassifier(
-        n_estimators=50,
+        n_estimators=100,
         learning_rate=0.3,
         max_depth=5,
         reg_lambda=1,
@@ -108,14 +100,13 @@ def test_booster_to_xgboosts_weighted(X_y, data_dtype):
     xmod_preds = xmod.predict(X, output_margin=True)
 
     fmod = GradientBooster(
-        iterations=50,
+        iterations=100,
         learning_rate=0.3,
         max_depth=5,
         l2=1,
         min_leaf_weight=1,
         gamma=0,
         objective_type="LogLoss",
-        dtype=data_dtype,
     )
     fmod.fit(X, y=y, sample_weight=w)
     fmod_preds = fmod.predict(X)
@@ -136,7 +127,6 @@ def test_booster_saving(X_y, tmp_path):
         objective_type="SquaredLoss",
         nbins=500,
         parallel=False,
-        dtype="float32",
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -157,7 +147,6 @@ def test_booster_saving(X_y, tmp_path):
         objective_type="LogLoss",
         nbins=500,
         parallel=False,
-        dtype="float32",
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -178,7 +167,6 @@ def test_booster_saving(X_y, tmp_path):
         objective_type="SquaredLoss",
         nbins=500,
         parallel=False,
-        dtype="float64",
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -199,7 +187,6 @@ def test_booster_saving(X_y, tmp_path):
         objective_type="LogLoss",
         nbins=500,
         parallel=False,
-        dtype="float64",
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
