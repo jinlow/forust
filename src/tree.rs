@@ -2,7 +2,7 @@ use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
 use crate::histsplitter::HistogramSplitter;
 use crate::node::{SplittableNode, TreeNode};
-use crate::utils::{pivot_on_split, fast_f64_sum};
+use crate::utils::{fast_f64_sum, pivot_on_split};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -265,8 +265,7 @@ impl Tree {
     }
 }
 
-impl Display for Tree
-{
+impl Display for Tree {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut print_buffer: Vec<usize> = vec![0];
@@ -327,16 +326,7 @@ mod tests {
         let b = bin_matrix(&data, &w, 300).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
 
-        tree.fit(
-            &bdata,
-            &b.cuts,
-            &g,
-            &h,
-            &splitter,
-            usize::MAX,
-            5,
-            true,
-        );
+        tree.fit(&bdata, &b.cuts, &g, &h, &splitter, usize::MAX, 5, true);
 
         println!("{}", tree);
         let preds = tree.predict(&data, false);

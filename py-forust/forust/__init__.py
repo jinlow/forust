@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import json
 import sys
-from random import sample
 from typing import Any, Dict, List, Optional, Union, cast
-import warnings
 
 import numpy as np
 import pandas as pd
 
-from .forust import GradientBooster as CrateGradientBooster # type: ignore
+from .forust import GradientBooster as CrateGradientBooster  # type: ignore
 
 ArrayLike = Union[pd.Series, np.ndarray]
 FrameLike = Union[pd.DataFrame, np.ndarray]
@@ -106,18 +103,18 @@ class GradientBooster:
             TypeError: Raised if an invalid dtype is passed.
         """
         booster = CrateGradientBooster(
-                objective_type=objective_type,
-                iterations=iterations,
-                learning_rate=learning_rate,
-                max_depth=max_depth,
-                max_leaves=max_leaves,
-                l2=l2,
-                gamma=gamma,
-                min_leaf_weight=min_leaf_weight,
-                base_score=base_score,
-                nbins=nbins,
-                parallel=parallel,
-            )
+            objective_type=objective_type,
+            iterations=iterations,
+            learning_rate=learning_rate,
+            max_depth=max_depth,
+            max_leaves=max_leaves,
+            l2=l2,
+            gamma=gamma,
+            min_leaf_weight=min_leaf_weight,
+            base_score=base_score,
+            nbins=nbins,
+            parallel=parallel,
+        )
         self.booster = cast(BoosterType, booster)
         self.objective_type = objective_type
         self.iterations = iterations

@@ -9,9 +9,7 @@ pub enum ObjectiveType {
     SquaredLoss,
 }
 
-pub fn gradient_hessian_callables(
-    objective_type: &ObjectiveType,
-) -> (ObjFn, ObjFn) {
+pub fn gradient_hessian_callables(objective_type: &ObjectiveType) -> (ObjFn, ObjFn) {
     match objective_type {
         ObjectiveType::LogLoss => (LogLoss::calc_grad, LogLoss::calc_hess),
         ObjectiveType::SquaredLoss => (SquaredLoss::calc_grad, SquaredLoss::calc_hess),

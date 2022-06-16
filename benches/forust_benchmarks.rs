@@ -5,7 +5,7 @@ use forust_ml::gradientbooster::GradientBooster;
 use forust_ml::histsplitter::HistogramSplitter;
 use forust_ml::objective::{LogLoss, ObjectiveFunction};
 use forust_ml::tree::Tree;
-use forust_ml::utils::{fast_sum, naive_sum, fast_f64_sum};
+use forust_ml::utils::{fast_f64_sum, fast_sum, naive_sum};
 use std::fs;
 
 pub fn tree_benchmarks(c: &mut Criterion) {
@@ -24,7 +24,6 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     c.bench_function("Niave Sum", |b| b.iter(|| naive_sum(black_box(&v))));
     c.bench_function("fast sum", |b| b.iter(|| fast_sum(black_box(&v))));
     c.bench_function("fast f64 sum", |b| b.iter(|| fast_f64_sum(black_box(&v))));
-
 
     c.bench_function("calc_grad", |b| {
         b.iter(|| LogLoss::calc_grad(black_box(&y), black_box(&yhat), black_box(&w)))

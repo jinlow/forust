@@ -26,8 +26,7 @@ pub struct HistogramSplitter {
     pub learning_rate: f32,
 }
 
-impl HistogramSplitter
-{
+impl HistogramSplitter {
     pub fn new(l2: f32, gamma: f32, min_leaf_weight: f32, learning_rate: f32) -> Self {
         HistogramSplitter {
             l2,
@@ -56,11 +55,7 @@ impl HistogramSplitter
         best_split_info
     }
 
-    pub fn best_feature_split(
-        &self,
-        node: &SplittableNode,
-        feature: usize,
-    ) -> Option<SplitInfo> {
+    pub fn best_feature_split(&self, node: &SplittableNode, feature: usize) -> Option<SplitInfo> {
         let mut split_info: Option<SplitInfo> = None;
         let mut max_gain: Option<f32> = None;
 

@@ -65,8 +65,7 @@ impl Default for GradientBooster {
     }
 }
 
-impl GradientBooster
-{
+impl GradientBooster {
     /// Gradient Booster object
     ///
     /// * `objective_type` - The name of objective function used to optimize.

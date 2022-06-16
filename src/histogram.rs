@@ -42,7 +42,7 @@ impl Bin<f64> {
         }
     }
 
-    pub fn into_f32(&self) -> Bin<f32> {
+    pub fn as_f32_bin(&self) -> Bin<f32> {
         Bin {
             grad_sum: self.grad_sum as f32,
             hess_sum: self.hess_sum as f32,
@@ -54,7 +54,6 @@ impl Bin<f64> {
 /// Histograms implemented as as jagged matrix.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct HistogramMatrix(pub JaggedMatrix<Bin<f32>>);
-
 
 /// Create a histogram for a given feature, we use f64
 /// values to accumulate, so that we don't lose precision,
@@ -80,7 +79,7 @@ pub fn create_feature_histogram(
                 v.hess_sum += f64::from(*h);
             }
         });
-    histogram.iter().map(|b| b.into_f32()).collect()
+    histogram.iter().map(|b| b.as_f32_bin()).collect()
 }
 
 impl HistogramMatrix {
