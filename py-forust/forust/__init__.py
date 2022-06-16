@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import json
 import sys
-from random import sample
 from typing import Any, Dict, List, Optional, Union, cast
 
 import numpy as np
 import pandas as pd
 
-from .forust import GradientBoosterF32, GradientBoosterF64  # type: ignore
+from .forust import GradientBooster as CrateGradientBooster  # type: ignore
 
 ArrayLike = Union[pd.Series, np.ndarray]
 FrameLike = Union[pd.DataFrame, np.ndarray]
@@ -70,7 +68,6 @@ class GradientBooster:
         base_score: float = 0.5,
         nbins: int = 256,
         parallel: bool = True,
-        dtype: Union[np.dtype, str] = "float64",
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -101,45 +98,23 @@ class GradientBooster:
                 will be used. Defaults to 256.
             parallel (bool, optional): Should multiple cores be used when training and predicting
                 with this model? Defaults to True.
-            dtype (Union[np.dtype, str], optional): Datatype used for the model. Valid options
-                are a numpy 32 bit float, or numpy 64 bit float. Using 32 bit float could be faster
-                in some instances, however this may lead to less precise results. Defaults to "float64".
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
         """
-        if np.issubdtype(dtype, np.float32):
-            booster = GradientBoosterF32(
-                objective_type=objective_type,
-                iterations=iterations,
-                learning_rate=learning_rate,
-                max_depth=max_depth,
-                max_leaves=max_leaves,
-                l2=l2,
-                gamma=gamma,
-                min_leaf_weight=min_leaf_weight,
-                base_score=base_score,
-                nbins=nbins,
-                parallel=parallel,
-            )
-        elif np.issubdtype(dtype, np.float64):
-            booster = GradientBoosterF64(
-                objective_type=objective_type,
-                iterations=iterations,
-                learning_rate=learning_rate,
-                max_depth=max_depth,
-                max_leaves=max_leaves,
-                l2=l2,
-                gamma=gamma,
-                min_leaf_weight=min_leaf_weight,
-                base_score=base_score,
-                nbins=nbins,
-                parallel=parallel,
-            )
-        else:
-            raise TypeError(
-                f"Only a 32 bit or 64 bit floating point booster can be created, however {dtype} was passed."
-            )
+        booster = CrateGradientBooster(
+            objective_type=objective_type,
+            iterations=iterations,
+            learning_rate=learning_rate,
+            max_depth=max_depth,
+            max_leaves=max_leaves,
+            l2=l2,
+            gamma=gamma,
+            min_leaf_weight=min_leaf_weight,
+            base_score=base_score,
+            nbins=nbins,
+            parallel=parallel,
+        )
         self.booster = cast(BoosterType, booster)
         self.objective_type = objective_type
         self.iterations = iterations
@@ -152,7 +127,6 @@ class GradientBooster:
         self.base_score = base_score
         self.nbins = nbins
         self.parallel = parallel
-        self.dtype = dtype
 
     def fit(
         self,
@@ -170,22 +144,22 @@ class GradientBooster:
                 Defaults to None.
         """
         X_ = X.to_numpy() if isinstance(X, pd.DataFrame) else X
-        if not np.issubdtype(X_.dtype, self.dtype):
-            X_ = X_.astype(dtype=self.dtype, copy=False)
+        if not np.issubdtype(X_.dtype, "float64"):
+            X_ = X_.astype(dtype="float64", copy=False)
 
         y_ = y.to_numpy() if isinstance(y, pd.Series) else y
-        if not np.issubdtype(y_.dtype, self.dtype):
-            y_ = y_.astype(dtype=self.dtype, copy=False)
+        if not np.issubdtype(y_.dtype, "float64"):
+            y_ = y_.astype(dtype="float64", copy=False)
 
         if sample_weight is None:
-            sample_weight = np.ones(y_.shape, dtype=self.dtype)
+            sample_weight = np.ones(y_.shape, dtype="float64")
         sample_weight_ = (
             sample_weight.to_numpy()
             if isinstance(sample_weight, pd.Series)
             else sample_weight
         )
-        if not np.issubdtype(sample_weight_.dtype, self.dtype):
-            sample_weight_ = sample_weight_.astype(self.dtype, copy=False)
+        if not np.issubdtype(sample_weight_.dtype, "float64"):
+            sample_weight_ = sample_weight_.astype("float64", copy=False)
 
         flat_data = X_.ravel(order="F")
         rows, cols = X_.shape
@@ -211,8 +185,8 @@ class GradientBooster:
             np.ndarray: Returns a numpy array of the predictions.
         """
         X_ = X.to_numpy() if isinstance(X, pd.DataFrame) else X
-        if not np.issubdtype(X_.dtype, self.dtype):
-            X_ = X_.astype(dtype=self.dtype, copy=False)
+        if not np.issubdtype(X_.dtype, "float64"):
+            X_ = X_.astype(dtype="float64", copy=False)
 
         parallel_ = self.parallel if parallel is None else parallel
         flat_data = X_.ravel(order="F")
@@ -251,18 +225,9 @@ class GradientBooster:
         Returns:
             GradientBooster: An initialized booster object.
         """
-        with open(path, "r") as file:
-            model_json = json.load(file)
-        if model_json["dtype"] == "f32":
-            booster = GradientBoosterF32.load_booster(str(path))
-        else:
-            booster = GradientBoosterF64.load_booster(str(path))
-            
+        booster = CrateGradientBooster.load_booster(str(path))
+
         params = booster.get_params()
-        if params["dtype"] == "f64":
-            params["dtype"] = "float64"
-        else:
-            params["dtype"] = "float32"
         c = cls(**params)
         c.booster = booster
         return c

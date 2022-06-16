@@ -1,26 +1,25 @@
-use crate::data::{Matrix, MatrixData};
-use crate::histogram::Histograms;
+use crate::data::{JaggedMatrix, Matrix};
+use crate::histogram::HistogramMatrix;
 use crate::histsplitter::HistogramSplitter;
 use crate::node::{SplittableNode, TreeNode};
-use crate::utils::pivot_on_split;
+use crate::utils::{fast_f64_sum, pivot_on_split};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::fmt;
-use std::str::FromStr;
+use std::fmt::{self, Display};
 
 #[derive(Deserialize, Serialize)]
-pub struct Tree<T: MatrixData<T>> {
-    pub nodes: Vec<TreeNode<T>>,
+pub struct Tree {
+    pub nodes: Vec<TreeNode>,
 }
 
-impl<T: MatrixData<T>> Default for Tree<T> {
+impl Default for Tree {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: MatrixData<T>> Tree<T> {
+impl Tree {
     pub fn new() -> Self {
         Tree { nodes: Vec::new() }
     }
@@ -29,22 +28,25 @@ impl<T: MatrixData<T>> Tree<T> {
     pub fn fit(
         &mut self,
         data: &Matrix<u16>,
-        cuts: &[Vec<T>],
-        grad: &[T],
-        hess: &[T],
-        splitter: &HistogramSplitter<T>,
+        cuts: &JaggedMatrix<f64>,
+        grad: &[f32],
+        hess: &[f32],
+        splitter: &HistogramSplitter,
         max_leaves: usize,
         max_depth: usize,
-        index: &mut [usize],
         parallel: bool,
     ) {
+        // Recreating the index for each tree, ensures that the tree construction is faster
+        // for the root node. This also ensures that sorting the records is always fast,
+        // because we are starting from a nearly sorted array.
+        let mut index = data.index.to_owned();
         let mut n_nodes = 1;
-        let grad_sum: T = grad.iter().copied().sum();
-        let hess_sum: T = hess.iter().copied().sum();
+        let grad_sum = fast_f64_sum(grad);
+        let hess_sum = fast_f64_sum(hess);
         let root_gain = splitter.gain(grad_sum, hess_sum);
         let root_weight = splitter.weight(grad_sum, hess_sum);
         // Calculate the histograms for the root node.
-        let root_hists = Histograms::new(data, cuts, grad, hess, index, parallel);
+        let root_hists = HistogramMatrix::new(data, cuts, grad, hess, &index, parallel, true);
         let root_node = SplittableNode::new(
             0,
             root_hists,
@@ -142,30 +144,36 @@ impl<T: MatrixData<T>> Tree<T> {
                         split_idx += node.start_idx;
 
                         // Build the histograms for the smaller node.
-                        let left_histograms: Histograms<T>;
-                        let right_histograms: Histograms<T>;
+                        let left_histograms: HistogramMatrix;
+                        let right_histograms: HistogramMatrix;
                         if n_left < n_right {
-                            left_histograms = Histograms::new(
+                            left_histograms = HistogramMatrix::new(
                                 data,
                                 cuts,
                                 grad,
                                 hess,
                                 &index[node.start_idx..split_idx],
                                 parallel,
+                                false,
                             );
-                            right_histograms =
-                                Histograms::from_parent_child(&node.histograms, &left_histograms);
+                            right_histograms = HistogramMatrix::from_parent_child(
+                                &node.histograms,
+                                &left_histograms,
+                            );
                         } else {
-                            right_histograms = Histograms::new(
+                            right_histograms = HistogramMatrix::new(
                                 data,
                                 cuts,
                                 grad,
                                 hess,
                                 &index[split_idx..node.stop_idx],
                                 parallel,
+                                false,
                             );
-                            left_histograms =
-                                Histograms::from_parent_child(&node.histograms, &right_histograms);
+                            left_histograms = HistogramMatrix::from_parent_child(
+                                &node.histograms,
+                                &right_histograms,
+                            );
                         }
 
                         node.update_children(left_idx, right_idx, &info);
@@ -207,13 +215,13 @@ impl<T: MatrixData<T>> Tree<T> {
         }
     }
 
-    pub fn predict_row(&self, data: &Matrix<T>, row: usize) -> T {
+    pub fn predict_row(&self, data: &Matrix<f64>, row: usize) -> f64 {
         let mut node_idx = 0;
         loop {
             let n = &self.nodes[node_idx];
             match n {
                 TreeNode::Leaf(node) => {
-                    return node.weight_value;
+                    return node.weight_value as f64;
                 }
                 TreeNode::Parent(node) => {
                     let v = data.get(row, node.split_feature);
@@ -234,21 +242,21 @@ impl<T: MatrixData<T>> Tree<T> {
         }
     }
 
-    fn predict_single_threaded(&self, data: &Matrix<T>) -> Vec<T> {
+    fn predict_single_threaded(&self, data: &Matrix<f64>) -> Vec<f64> {
         data.index
             .iter()
             .map(|i| self.predict_row(data, *i))
             .collect()
     }
 
-    fn predict_parallel(&self, data: &Matrix<T>) -> Vec<T> {
+    fn predict_parallel(&self, data: &Matrix<f64>) -> Vec<f64> {
         data.index
             .par_iter()
             .map(|i| self.predict_row(data, *i))
             .collect()
     }
 
-    pub fn predict(&self, data: &Matrix<T>, parallel: bool) -> Vec<T> {
+    pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
         if parallel {
             self.predict_parallel(data)
         } else {
@@ -257,11 +265,7 @@ impl<T: MatrixData<T>> Tree<T> {
     }
 }
 
-impl<T> fmt::Display for Tree<T>
-where
-    T: FromStr + std::fmt::Display + MatrixData<T>,
-    <T as FromStr>::Err: 'static + std::error::Error,
-{
+impl Display for Tree {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut print_buffer: Vec<usize> = vec![0];
@@ -318,23 +322,11 @@ mod tests {
             learning_rate: 0.3,
         };
         let mut tree = Tree::new();
-        let mut index = data.index.to_owned();
-        let index = index.as_mut();
 
         let b = bin_matrix(&data, &w, 300).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
 
-        tree.fit(
-            &bdata,
-            &b.cuts,
-            &g,
-            &h,
-            &splitter,
-            usize::MAX,
-            5,
-            index,
-            true,
-        );
+        tree.fit(&bdata, &b.cuts, &g, &h, &splitter, usize::MAX, 5, true);
 
         println!("{}", tree);
         let preds = tree.predict(&data, false);

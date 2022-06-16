@@ -1,36 +1,33 @@
-use crate::data::MatrixData;
-use crate::histogram::Histograms;
+use crate::data::FloatData;
+use crate::histogram::HistogramMatrix;
 use crate::node::SplittableNode;
 
 #[derive(Debug)]
-pub struct SplitInfo<T> {
-    pub split_gain: T,
+pub struct SplitInfo {
+    pub split_gain: f32,
     pub split_feature: usize,
-    pub split_value: T,
+    pub split_value: f64,
     pub split_bin: u16,
     pub missing_right: bool,
-    pub left_grad: T,
-    pub left_gain: T,
-    pub left_cover: T,
-    pub left_weight: T,
-    pub right_grad: T,
-    pub right_gain: T,
-    pub right_cover: T,
-    pub right_weight: T,
+    pub left_grad: f32,
+    pub left_gain: f32,
+    pub left_cover: f32,
+    pub left_weight: f32,
+    pub right_grad: f32,
+    pub right_gain: f32,
+    pub right_cover: f32,
+    pub right_weight: f32,
 }
 
-pub struct HistogramSplitter<T> {
-    pub l2: T,
-    pub gamma: T,
-    pub min_leaf_weight: T,
-    pub learning_rate: T,
+pub struct HistogramSplitter {
+    pub l2: f32,
+    pub gamma: f32,
+    pub min_leaf_weight: f32,
+    pub learning_rate: f32,
 }
 
-impl<T> HistogramSplitter<T>
-where
-    T: MatrixData<T>,
-{
-    pub fn new(l2: T, gamma: T, min_leaf_weight: T, learning_rate: T) -> Self {
+impl HistogramSplitter {
+    pub fn new(l2: f32, gamma: f32, min_leaf_weight: f32, learning_rate: f32) -> Self {
         HistogramSplitter {
             l2,
             gamma,
@@ -39,11 +36,11 @@ where
         }
     }
 
-    pub fn best_split(&self, node: &SplittableNode<T>) -> Option<SplitInfo<T>> {
+    pub fn best_split(&self, node: &SplittableNode) -> Option<SplitInfo> {
         let mut best_split_info = None;
-        let mut best_gain = T::ZERO;
-        let Histograms(hists) = &node.histograms;
-        for i in 0..hists.len() {
+        let mut best_gain = f32::ZERO;
+        let HistogramMatrix(histograms) = &node.histograms;
+        for i in 0..histograms.cols {
             let split_info = self.best_feature_split(node, i);
             match split_info {
                 Some(info) => {
@@ -58,24 +55,22 @@ where
         best_split_info
     }
 
-    pub fn best_feature_split(
-        &self,
-        node: &SplittableNode<T>,
-        feature: usize,
-    ) -> Option<SplitInfo<T>> {
-        let mut split_info: Option<SplitInfo<T>> = None;
-        let mut max_gain: Option<T> = None;
+    pub fn best_feature_split(&self, node: &SplittableNode, feature: usize) -> Option<SplitInfo> {
+        let mut split_info: Option<SplitInfo> = None;
+        let mut max_gain: Option<f32> = None;
 
-        let histogram = &node.histograms.0[feature];
+        let HistogramMatrix(histograms) = &node.histograms;
+        let histogram = histograms.get_col(feature);
 
         // We know that at least one value will be populated.
-        let first_bin = histogram.get(&1).unwrap();
+        let first_bin = &histogram[1];
         // We also know we will have a missing bin.
-        let missing = histogram.get(&0).unwrap();
+        let missing = &histogram[0];
         let mut cuml_grad = first_bin.grad_sum;
         let mut cuml_hess = first_bin.hess_sum;
 
-        let elements = (histogram.len() as u16) + 1;
+        let elements = histogram.len();
+        assert!(elements == histogram.len());
 
         // We start at the second element, this is because
         // there will be no element less than the first element,
@@ -85,108 +80,110 @@ where
         // value if we really wanted to allow this. I have problems with
         // this in a production setting with other packages, such as
         // XGBoost
-        for i in 2..elements {
-            if let Some(bin) = histogram.get(&i) {
-                // If this bin is empty, continue...
-                if (bin.grad_sum == T::ZERO) && (bin.hess_sum == T::ZERO) {
-                    continue;
-                }
-                // By default missing values will go into the left node.
-                let mut missing_right = true;
-                let mut left_grad = cuml_grad;
-                let mut left_hess = cuml_hess;
-                let mut right_grad = node.grad_sum - cuml_grad - missing.grad_sum;
-                let mut right_hess = node.hess_sum - cuml_hess - missing.hess_sum;
+        let mut i = 1;
+        for bin in &histogram[2..] {
+            i += 1;
+            // If this bin is empty, continue...
+            if (bin.grad_sum == f32::ZERO) && (bin.hess_sum == f32::ZERO) {
+                continue;
+            }
+            // By default missing values will go into the left node.
+            let mut missing_right = true;
+            let mut left_grad = cuml_grad;
+            let mut left_hess = cuml_hess;
+            let mut right_grad = node.grad_sum - cuml_grad - missing.grad_sum;
+            let mut right_hess = node.hess_sum - cuml_hess - missing.hess_sum;
 
-                let mut left_gain = self.gain(left_grad, left_hess);
-                let mut right_gain = self.gain(right_grad, right_hess);
+            let mut left_gain = self.gain(left_grad, left_hess);
+            let mut right_gain = self.gain(right_grad, right_hess);
 
-                // Check Missing direction
-                // Don't even worry about it, if there are no missing values
-                // in this bin.
-                if (missing.grad_sum != T::ZERO) && (missing.hess_sum != T::ZERO) {
-                    // The gain if missing went left
-                    let missing_left_gain =
-                        self.gain(left_grad + missing.grad_sum, left_hess + missing.hess_sum);
-                    // The gain is missing went right
-                    let missing_right_gain =
-                        self.gain(right_grad + missing.grad_sum, right_hess + missing.hess_sum);
+            // Check Missing direction
+            // Don't even worry about it, if there are no missing values
+            // in this bin.
+            if (missing.grad_sum != f32::ZERO) && (missing.hess_sum != f32::ZERO) {
+                // TODO: Consider making this safer, by casting to f64, summing, and then
+                // back to f32...
+                // The gain if missing went left
+                let missing_left_gain =
+                    self.gain(left_grad + missing.grad_sum, left_hess + missing.hess_sum);
+                // The gain is missing went right
+                let missing_right_gain =
+                    self.gain(right_grad + missing.grad_sum, right_hess + missing.hess_sum);
 
-                    if (missing_right_gain - right_gain) > (missing_left_gain - left_gain) {
-                        // Missing goes right
-                        right_grad += missing.grad_sum;
-                        right_hess += missing.hess_sum;
-                        right_gain = missing_right_gain;
-                        missing_right = true;
-                    } else {
-                        // Missing goes left
-                        left_grad += missing.grad_sum;
-                        left_hess += missing.hess_sum;
-                        left_gain = missing_left_gain;
-                        missing_right = false;
-                    }
+                if (missing_right_gain - right_gain) > (missing_left_gain - left_gain) {
+                    // Missing goes right
+                    right_grad += missing.grad_sum;
+                    right_hess += missing.hess_sum;
+                    right_gain = missing_right_gain;
+                    missing_right = true;
+                } else {
+                    // Missing goes left
+                    left_grad += missing.grad_sum;
+                    left_hess += missing.hess_sum;
+                    left_gain = missing_left_gain;
+                    missing_right = false;
                 }
+            }
 
-                // Should this be after we add in the missing hessians?
-                // Right now this means that only real values will be considered
-                // in this calculation I think...
-                if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
-                    // Update for new value
-                    cuml_grad += bin.grad_sum;
-                    cuml_hess += bin.hess_sum;
-                    continue;
-                }
-
-                let split_gain = (left_gain + right_gain - node.gain_value) - self.get_gamma();
-                if split_gain <= T::ZERO {
-                    // Update for new value
-                    cuml_grad += bin.grad_sum;
-                    cuml_hess += bin.hess_sum;
-                    continue;
-                }
-                if max_gain.is_none() || split_gain > max_gain.unwrap() {
-                    max_gain = Some(split_gain);
-                    split_info = Some(SplitInfo {
-                        split_gain,
-                        split_feature: feature,
-                        split_value: bin.cut_value,
-                        split_bin: i,
-                        missing_right,
-                        left_grad,
-                        left_gain,
-                        left_cover: left_hess,
-                        left_weight: self.weight(left_grad, left_hess),
-                        right_grad,
-                        right_gain,
-                        right_cover: right_hess,
-                        right_weight: self.weight(right_grad, right_hess),
-                    });
-                }
+            // Should this be after we add in the missing hessians?
+            // Right now this means that only real values will be considered
+            // in this calculation I think...
+            if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
                 // Update for new value
                 cuml_grad += bin.grad_sum;
                 cuml_hess += bin.hess_sum;
+                continue;
             }
+
+            let split_gain = (left_gain + right_gain - node.gain_value) - self.get_gamma();
+            if split_gain <= f32::ZERO {
+                // Update for new value
+                cuml_grad += bin.grad_sum;
+                cuml_hess += bin.hess_sum;
+                continue;
+            }
+            if max_gain.is_none() || split_gain > max_gain.unwrap() {
+                max_gain = Some(split_gain);
+                split_info = Some(SplitInfo {
+                    split_gain,
+                    split_feature: feature,
+                    split_value: bin.cut_value,
+                    split_bin: i as u16,
+                    missing_right,
+                    left_grad,
+                    left_gain,
+                    left_cover: left_hess,
+                    left_weight: self.weight(left_grad, left_hess),
+                    right_grad,
+                    right_gain,
+                    right_cover: right_hess,
+                    right_weight: self.weight(right_grad, right_hess),
+                });
+            }
+            // Update for new value
+            cuml_grad += bin.grad_sum;
+            cuml_hess += bin.hess_sum;
         }
         split_info
     }
 
-    pub fn gain(&self, grad_sum: T, hess_sum: T) -> T {
+    pub fn gain(&self, grad_sum: f32, hess_sum: f32) -> f32 {
         (grad_sum * grad_sum) / (hess_sum + self.get_l2())
     }
 
-    pub fn weight(&self, grad_sum: T, hess_sum: T) -> T {
+    pub fn weight(&self, grad_sum: f32, hess_sum: f32) -> f32 {
         -((grad_sum / (hess_sum + self.get_l2())) * self.get_learning_rate())
     }
 
-    pub fn get_l2(&self) -> T {
+    pub fn get_l2(&self) -> f32 {
         self.l2
     }
 
-    pub fn get_learning_rate(&self) -> T {
+    pub fn get_learning_rate(&self) -> f32 {
         self.learning_rate
     }
 
-    pub fn get_gamma(&self) -> T {
+    pub fn get_gamma(&self) -> f32 {
         self.gamma
     }
 }
@@ -212,21 +209,22 @@ mod tests {
         let b = bin_matrix(&data, &w, 10).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = Histograms::new(&bdata, &b.cuts, &grad, &hess, &index, true);
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
         let splitter = HistogramSplitter {
             l2: 0.0,
             gamma: 0.0,
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
         };
+        // println!("{:?}", hists);
         let mut n = SplittableNode::new(
             0,
             // vec![0, 1, 2, 3, 4, 5, 6],
             hists,
             0.0,
             0.14,
-            grad.iter().sum::<f64>(),
-            hess.iter().sum::<f64>(),
+            grad.iter().sum::<f32>(),
+            hess.iter().sum::<f32>(),
             0,
             true,
             0,
@@ -255,8 +253,8 @@ mod tests {
         let b = bin_matrix(&data, &w, 10).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = Histograms::new(&bdata, &b.cuts, &grad, &hess, &index, true);
-
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
+        println!("{:?}", hists);
         let splitter = HistogramSplitter {
             l2: 0.0,
             gamma: 0.0,
@@ -269,8 +267,8 @@ mod tests {
             hists,
             0.0,
             0.14,
-            grad.iter().sum::<f64>(),
-            hess.iter().sum::<f64>(),
+            grad.iter().sum::<f32>(),
+            hess.iter().sum::<f32>(),
             0,
             true,
             0,
@@ -315,7 +313,7 @@ mod tests {
         let b = bin_matrix(&data, &w, 10).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = Histograms::new(&bdata, &b.cuts, &grad, &hess, &index, true);
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
 
         let mut n = SplittableNode::new(
             0,
@@ -323,8 +321,8 @@ mod tests {
             hists,
             root_weight,
             root_gain,
-            grad.iter().copied().sum::<f64>(),
-            hess.iter().copied().sum::<f64>(),
+            grad.iter().copied().sum::<f32>(),
+            hess.iter().copied().sum::<f32>(),
             0,
             true,
             0,

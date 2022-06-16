@@ -1,6 +1,64 @@
-use crate::data::MatrixData;
+use crate::data::FloatData;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
+use std::convert::TryInto;
+
+const LANES: usize = 16;
+
+/// Fast summation, ends up being roughly 8 to 10 times faster
+/// than values.iter().copied().sum().
+/// Shamelessly stolen from https://stackoverflow.com/a/67191480
+pub fn fast_sum<T: FloatData<T>>(values: &[T]) -> T {
+    let chunks = values.chunks_exact(LANES);
+    let remainder = chunks.remainder();
+
+    let sum = chunks.fold([T::ZERO; LANES], |mut acc, chunk| {
+        let chunk: [T; LANES] = chunk.try_into().unwrap();
+        for i in 0..LANES {
+            acc[i] += chunk[i];
+        }
+        acc
+    });
+
+    let remainder: T = remainder.iter().copied().sum();
+
+    let mut reduced = T::ZERO;
+    for s in sum.iter().take(LANES) {
+        reduced += *s;
+    }
+    reduced + remainder
+}
+
+/// Fast summation, but using f64 as the internal representation so that
+/// we don't have issues with the precision.
+/// This way, we can still work with f32 values, but get the correct sum
+/// value.
+pub fn fast_f64_sum(values: &[f32]) -> f32 {
+    let chunks = values.chunks_exact(LANES);
+    let remainder = chunks.remainder();
+
+    let sum = chunks.fold([f64::ZERO; LANES], |mut acc, chunk| {
+        let chunk: [f32; LANES] = chunk.try_into().unwrap();
+        for i in 0..LANES {
+            acc[i] += f64::from(chunk[i]);
+        }
+        acc
+    });
+
+    let remainder: f64 = remainder
+        .iter()
+        .fold(f64::ZERO, |acc, b| acc + f64::from(*b));
+
+    let mut reduced: f64 = 0.;
+    for s in sum.iter().take(LANES) {
+        reduced += *s;
+    }
+    (reduced + remainder) as f32
+}
+
+pub fn naive_sum<T: FloatData<T>>(values: &[T]) -> T {
+    values.iter().copied().sum()
+}
 
 /// Naive weighted percentiles calculation.
 ///
@@ -12,7 +70,7 @@ use std::collections::VecDeque;
 ///     values from 0 to 1, and in sorted order.
 pub fn percentiles<T>(v: &[T], sample_weight: &[T], percentiles: &[T]) -> Vec<T>
 where
-    T: MatrixData<T>,
+    T: FloatData<T>,
 {
     let mut idx: Vec<usize> = (0..v.len()).collect();
     idx.sort_unstable_by(|a, b| v[*a].partial_cmp(&v[*b]).unwrap());
@@ -25,7 +83,7 @@ where
     let mut p = Vec::new();
     let mut cuml_pct = T::ZERO;
     let mut current_value = v[idx[0]];
-    let total_values = sample_weight.iter().copied().sum();
+    let total_values = fast_sum(sample_weight);
 
     for i in idx.iter() {
         if current_value != v[*i] {
@@ -209,5 +267,16 @@ mod tests {
         for i in idx[split_i..].iter() {
             assert!((f[*i] >= 10) || (f[*i] != 0));
         }
+    }
+
+    #[test]
+    fn test_fast_f64_sum() {
+        let records = 300000;
+        let vec = vec![0.23500371; records];
+        assert_ne!(vec.iter().sum::<f32>(), vec[0] * (records as f32));
+        assert_eq!(vec[0] * (records as f32), fast_f64_sum(&vec));
+        // println!("Sum Result: {}", vec.iter().sum::<f32>());
+        // println!("Multiplication Results {}", vec[0] * (records as f32));
+        // println!("f64_sum Results {}", f64_sum(&vec));
     }
 }

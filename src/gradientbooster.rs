@@ -1,11 +1,10 @@
 use crate::binning::bin_matrix;
-use crate::data::{Matrix, MatrixData};
+use crate::data::Matrix;
 use crate::errors::ForustError;
 use crate::histsplitter::HistogramSplitter;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
 use crate::tree::Tree;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::any::type_name;
+use serde::{Deserialize, Serialize};
 use std::fs;
 
 /// Gradient Booster object
@@ -33,23 +32,22 @@ use std::fs;
 ///   accuracy. If there are more bins, than unique values in a column, all unique values
 ///   will be used.
 #[derive(Deserialize, Serialize)]
-pub struct GradientBooster<T: MatrixData<T>> {
+pub struct GradientBooster {
     pub objective_type: ObjectiveType,
     pub iterations: usize,
-    pub learning_rate: T,
+    pub learning_rate: f32,
     pub max_depth: usize,
     pub max_leaves: usize,
-    pub l2: T,
-    pub gamma: T,
-    pub min_leaf_weight: T,
-    pub base_score: T,
+    pub l2: f32,
+    pub gamma: f32,
+    pub min_leaf_weight: f32,
+    pub base_score: f64,
     pub nbins: u16,
     pub parallel: bool,
-    pub dtype: String,
-    pub trees: Vec<Tree<T>>,
+    pub trees: Vec<Tree>,
 }
 
-impl Default for GradientBooster<f64> {
+impl Default for GradientBooster {
     fn default() -> Self {
         Self::new(
             ObjectiveType::LogLoss,
@@ -67,28 +65,7 @@ impl Default for GradientBooster<f64> {
     }
 }
 
-impl Default for GradientBooster<f32> {
-    fn default() -> Self {
-        Self::new(
-            ObjectiveType::LogLoss,
-            10,
-            0.3,
-            5,
-            usize::MAX,
-            1.,
-            0.,
-            1.,
-            0.5,
-            256,
-            true,
-        )
-    }
-}
-
-impl<T> GradientBooster<T>
-where
-    T: MatrixData<T> + Serialize + DeserializeOwned,
-{
+impl GradientBooster {
     /// Gradient Booster object
     ///
     /// * `objective_type` - The name of objective function used to optimize.
@@ -117,13 +94,13 @@ where
     pub fn new(
         objective_type: ObjectiveType,
         iterations: usize,
-        learning_rate: T,
+        learning_rate: f32,
         max_depth: usize,
         max_leaves: usize,
-        l2: T,
-        gamma: T,
-        min_leaf_weight: T,
-        base_score: T,
+        l2: f32,
+        gamma: f32,
+        min_leaf_weight: f32,
+        base_score: f64,
         nbins: u16,
         parallel: bool,
     ) -> Self {
@@ -139,7 +116,6 @@ where
             base_score,
             nbins,
             parallel,
-            dtype: type_name::<T>().to_owned(),
             trees: Vec::new(),
         }
     }
@@ -152,9 +128,9 @@ where
     /// training the model. If None is passed, a weight of 1 will be used for every record.
     pub fn fit(
         &mut self,
-        data: &Matrix<T>,
-        y: &[T],
-        sample_weight: &[T],
+        data: &Matrix<f64>,
+        y: &[f64],
+        sample_weight: &[f64],
     ) -> Result<(), ForustError> {
         let splitter = HistogramSplitter {
             l2: self.l2,
@@ -166,13 +142,11 @@ where
         let (calc_grad, calc_hess) = gradient_hessian_callables(&self.objective_type);
         let mut grad = calc_grad(y, &yhat, sample_weight);
         let mut hess = calc_hess(y, &yhat, sample_weight);
-        let mut index = data.index.to_owned();
 
         // Generate binned data
         let binned_data = bin_matrix(data, sample_weight, self.nbins)?;
         let bdata = Matrix::new(&binned_data.binned_data, data.rows, data.cols);
 
-        let index = index.as_mut();
         for _ in 0..self.iterations {
             let mut tree = Tree::new();
             tree.fit(
@@ -183,14 +157,10 @@ where
                 &splitter,
                 self.max_leaves,
                 self.max_depth,
-                index,
                 self.parallel,
             );
-            yhat = yhat
-                .iter()
-                .zip(tree.predict(data, self.parallel))
-                .map(|(i, j)| *i + j)
-                .collect();
+            let preds = tree.predict(data, self.parallel);
+            yhat = yhat.iter().zip(preds).map(|(i, j)| *i + j).collect();
             self.trees.push(tree);
             grad = calc_grad(y, &yhat, sample_weight);
             hess = calc_hess(y, &yhat, sample_weight);
@@ -201,7 +171,7 @@ where
     /// Generate predictions on data using the gradient booster.
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
-    pub fn predict(&self, data: &Matrix<T>, parallel: bool) -> Vec<T> {
+    pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
         let mut init_preds = vec![self.base_score; data.rows];
         self.trees.iter().for_each(|tree| {
             for (p_, val) in init_preds.iter_mut().zip(tree.predict(data, parallel)) {
@@ -234,7 +204,7 @@ where
     ///
     /// * `json_str` - String object, which can be serialized to json.
     pub fn from_json(json_str: &str) -> Result<Self, ForustError> {
-        let model = serde_json::from_str::<GradientBooster<T>>(json_str);
+        let model = serde_json::from_str::<GradientBooster>(json_str);
         match model {
             Ok(m) => Ok(m),
             Err(e) => Err(ForustError::UnableToRead(e.to_string())),
@@ -308,33 +278,7 @@ mod tests {
         let preds = booster.predict(&data, true);
 
         booster.save_booster("resources/model64.json").unwrap();
-        let booster2 = GradientBooster::<f64>::load_booster("resources/model64.json").unwrap();
-        assert_eq!(booster2.predict(&data, true)[0..10], preds[0..10]);
-    }
-    #[test]
-    fn test_tree_save_f32() {
-        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
-            .expect("Something went wrong reading the file");
-        let data_vec: Vec<f32> = file
-            .lines()
-            .map(|x| x.parse::<f32>().unwrap_or(f32::NAN))
-            .collect();
-        let file = fs::read_to_string("resources/performance.csv")
-            .expect("Something went wrong reading the file");
-        let y: Vec<f32> = file.lines().map(|x| x.parse::<f32>().unwrap()).collect();
-
-        let data = Matrix::new(&data_vec, 891, 5);
-        //let data = Matrix::new(data.get_col(1), 891, 1);
-        let mut booster = GradientBooster::default();
-        booster.iterations = 10;
-        booster.nbins = 300;
-        booster.max_depth = 3;
-        let sample_weight = vec![1.; y.len()];
-        booster.fit(&data, &y, &sample_weight).unwrap();
-        let preds = booster.predict(&data, true);
-
-        booster.save_booster("resources/model32.json").unwrap();
-        let booster2 = GradientBooster::<f32>::load_booster("resources/model32.json").unwrap();
+        let booster2 = GradientBooster::load_booster("resources/model64.json").unwrap();
         assert_eq!(booster2.predict(&data, true)[0..10], preds[0..10]);
     }
 }
