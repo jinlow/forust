@@ -86,13 +86,14 @@ pub fn bin_matrix<T: FloatData<T>>(
     let mut cuts = JaggedMatrix::new();
     let mut nunique = Vec::new();
     for i in 0..data.cols {
-        let no_miss: Vec<T> = data
+        let (no_miss, w): (Vec<T>, Vec<T>) = data
             .get_col(i)
             .iter()
-            .filter(|v| !v.is_nan())
-            .copied()
-            .collect();
-        let mut col_cuts = percentiles_or_value(&no_miss, sample_weight, &pcts);
+            .zip(sample_weight.iter())
+            .filter(|(v, _)| !v.is_nan())
+            .unzip();
+        assert_eq!(no_miss.len(), w.len());
+        let mut col_cuts = percentiles_or_value(&no_miss, &w, &pcts);
         col_cuts.push(T::MAX);
         col_cuts.dedup();
         if col_cuts.len() < 3 {

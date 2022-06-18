@@ -1,12 +1,12 @@
 <p align="center">
-  <img  height="340" src="resources/tree-image-crop.png">
+  <img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/tree-image-crop.png">
 </p>
 
 
 <div align="center">
 
-  <a href="">![PyPI](https://img.shields.io/pypi/v/forust?color=gr&style=for-the-badge)</a>
-  <a href="">![Crates.io](https://img.shields.io/crates/v/forust-ml?color=gr&style=for-the-badge)</a>
+  <a href="https://pypi.org/project/forust/">![PyPI](https://img.shields.io/pypi/v/forust?color=gr&style=for-the-badge)</a>
+  <a href="https://crates.io/crates/forust-ml">![Crates.io](https://img.shields.io/crates/v/forust-ml?color=gr&style=for-the-badge)</a>
 
 </div>
 
@@ -30,8 +30,8 @@ The `GradientBooster` class is currently the only public facing class in the pac
 It can be initialized with the following arguments.
 
  - `objective_type` ***(str, optional)***: The name of objective function used to optimize.
-    Valid options include "LogLoss" to use logistic loss as the objective function,
-    or "SquaredLoss" to use Squared Error as the objective function.
+    Valid options include "LogLoss" to use logistic loss as the objective function (binary classification),
+    or "SquaredLoss" to use Squared Error as the objective function (continuous regression).
     Defaults to "LogLoss".
  - `iterations` ***(int, optional)***: Total number of trees to train in the ensemble.
     Defaults to 100.
@@ -81,7 +81,9 @@ model.predict(X.head())
 
 The `fit` method accepts the following arguments.
  - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
- - `y` ***(ArrayLike)***: Either a pandas Series, or a 1 dimensional numpy array.
+ - `y` ***(ArrayLike)***: Either a pandas Series, or a 1 dimensional numpy array. If "LogLoss" was
+   the objective type specified, then this should only contain 1 or 0 values, where 1 is the positive class being predicted. If "SquaredLoss" is the objective type, then any continuous variable can be
+   provided.
  - `sample_weight` ***(Optional[ArrayLike], optional)***: Instance weights to use when
     training the model. If None is passed, a weight of 1 will be used for every record.
     Defaults to None.

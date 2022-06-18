@@ -2,7 +2,7 @@ from typing import Tuple
 import pandas as pd
 import numpy as np
 from forust import GradientBooster
-from xgboost import XGBClassifier
+from xgboost import XGBClassifier, XGBRegressor
 import pytest
 
 
@@ -81,6 +81,42 @@ def test_booster_to_xgboosts_with_missing(X_y):
     assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
 
 
+def test_booster_to_xgboosts_with_missing_sl(X_y):
+    X, y = X_y
+    X = X
+    X["survived"] = y
+    y = X["fare"]
+    X = X.drop(columns=["fare"])
+    xmod = XGBRegressor(
+        n_estimators=100,
+        learning_rate=0.3,
+        max_depth=5,
+        reg_lambda=1,
+        min_child_weight=1,
+        gamma=1,
+        eval_metric="auc",
+        tree_method="hist",
+        max_bin=10000,
+    )
+    xmod.fit(X, y)
+    xmod_preds = xmod.predict(X, output_margin=True)
+
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="SquaredLoss",
+        nbins=500,
+        parallel=False,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
+
+
 def test_booster_to_xgboosts_weighted(X_y):
     X, y = X_y
     X = X.fillna(0)
@@ -114,47 +150,8 @@ def test_booster_to_xgboosts_weighted(X_y):
 
 
 def test_booster_saving(X_y, tmp_path):
-    f32_model_path = tmp_path / "modelf32.json"
-    X, y = X_y
-    X = X
-    fmod = GradientBooster(
-        iterations=100,
-        learning_rate=0.3,
-        max_depth=5,
-        l2=1,
-        min_leaf_weight=1,
-        gamma=1,
-        objective_type="SquaredLoss",
-        nbins=500,
-        parallel=False,
-    )
-    fmod.fit(X, y=y)
-    fmod_preds = fmod.predict(X)
-    fmod.save_booster(f32_model_path)
-    fmod_loaded = GradientBooster.load_booster(f32_model_path)
-    assert all(fmod_preds == fmod_loaded.predict(X))
-
-    f32_model_path = tmp_path / "modelf32.json"
-    X, y = X_y
-    X = X
-    fmod = GradientBooster(
-        iterations=100,
-        learning_rate=0.3,
-        max_depth=5,
-        l2=1,
-        min_leaf_weight=1,
-        gamma=1,
-        objective_type="LogLoss",
-        nbins=500,
-        parallel=False,
-    )
-    fmod.fit(X, y=y)
-    fmod_preds = fmod.predict(X)
-    fmod.save_booster(f32_model_path)
-    fmod_loaded = GradientBooster.load_booster(f32_model_path)
-    assert all(fmod_preds == fmod_loaded.predict(X))
-
-    f64_model_path = tmp_path / "modelf64.json"
+    # squared loss
+    f64_model_path = tmp_path / "modelf64_sl.json"
     X, y = X_y
     X = X
     fmod = GradientBooster(
@@ -174,7 +171,8 @@ def test_booster_saving(X_y, tmp_path):
     fmod_loaded = GradientBooster.load_booster(f64_model_path)
     assert all(fmod_preds == fmod_loaded.predict(X))
 
-    f64_model_path = tmp_path / "modelf64.json"
+    # LogLoss
+    f64_model_path = tmp_path / "modelf64_ll.json"
     X, y = X_y
     X = X
     fmod = GradientBooster(

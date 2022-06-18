@@ -72,10 +72,10 @@ class GradientBooster:
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
         Args:
-            objective_type (str, optional): The name of objective function used to optimize.
-                Valid options include "LogLoss" to use logistic loss as the objective function,
-                or "SquaredLoss" to use Squared Error as the objective function.
-                Defaults to "LogLoss".
+            objective_type (str, optional): The name of objective function used to optimize. 
+                Valid options include "LogLoss" to use logistic loss as the objective function 
+                (binary classification), or "SquaredLoss" to use Squared Error as the objective 
+                function (continuous regression). Defaults to "LogLoss".
             iterations (int, optional): Total number of trees to train in the ensemble.
                 Defaults to 100.
             learning_rate (float, optional): Step size to use at each iteration. Each
@@ -138,7 +138,10 @@ class GradientBooster:
 
         Args:
             X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
-            y (ArrayLike): Either a pandas Series, or a 1 dimensional numpy array.
+            y (ArrayLike): Either a pandas Series, or a 1 dimensional numpy array. If "LogLoss"
+                was the objective type specified, then this should only contain 1 or 0 values,
+                where 1 is the positive class being predicted. If "SquaredLoss" is the 
+                objective type, then any continuous variable can be provided.
             sample_weight (Optional[ArrayLike], optional): Instance weights to use when
                 training the model. If None is passed, a weight of 1 will be used for every record.
                 Defaults to None.

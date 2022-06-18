@@ -19,6 +19,7 @@ struct GradientBooster {
 #[pymethods]
 impl GradientBooster {
     #[new]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         objective_type: &str,
         iterations: usize,
@@ -65,9 +66,7 @@ impl GradientBooster {
         let data = Matrix::new(flat_data, rows, cols);
         let y = y.as_slice()?;
         let sample_weight = sample_weight.as_slice()?;
-        self.booster
-            .fit(&data, &y, &sample_weight)
-            .unwrap();
+        self.booster.fit(&data, y, sample_weight).unwrap();
         Ok(())
     }
     pub fn predict<'py>(
@@ -80,10 +79,7 @@ impl GradientBooster {
     ) -> PyResult<&'py PyArray1<f64>> {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
-        let parallel = match parallel {
-            None => true,
-            Some(v) => v,
-        };
+        let parallel = parallel.unwrap_or(true);
         Ok(self.booster.predict(&data, parallel).into_pyarray(py))
     }
 
@@ -92,7 +88,7 @@ impl GradientBooster {
         for t in &self.booster.trees {
             trees.push(format!("{}", t));
         }
-        return Ok(trees);
+        Ok(trees)
     }
 
     pub fn save_booster(&self, path: &str) -> PyResult<()> {
@@ -127,7 +123,7 @@ impl GradientBooster {
         Ok(GradientBooster { booster })
     }
 
-    pub fn get_params<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
+    pub fn get_params(&self, py: Python) -> PyResult<PyObject> {
         let objective_ = match self.booster.objective_type {
             ObjectiveType::LogLoss => "LogLoss",
             ObjectiveType::SquaredLoss => "SquaredLoss",
