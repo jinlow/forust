@@ -24,6 +24,11 @@ The package can be installed directly from [pypi](https://pypi.org/project/forus
 pip install forust
 ```
 
+To use in a rust project add the following to your Cargo.toml file.
+```toml
+forust-ml = "0.1.4"
+```
+
 ## Usage
 The `GradientBooster` class is currently the only public facing class in the package, and can be used to train gradient boosted decision tree ensembles with multiple objective functions.
 
