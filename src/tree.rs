@@ -2,6 +2,7 @@ use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
 use crate::histsplitter::HistogramSplitter;
 use crate::node::{SplittableNode, TreeNode};
+use crate::partial_dependence::tree_partial_dependence;
 use crate::utils::{fast_f64_sum, pivot_on_split};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -262,6 +263,10 @@ impl Tree {
         } else {
             self.predict_single_threaded(data)
         }
+    }
+
+    pub fn value_partial_dependence(&self, feature: usize, value: f64) -> f64 {
+        tree_partial_dependence(self, 0, feature, value, 1.0)
     }
 }
 

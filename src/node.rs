@@ -25,13 +25,13 @@ pub struct SplittableNode {
 
 #[derive(Deserialize, Serialize)]
 pub struct ParentNode {
-    num: usize,
+    pub num: usize,
     pub weight_value: f32,
-    hess_sum: f32,
+    pub hess_sum: f32,
     pub depth: usize,
     pub split_value: f64,
     pub split_feature: usize,
-    split_gain: f32,
+    pub split_gain: f32,
     pub missing_right: bool,
     pub left_child: usize,
     pub right_child: usize,

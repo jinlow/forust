@@ -181,6 +181,20 @@ impl GradientBooster {
         init_preds
     }
 
+    /// Given a value, return the partial dependence value of that value for that
+    /// feature in the model.
+    ///
+    /// * `feature` - The index of the feature.
+    /// * `value` - The value for which to calculate the partial dependence.
+    pub fn value_partial_dependence(&self, feature: usize, value: f64) -> f64 {
+        let pd: f64 = self
+            .trees
+            .iter()
+            .map(|t| t.value_partial_dependence(feature, value))
+            .sum();
+        pd + self.base_score
+    }
+
     /// Save a booster as a json object to a file.
     ///
     /// * `path` - Path to save booster.
