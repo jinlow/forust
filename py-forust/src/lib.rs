@@ -83,6 +83,10 @@ impl GradientBooster {
         Ok(self.booster.predict(&data, parallel).into_pyarray(py))
     }
 
+    pub fn value_partial_dependence(&self, feature: usize, value: f64) -> PyResult<f64> {
+        Ok(self.booster.value_partial_dependence(feature, value))
+    }
+
     pub fn text_dump(&self) -> PyResult<Vec<String>> {
         let mut trees = Vec::new();
         for t in &self.booster.trees {
