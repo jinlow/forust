@@ -135,7 +135,7 @@ This information can be plotted to visualize how a feature is used in the model,
 from seaborn import lineplot
 import matplotlib.pyplot as plt
 
-pd_values = fmod.partial_dependence(X, 1)
+pd_values = model.partial_dependence(X=X, feature="age")
 fig = lineplot(x=pd_values[:,0], y=pd_values[:,1],)
 plt.title("Partial Dependence Plot")
 plt.xlabel("Age")
