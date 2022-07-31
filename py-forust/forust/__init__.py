@@ -33,6 +33,13 @@ class BoosterType:
     ) -> np.ndarray:
         raise NotImplementedError()
 
+    def value_partial_dependence(
+        self,
+        feature: int,
+        value: float,
+    ) -> float:
+        raise NotImplementedError()
+
     def text_dump(self) -> List[str]:
         raise NotImplementedError()
 
@@ -72,9 +79,9 @@ class GradientBooster:
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
         Args:
-            objective_type (str, optional): The name of objective function used to optimize. 
-                Valid options include "LogLoss" to use logistic loss as the objective function 
-                (binary classification), or "SquaredLoss" to use Squared Error as the objective 
+            objective_type (str, optional): The name of objective function used to optimize.
+                Valid options include "LogLoss" to use logistic loss as the objective function
+                (binary classification), or "SquaredLoss" to use Squared Error as the objective
                 function (continuous regression). Defaults to "LogLoss".
             iterations (int, optional): Total number of trees to train in the ensemble.
                 Defaults to 100.
@@ -140,7 +147,7 @@ class GradientBooster:
             X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
             y (ArrayLike): Either a pandas Series, or a 1 dimensional numpy array. If "LogLoss"
                 was the objective type specified, then this should only contain 1 or 0 values,
-                where 1 is the positive class being predicted. If "SquaredLoss" is the 
+                where 1 is the positive class being predicted. If "SquaredLoss" is the
                 objective type, then any continuous variable can be provided.
             sample_weight (Optional[ArrayLike], optional): Instance weights to use when
                 training the model. If None is passed, a weight of 1 will be used for every record.
@@ -200,6 +207,54 @@ class GradientBooster:
             cols=cols,
             parallel=parallel_,
         )
+
+    def partial_dependence(self, X: FrameLike, feature: Union[str, int]) -> np.ndarray:
+        """Calculate the partial dependence values of a feature. For each unique
+        value of the feature, this gives the estimate of the predicted value for that
+        feature, with the effects of all features averaged out. This information gives
+        an estimate of how a given feature impacts the model.
+
+        Args:
+            X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
+                This should be the same data passed into the models fit, or predict,
+                with the columns in the same order.
+            feature (Union[str, int]): The feature for which to calculate the partial
+                dependence values. This can be the name of a column, if the provided
+                X is a pandas DataFrame, or the index of the feature.
+
+        Raises:
+            ValueError: An error will be raised if the provided X parameter is not a
+                pandas DataFrame, and a string is provided for the feature.
+
+        Returns:
+            np.ndarray: A 2 dimensional numpy array, where the first column is the
+                sorted unique values of the feature, and then the second column
+                is the partial dependence values for each feature value.
+        """
+        is_dataframe = isinstance(X, pd.DataFrame)
+        if isinstance(feature, str):
+            if not is_dataframe:
+                raise ValueError(
+                    "If `feature` is a string, then the object passed as `X` must be a pandas DataFrame."
+                )
+            values = np.sort(X.loc[:, feature].unique())
+            feature_idx = next(i for i, v in enumerate(X.columns) if v == feature)
+        elif isinstance(feature, int):
+            if is_dataframe:
+                values = np.sort(X.iloc[:, feature].unique())
+            else:
+                values = np.sort(np.unique(X[:, feature]))
+            feature_idx = feature
+        else:
+            raise ValueError(
+                f"The parameter `feature` must be a string, or an int, however an object of type {type(feature)} was passed."
+            )
+        res = []
+        for v in values:
+            res.append(
+                (v, self.booster.value_partial_dependence(feature=feature_idx, value=v))
+            )
+        return np.array(res)
 
     def text_dump(self) -> List[str]:
         """Return all of the trees of the model in text form.

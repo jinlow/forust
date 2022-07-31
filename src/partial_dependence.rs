@@ -66,15 +66,14 @@ pub fn tree_partial_dependence(
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::binning::bin_matrix;
-    use crate::objective::{LogLoss, ObjectiveFunction};
-    use crate::tree::Tree;
     use crate::data::Matrix;
     use crate::histsplitter::HistogramSplitter;
+    use crate::objective::{LogLoss, ObjectiveFunction};
+    use crate::tree::Tree;
     use std::fs;
     #[test]
     fn test_partial_dependence() {
@@ -108,4 +107,3 @@ mod tests {
         println!("{}, {}, {}", pdp1, pdp2, pdp3);
     }
 }
-

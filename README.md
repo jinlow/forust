@@ -116,6 +116,35 @@ model.text_dump()[0]
 
 The `json_dump` method performs the same action, but returns the model as a json representation rather than a text string.
 
+To see an estimate for how a given feature is used in the model, the `partial_dependence` method is provided. This method calculates the partial dependence values of a feature. For each unique value of the feature, this gives the estimate of the predicted value for that feature, with the effects of all features averaged out. This information gives an estimate of how a given feature impacts the model.
+
+The `partial_dependence` method takes the following parameters...
+
+ - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array.
+      This should be the same data passed into the models fit, or predict,
+      with the columns in the same order.
+ - `feature` ***(Union[str, int])***: The feature for which to calculate the partial
+      dependence values. This can be the name of a column, if the provided
+      X is a pandas DataFrame, or the index of the feature.
+
+This method returns a 2 dimensional numpy array, where the first column is the sorted unique values of the feature, and then the second column is the partial dependence values for each feature value.
+
+This information can be plotted to visualize how a feature is used in the model, like so.
+
+```python
+from seaborn import lineplot
+import matplotlib.pyplot as plt
+
+pd_values = fmod.partial_dependence(X, 1)
+fig = lineplot(x=pd_values[:,0], y=pd_values[:,1],)
+plt.title("Partial Dependence Plot")
+plt.xlabel("Age")
+plt.ylabel("Log Odds")
+```
+<img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/pdp_plot_age.png">
+
+
+
 ### Saving the model
 To save and subsequently load a trained booster, the `save_booster` and `load_booster` methods can be used. Each accepts a path, which is used to write the model to. The model is saved and loaded as a json object.
 
