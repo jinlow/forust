@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use forust_ml::binning::bin_matrix;
 use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::GradientBooster;
-use forust_ml::histsplitter::HistogramSplitter;
+use forust_ml::splitter::Splitter;
 use forust_ml::objective::{LogLoss, ObjectiveFunction};
 use forust_ml::tree::Tree;
 use forust_ml::utils::{fast_f64_sum, fast_sum, naive_sum};
@@ -34,7 +34,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     });
 
     let data = Matrix::new(&data_vec, y.len(), 5);
-    let splitter = HistogramSplitter {
+    let splitter = Splitter {
         l2: 1.0,
         gamma: 3.0,
         min_leaf_weight: 1.0,

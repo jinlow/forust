@@ -6,7 +6,7 @@ mod partial_dependence;
 
 pub mod data;
 pub mod gradientbooster;
-pub mod histsplitter;
+pub mod splitter;
 pub mod objective;
 pub mod tree;
 pub mod utils;

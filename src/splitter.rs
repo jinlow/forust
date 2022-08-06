@@ -19,16 +19,16 @@ pub struct SplitInfo {
     pub right_weight: f32,
 }
 
-pub struct HistogramSplitter {
+pub struct Splitter {
     pub l2: f32,
     pub gamma: f32,
     pub min_leaf_weight: f32,
     pub learning_rate: f32,
 }
 
-impl HistogramSplitter {
+impl Splitter {
     pub fn new(l2: f32, gamma: f32, min_leaf_weight: f32, learning_rate: f32) -> Self {
-        HistogramSplitter {
+        Splitter {
             l2,
             gamma,
             min_leaf_weight,
@@ -210,7 +210,7 @@ mod tests {
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
         let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
-        let splitter = HistogramSplitter {
+        let splitter = Splitter {
             l2: 0.0,
             gamma: 0.0,
             min_leaf_weight: 0.0,
@@ -255,7 +255,7 @@ mod tests {
         let index = data.index.to_owned();
         let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
         println!("{:?}", hists);
-        let splitter = HistogramSplitter {
+        let splitter = Splitter {
             l2: 0.0,
             gamma: 0.0,
             min_leaf_weight: 0.0,
@@ -298,7 +298,7 @@ mod tests {
         let grad = LogLoss::calc_grad(&y, &yhat, &w);
         let hess = LogLoss::calc_hess(&y, &yhat, &w);
 
-        let splitter = HistogramSplitter {
+        let splitter = Splitter {
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,

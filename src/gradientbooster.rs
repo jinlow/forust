@@ -1,7 +1,7 @@
 use crate::binning::bin_matrix;
 use crate::data::Matrix;
 use crate::errors::ForustError;
-use crate::histsplitter::HistogramSplitter;
+use crate::splitter::Splitter;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
 use crate::tree::Tree;
 use serde::{Deserialize, Serialize};
@@ -132,7 +132,7 @@ impl GradientBooster {
         y: &[f64],
         sample_weight: &[f64],
     ) -> Result<(), ForustError> {
-        let splitter = HistogramSplitter {
+        let splitter = Splitter {
             l2: self.l2,
             gamma: self.gamma,
             min_leaf_weight: self.min_leaf_weight,

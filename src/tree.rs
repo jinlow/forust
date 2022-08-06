@@ -1,6 +1,6 @@
 use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
-use crate::histsplitter::HistogramSplitter;
+use crate::splitter::Splitter;
 use crate::node::{SplittableNode, TreeNode};
 use crate::partial_dependence::tree_partial_dependence;
 use crate::utils::{fast_f64_sum, pivot_on_split};
@@ -32,7 +32,7 @@ impl Tree {
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
-        splitter: &HistogramSplitter,
+        splitter: &Splitter,
         max_leaves: usize,
         max_depth: usize,
         parallel: bool,
@@ -320,7 +320,7 @@ mod tests {
         let h = LogLoss::calc_hess(&y, &yhat, &w);
 
         let data = Matrix::new(&data_vec, 891, 5);
-        let splitter = HistogramSplitter {
+        let splitter = Splitter {
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,

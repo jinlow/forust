@@ -71,7 +71,7 @@ mod tests {
     use super::*;
     use crate::binning::bin_matrix;
     use crate::data::Matrix;
-    use crate::histsplitter::HistogramSplitter;
+    use crate::splitter::Splitter;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use crate::tree::Tree;
     use std::fs;
@@ -89,7 +89,7 @@ mod tests {
         let h = LogLoss::calc_hess(&y, &yhat, &w);
 
         let data = Matrix::new(&data_vec, 891, 5);
-        let splitter = HistogramSplitter {
+        let splitter = Splitter {
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
