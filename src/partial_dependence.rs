@@ -94,6 +94,8 @@ mod tests {
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
+            allow_missing_splits: true,
+            impute_missing: true,
         };
         let mut tree = Tree::new();
 

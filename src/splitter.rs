@@ -24,15 +24,26 @@ pub struct Splitter {
     pub gamma: f32,
     pub min_leaf_weight: f32,
     pub learning_rate: f32,
+    pub allow_missing_splits: bool,
+    pub impute_missing: bool,
 }
 
 impl Splitter {
-    pub fn new(l2: f32, gamma: f32, min_leaf_weight: f32, learning_rate: f32) -> Self {
+    pub fn new(
+        l2: f32,
+        gamma: f32,
+        min_leaf_weight: f32,
+        learning_rate: f32,
+        allow_missing_splits: bool,
+        impute_missing: bool,
+    ) -> Self {
         Splitter {
             l2,
             gamma,
             min_leaf_weight,
             learning_rate,
+            allow_missing_splits,
+            impute_missing,
         }
     }
 
@@ -62,45 +73,76 @@ impl Splitter {
         let HistogramMatrix(histograms) = &node.histograms;
         let histogram = histograms.get_col(feature);
 
-        // We know that at least one value will be populated.
-        let first_bin = &histogram[1];
         // We also know we will have a missing bin.
         let missing = &histogram[0];
-        let mut cuml_grad = first_bin.grad_sum;
-        let mut cuml_hess = first_bin.hess_sum;
+        let mut cuml_grad = 0.0; // first_bin.grad_sum;
+        let mut cuml_hess = 0.0; // first_bin.hess_sum;
+        let mut i = 0;
+        let mut first_idx = 1;
+
+        if !self.allow_missing_splits {
+            // If we don't want a split to be only on missing, we need
+            // to start at the first bin that is populated.
+            for bin in &histogram[1..] {
+                i += 1;
+                first_idx += 1;
+                if (bin.grad_sum == f32::ZERO) && (bin.hess_sum == f32::ZERO) {
+                    continue;
+                }
+                cuml_grad += bin.grad_sum;
+                cuml_hess += bin.hess_sum;
+                break;
+            }
+        }
 
         let elements = histogram.len();
         assert!(elements == histogram.len());
 
-        // We start at the second element, this is because
-        // there will be no element less than the first element,
-        // as this would lead to a split occurring on only missing, or
-        // not missing. Maybe we would want to allow this, but
-        // I think it would be easier to just encode missing as a real
-        // value if we really wanted to allow this. I have problems with
-        // this in a production setting with other packages, such as
-        // XGBoost
-        let mut i = 1;
-        for bin in &histogram[2..] {
+        for bin in &histogram[first_idx..] {
             i += 1;
             // If this bin is empty, continue...
-            if (bin.grad_sum == f32::ZERO) && (bin.hess_sum == f32::ZERO) {
+            // however we are only concerned about this
+            // if we don't want a split to happen only
+            // on missing values.
+            if (bin.grad_sum == f32::ZERO)
+                && (bin.hess_sum == f32::ZERO)
+                && !self.allow_missing_splits
+            {
                 continue;
             }
-            // By default missing values will go into the left node.
+            // By default missing values will go into the right node.
             let mut missing_right = true;
             let mut left_grad = cuml_grad;
             let mut left_hess = cuml_hess;
             let mut right_grad = node.grad_sum - cuml_grad - missing.grad_sum;
             let mut right_hess = node.hess_sum - cuml_hess - missing.hess_sum;
 
-            let mut left_gain = self.gain(left_grad, left_hess);
-            let mut right_gain = self.gain(right_grad, right_hess);
+            let left_weight = self.weight(left_grad, left_hess);
+            let right_weight = self.weight(right_grad, right_hess);
+            let mut left_gain = self.gain_given_weight(left_grad, left_hess, left_weight);
+            let mut right_gain = self.gain_given_weight(right_grad, right_hess, right_weight);
+
+            // let mut left_gain = self.gain(left_grad, left_hess);
+            // let mut right_gain = self.gain(right_grad, right_hess);
+
+            if !self.allow_missing_splits {
+                // Check the min_hessian constraint first, if we do not
+                // want to allow missing only splits.
+                if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
+                    // Update for new value
+                    cuml_grad += bin.grad_sum;
+                    cuml_hess += bin.hess_sum;
+                    continue;
+                }
+            }
 
             // Check Missing direction
             // Don't even worry about it, if there are no missing values
             // in this bin.
-            if (missing.grad_sum != f32::ZERO) && (missing.hess_sum != f32::ZERO) {
+            if self.impute_missing
+                && (missing.grad_sum != f32::ZERO)
+                && (missing.hess_sum != f32::ZERO)
+            {
                 // TODO: Consider making this safer, by casting to f64, summing, and then
                 // back to f32...
                 // The gain if missing went left
@@ -124,24 +166,24 @@ impl Splitter {
                     missing_right = false;
                 }
             }
-
-            // Should this be after we add in the missing hessians?
-            // Right now this means that only real values will be considered
-            // in this calculation I think...
             if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
                 // Update for new value
                 cuml_grad += bin.grad_sum;
                 cuml_hess += bin.hess_sum;
                 continue;
             }
-
-            let split_gain = (left_gain + right_gain - node.gain_value) - self.get_gamma();
+            
+            let split_gain = (left_gain + right_gain - node.gain_value) - self.gamma;
             if split_gain <= f32::ZERO {
                 // Update for new value
                 cuml_grad += bin.grad_sum;
                 cuml_hess += bin.hess_sum;
                 continue;
             }
+
+            // If split gain is NaN, one of the sides is empty, do not allow
+            // this split.
+            let split_gain = if split_gain.is_nan() { 0.0 } else { split_gain };
             if max_gain.is_none() || split_gain > max_gain.unwrap() {
                 max_gain = Some(split_gain);
                 split_info = Some(SplitInfo {
@@ -153,11 +195,11 @@ impl Splitter {
                     left_grad,
                     left_gain,
                     left_cover: left_hess,
-                    left_weight: self.weight(left_grad, left_hess),
+                    left_weight: self.weight(left_grad, left_hess) * self.learning_rate,
                     right_grad,
                     right_gain,
                     right_cover: right_hess,
-                    right_weight: self.weight(right_grad, right_hess),
+                    right_weight: self.weight(right_grad, right_hess) * self.learning_rate,
                 });
             }
             // Update for new value
@@ -168,23 +210,13 @@ impl Splitter {
     }
 
     pub fn gain(&self, grad_sum: f32, hess_sum: f32) -> f32 {
-        (grad_sum * grad_sum) / (hess_sum + self.get_l2())
+        (grad_sum * grad_sum) / (hess_sum + self.l2)
     }
-
+    pub fn gain_given_weight(&self, grad_sum: f32, hess_sum: f32, weight: f32) -> f32 {
+        -(2.0 * grad_sum * weight + (hess_sum + self.l2) * (weight * weight))
+    }
     pub fn weight(&self, grad_sum: f32, hess_sum: f32) -> f32 {
-        -((grad_sum / (hess_sum + self.get_l2())) * self.get_learning_rate())
-    }
-
-    pub fn get_l2(&self) -> f32 {
-        self.l2
-    }
-
-    pub fn get_learning_rate(&self) -> f32 {
-        self.learning_rate
-    }
-
-    pub fn get_gamma(&self) -> f32 {
-        self.gamma
+        -(grad_sum / (hess_sum + self.l2))
     }
 }
 
@@ -215,6 +247,8 @@ mod tests {
             gamma: 0.0,
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
+            allow_missing_splits: true,
+            impute_missing: true,
         };
         // println!("{:?}", hists);
         let mut n = SplittableNode::new(
@@ -260,6 +294,8 @@ mod tests {
             gamma: 0.0,
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
+            allow_missing_splits: true,
+            impute_missing: true,
         };
         let mut n = SplittableNode::new(
             0,
@@ -303,11 +339,15 @@ mod tests {
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
+            allow_missing_splits: true,
+            impute_missing: true,
         };
         let grad_sum = grad.iter().copied().sum();
         let hess_sum = hess.iter().copied().sum();
         let root_gain = splitter.gain(grad_sum, hess_sum);
         let root_weight = splitter.weight(grad_sum, hess_sum);
+        let gain_given_weight = splitter.gain_given_weight(grad_sum, hess_sum, root_weight);
+        // println!("gain: {}, weight: {}, gain from weight: {}", root_gain, root_weight, gain_given_weight);
         let data = Matrix::new(&data_vec, 891, 5);
 
         let b = bin_matrix(&data, &w, 10).unwrap();

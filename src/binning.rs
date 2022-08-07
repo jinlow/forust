@@ -97,7 +97,7 @@ pub fn bin_matrix<T: FloatData<T>>(
         col_cuts.push(T::MAX);
         col_cuts.dedup();
         if col_cuts.len() < 3 {
-            return Err(ForustError::NoVariance);
+            return Err(ForustError::NoVariance(i));
         }
         // There will be one less bins, then there are cuts.
         // The first value will be for missing.

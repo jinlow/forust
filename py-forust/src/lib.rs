@@ -32,6 +32,8 @@ impl GradientBooster {
         base_score: f64,
         nbins: u16,
         parallel: bool,
+        allow_missing_splits: bool,
+        impute_missing: bool,
     ) -> PyResult<Self> {
         let objective_ = match objective_type {
             "LogLoss" => Ok(ObjectiveType::LogLoss),
@@ -50,6 +52,8 @@ impl GradientBooster {
             base_score,
             nbins,
             parallel,
+            allow_missing_splits,
+            impute_missing,
         );
         Ok(GradientBooster { booster })
     }
@@ -66,7 +70,10 @@ impl GradientBooster {
         let data = Matrix::new(flat_data, rows, cols);
         let y = y.as_slice()?;
         let sample_weight = sample_weight.as_slice()?;
-        self.booster.fit(&data, y, sample_weight).unwrap();
+        match self.booster.fit(&data, y, sample_weight) {
+            Ok(m) => Ok(m),
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }?;
         Ok(())
     }
     pub fn predict<'py>(
@@ -147,6 +154,8 @@ impl GradientBooster {
             ("base_score", self.booster.base_score.to_object(py)),
             ("nbins", self.booster.nbins.to_object(py)),
             ("parallel", self.booster.parallel.to_object(py)),
+            ("allow_missing_splits", self.booster.allow_missing_splits.to_object(py)),
+            ("impute_missing", self.booster.impute_missing.to_object(py)),
         ];
         let dict = key_vals.into_py_dict(py);
         Ok(dict.to_object(py))

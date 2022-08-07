@@ -75,6 +75,8 @@ class GradientBooster:
         base_score: float = 0.5,
         nbins: int = 256,
         parallel: bool = True,
+        allow_missing_splits: bool = True,
+        impute_missing: bool = True,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -104,7 +106,14 @@ class GradientBooster:
                 accuracy. If there are more bins, than unique values in a column, all unique values
                 will be used. Defaults to 256.
             parallel (bool, optional): Should multiple cores be used when training and predicting
-                with this model? Defaults to True.
+                with this model? Defaults to `True`.
+            allow_missing_splits (bool, optional): Allow for splits to be made such that all missing values go
+                down one branch, and all non-missing values go down the other, if this results
+                in the greatest reduction of loss. If this is false, splits will only be made on non
+                missing values. Defaults to `True`.
+            impute_missing (bool, optional): Automatically impute missing values, such that at every split
+                the model learns the best direction to send missing values. If this is false, all
+                missing values will default to right branch. Defaults to `True`.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -121,6 +130,8 @@ class GradientBooster:
             base_score=base_score,
             nbins=nbins,
             parallel=parallel,
+            allow_missing_splits=allow_missing_splits,
+            impute_missing=impute_missing,
         )
         self.booster = cast(BoosterType, booster)
         self.objective_type = objective_type
@@ -134,6 +145,8 @@ class GradientBooster:
         self.base_score = base_score
         self.nbins = nbins
         self.parallel = parallel
+        self.allow_missing_splits=allow_missing_splits,
+        self.impute_missing=impute_missing,
 
     def fit(
         self,

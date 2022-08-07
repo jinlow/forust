@@ -31,6 +31,13 @@ use std::fs;
 ///   a smaller number, will result in faster training time, while potentially sacrificing
 ///   accuracy. If there are more bins, than unique values in a column, all unique values
 ///   will be used.
+/// * `allow_missing_splits` - Allow for splits to be made such that all missing values go
+///   down one branch, and all non-missing values go down the other, if this results
+///   in the greatest reduction of loss. If this is false, splits will only be made on non
+///   missing values.
+/// * `impute_missing` - Automatically impute missing values, such that at every split
+///   the model learns the best direction to send missing values. If this is false, all
+///   missing values will default to right branch.
 #[derive(Deserialize, Serialize)]
 pub struct GradientBooster {
     pub objective_type: ObjectiveType,
@@ -44,6 +51,8 @@ pub struct GradientBooster {
     pub base_score: f64,
     pub nbins: u16,
     pub parallel: bool,
+    pub allow_missing_splits: bool,
+    pub impute_missing: bool,
     pub trees: Vec<Tree>,
 }
 
@@ -60,6 +69,8 @@ impl Default for GradientBooster {
             1.,
             0.5,
             256,
+            true,
+            true,
             true,
         )
     }
@@ -103,6 +114,8 @@ impl GradientBooster {
         base_score: f64,
         nbins: u16,
         parallel: bool,
+        allow_missing_splits: bool,
+        impute_missing: bool,
     ) -> Self {
         GradientBooster {
             objective_type,
@@ -116,6 +129,8 @@ impl GradientBooster {
             base_score,
             nbins,
             parallel,
+            allow_missing_splits,
+            impute_missing,
             trees: Vec::new(),
         }
     }
@@ -137,6 +152,8 @@ impl GradientBooster {
             gamma: self.gamma,
             min_leaf_weight: self.min_leaf_weight,
             learning_rate: self.learning_rate,
+            allow_missing_splits: self.allow_missing_splits,
+            impute_missing: self.impute_missing,
         };
         let mut yhat = vec![self.base_score; y.len()];
         let (calc_grad, calc_hess) = gradient_hessian_callables(&self.objective_type);

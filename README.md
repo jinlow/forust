@@ -59,7 +59,9 @@ It can be initialized with the following arguments.
     accuracy. If there are more bins, than unique values in a column, all unique values
     will be used. Defaults to 256.
  - `parallel` ***(bool, optional)***: Should multiple cores be used when training and predicting
-    with this model? Defaults to True.
+    with this model? Defaults to `True`.
+ - `allow_missing_splits` ***(bool, optional)***: Allow for splits to be made such that all missing values go down one branch, and all non-missing values go down the other, if this results in the greatest reduction of loss. If this is false, splits will only be made on non missing values. Defaults to `True`.
+ - `impute_missing` ***(bool, optional)***: Automatically impute missing values, such that at every split the model learns the best direction to send missing values. If this is false, all missing values will default to right branch. Defaults to `True`.
 
 ### Training and Predicting
 
