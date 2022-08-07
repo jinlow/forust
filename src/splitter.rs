@@ -165,6 +165,14 @@ impl Splitter {
                     left_gain = missing_left_gain;
                     missing_right = false;
                 }
+            } else if !self.impute_missing {
+                // Missing goes right
+                let missing_right_gain =
+                    self.gain(right_grad + missing.grad_sum, right_hess + missing.hess_sum);
+                right_grad += missing.grad_sum;
+                right_hess += missing.hess_sum;
+                right_gain = missing_right_gain;
+                missing_right = true;
             }
             if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
                 // Update for new value
@@ -172,7 +180,7 @@ impl Splitter {
                 cuml_hess += bin.hess_sum;
                 continue;
             }
-            
+
             let split_gain = (left_gain + right_gain - node.gain_value) - self.gamma;
             if split_gain <= f32::ZERO {
                 // Update for new value
