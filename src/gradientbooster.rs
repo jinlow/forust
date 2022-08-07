@@ -4,6 +4,7 @@ use crate::errors::ForustError;
 use crate::splitter::Splitter;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
 use crate::tree::Tree;
+use crate::constraints::ConstraintMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -53,6 +54,7 @@ pub struct GradientBooster {
     pub parallel: bool,
     pub allow_missing_splits: bool,
     pub impute_missing: bool,
+    pub monotone_constraints: Option<ConstraintMap>,
     pub trees: Vec<Tree>,
 }
 
@@ -72,6 +74,7 @@ impl Default for GradientBooster {
             true,
             true,
             true,
+            None,
         )
     }
 }
@@ -116,6 +119,7 @@ impl GradientBooster {
         parallel: bool,
         allow_missing_splits: bool,
         impute_missing: bool,
+        monotone_constraints: Option<ConstraintMap>,
     ) -> Self {
         GradientBooster {
             objective_type,
@@ -131,6 +135,7 @@ impl GradientBooster {
             parallel,
             allow_missing_splits,
             impute_missing,
+            monotone_constraints,
             trees: Vec::new(),
         }
     }

@@ -3,8 +3,8 @@ mod errors;
 mod histogram;
 mod node;
 mod partial_dependence;
-mod constraint;
 
+pub mod constraints;
 pub mod data;
 pub mod gradientbooster;
 pub mod splitter;
