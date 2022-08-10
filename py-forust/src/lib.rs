@@ -1,3 +1,4 @@
+use forust_ml::constraints::{Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::GradientBooster as CrateGradientBooster;
 use forust_ml::objective::ObjectiveType;
@@ -7,6 +8,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
+use std::collections::HashMap;
+use std::hash::Hash;
 
 // This macro is used to define the base implementation of
 // the booster.
@@ -34,11 +37,23 @@ impl GradientBooster {
         parallel: bool,
         allow_missing_splits: bool,
         impute_missing: bool,
+        monotone_constraints: HashMap<usize, i8>,
     ) -> PyResult<Self> {
+        let constraints: ConstraintMap = monotone_constraints
+            .iter()
+            .map(|(f, c)| {
+                let c_ = match c {
+                    -1 => Constraint::Negative,
+                    1 => Constraint::Positive,
+                    _ => Constraint::Unconstrained,
+                };
+                (*f, c_)
+            })
+            .collect();
         let objective_ = match objective_type {
             "LogLoss" => Ok(ObjectiveType::LogLoss),
             "SquaredLoss" => Ok(ObjectiveType::SquaredLoss),
-            _ => Err(PyValueError::new_err(format!("Not a valid objective type passed, expected one of 'LogLoss', 'SquaredLoss', but '{}' was provied.", objective_type))),
+            _ => Err(PyValueError::new_err(format!("Not a valid objective type passed, expected one of 'LogLoss', 'SquaredLoss', but '{}' was provided.", objective_type))),
         }?;
         let booster = CrateGradientBooster::new(
             objective_,
@@ -54,6 +69,7 @@ impl GradientBooster {
             parallel,
             allow_missing_splits,
             impute_missing,
+            Some(constraints),
         );
         Ok(GradientBooster { booster })
     }
@@ -139,6 +155,21 @@ impl GradientBooster {
             ObjectiveType::LogLoss => "LogLoss",
             ObjectiveType::SquaredLoss => "SquaredLoss",
         };
+        let constraints: HashMap<usize, i8> = self
+            .booster
+            .monotone_constraints
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|(f, c)| {
+                let c_ = match c {
+                    Constraint::Negative => -1,
+                    Constraint::Positive => 1,
+                    Constraint::Unconstrained => 0,
+                };
+                (*f, c_)
+            })
+            .collect();
         let key_vals: Vec<(&str, PyObject)> = vec![
             ("objective_type", objective_.to_object(py)),
             ("iterations", self.booster.iterations.to_object(py)),
@@ -154,8 +185,12 @@ impl GradientBooster {
             ("base_score", self.booster.base_score.to_object(py)),
             ("nbins", self.booster.nbins.to_object(py)),
             ("parallel", self.booster.parallel.to_object(py)),
-            ("allow_missing_splits", self.booster.allow_missing_splits.to_object(py)),
+            (
+                "allow_missing_splits",
+                self.booster.allow_missing_splits.to_object(py),
+            ),
             ("impute_missing", self.booster.impute_missing.to_object(py)),
+            ("monotone_constraints", constraints.to_object(py)),
         ];
         let dict = key_vals.into_py_dict(py);
         Ok(dict.to_object(py))

@@ -1,8 +1,8 @@
 use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
-use crate::splitter::Splitter;
 use crate::node::{SplittableNode, TreeNode};
 use crate::partial_dependence::tree_partial_dependence;
+use crate::splitter::Splitter;
 use crate::utils::{fast_f64_sum, pivot_on_split};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,8 @@ impl Tree {
             false,
             0,
             data.rows,
+            f32::NEG_INFINITY,
+            f32::INFINITY,
         );
         // Add the first node to the tree nodes.
         self.nodes.push(TreeNode::Splittable(root_node));
@@ -190,6 +192,8 @@ impl Tree {
                             false,
                             node.start_idx,
                             split_idx,
+                            info.left_bounds.0,
+                            info.left_bounds.1,
                         );
                         let right_node = SplittableNode::new(
                             right_idx,
@@ -202,6 +206,8 @@ impl Tree {
                             false,
                             split_idx,
                             node.stop_idx,
+                            info.right_bounds.0,
+                            info.right_bounds.1,
                         );
                         growable.push_front(left_idx);
                         growable.push_front(right_idx);
@@ -304,6 +310,7 @@ impl Display for Tree {
 mod tests {
     use super::*;
     use crate::binning::bin_matrix;
+    use crate::constraints::ConstraintMap;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use std::fs;
     #[test]
@@ -327,6 +334,7 @@ mod tests {
             learning_rate: 0.3,
             allow_missing_splits: true,
             impute_missing: true,
+            constraints_map: ConstraintMap::new(),
         };
         let mut tree = Tree::new();
 

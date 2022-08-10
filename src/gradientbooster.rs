@@ -1,10 +1,10 @@
 use crate::binning::bin_matrix;
+use crate::constraints::ConstraintMap;
 use crate::data::Matrix;
 use crate::errors::ForustError;
-use crate::splitter::Splitter;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
+use crate::splitter::Splitter;
 use crate::tree::Tree;
-use crate::constraints::ConstraintMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -104,6 +104,8 @@ impl GradientBooster {
     ///   a smaller number, will result in faster training time, while potentially sacrificing
     ///   accuracy. If there are more bins, than unique values in a column, all unique values
     ///   will be used.
+    /// * `monotone_constraints` - Constraints that are used to enforce a specific relationship
+    ///   between the training features and the target variable.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         objective_type: ObjectiveType,
@@ -152,6 +154,7 @@ impl GradientBooster {
         y: &[f64],
         sample_weight: &[f64],
     ) -> Result<(), ForustError> {
+        let constraints_map = ConstraintMap::new();
         let splitter = Splitter {
             l2: self.l2,
             gamma: self.gamma,
@@ -159,6 +162,7 @@ impl GradientBooster {
             learning_rate: self.learning_rate,
             allow_missing_splits: self.allow_missing_splits,
             impute_missing: self.impute_missing,
+            constraints_map: constraints_map,
         };
         let mut yhat = vec![self.base_score; y.len()];
         let (calc_grad, calc_hess) = gradient_hessian_callables(&self.objective_type);

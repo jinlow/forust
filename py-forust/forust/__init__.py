@@ -77,6 +77,7 @@ class GradientBooster:
         parallel: bool = True,
         allow_missing_splits: bool = True,
         impute_missing: bool = True,
+        monotone_constraints: Optional[Dict[int,int]] = None,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -118,6 +119,7 @@ class GradientBooster:
         Raises:
             TypeError: Raised if an invalid dtype is passed.
         """
+        monotone_constraints_ = {} if monotone_constraints is None else monotone_constraints
         booster = CrateGradientBooster(
             objective_type=objective_type,
             iterations=iterations,
@@ -132,6 +134,7 @@ class GradientBooster:
             parallel=parallel,
             allow_missing_splits=allow_missing_splits,
             impute_missing=impute_missing,
+            monotone_constraints=monotone_constraints_,
         )
         self.booster = cast(BoosterType, booster)
         self.objective_type = objective_type
@@ -147,6 +150,7 @@ class GradientBooster:
         self.parallel = parallel
         self.allow_missing_splits=allow_missing_splits,
         self.impute_missing=impute_missing,
+        self.monotone_constraints=monotone_constraints_
 
     def fit(
         self,

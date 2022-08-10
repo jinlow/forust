@@ -1,3 +1,4 @@
+use crate::constraints::{Constraint, ConstraintMap};
 use crate::data::FloatData;
 use crate::histogram::HistogramMatrix;
 use crate::node::SplittableNode;
@@ -13,10 +14,12 @@ pub struct SplitInfo {
     pub left_gain: f32,
     pub left_cover: f32,
     pub left_weight: f32,
+    pub left_bounds: (f32, f32),
     pub right_grad: f32,
     pub right_gain: f32,
     pub right_cover: f32,
     pub right_weight: f32,
+    pub right_bounds: (f32, f32),
 }
 
 pub struct Splitter {
@@ -26,6 +29,7 @@ pub struct Splitter {
     pub learning_rate: f32,
     pub allow_missing_splits: bool,
     pub impute_missing: bool,
+    pub constraints_map: ConstraintMap,
 }
 
 impl Splitter {
@@ -36,6 +40,7 @@ impl Splitter {
         learning_rate: f32,
         allow_missing_splits: bool,
         impute_missing: bool,
+        constraints_map: ConstraintMap,
     ) -> Self {
         Splitter {
             l2,
@@ -44,6 +49,7 @@ impl Splitter {
             learning_rate,
             allow_missing_splits,
             impute_missing,
+            constraints_map,
         }
     }
 
@@ -79,6 +85,7 @@ impl Splitter {
         let mut cuml_hess = 0.0; // first_bin.hess_sum;
         let mut i = 0;
         let mut first_idx = 1;
+        let constraint = self.constraints_map.get(&feature);
 
         if !self.allow_missing_splits {
             // If we don't want a split to be only on missing, we need
@@ -117,8 +124,21 @@ impl Splitter {
             let mut right_grad = node.grad_sum - cuml_grad - missing.grad_sum;
             let mut right_hess = node.hess_sum - cuml_hess - missing.hess_sum;
 
-            let left_weight = self.weight(left_grad, left_hess);
-            let right_weight = self.weight(right_grad, right_hess);
+            let mut left_weight = self.constrained_weight(
+                left_grad,
+                left_hess,
+                node.lower_bound,
+                node.upper_bound,
+                constraint,
+            );
+            let mut right_weight = self.constrained_weight(
+                right_grad,
+                right_hess,
+                node.lower_bound,
+                node.upper_bound,
+                constraint,
+            );
+
             let mut left_gain = self.gain_given_weight(left_grad, left_hess, left_weight);
             let mut right_gain = self.gain_given_weight(right_grad, right_hess, right_weight);
 
@@ -139,33 +159,7 @@ impl Splitter {
             // Check Missing direction
             // Don't even worry about it, if there are no missing values
             // in this bin.
-            if self.impute_missing
-                && (missing.grad_sum != f32::ZERO)
-                && (missing.hess_sum != f32::ZERO)
-            {
-                // TODO: Consider making this safer, by casting to f64, summing, and then
-                // back to f32...
-                // The gain if missing went left
-                let missing_left_gain =
-                    self.gain(left_grad + missing.grad_sum, left_hess + missing.hess_sum);
-                // The gain is missing went right
-                let missing_right_gain =
-                    self.gain(right_grad + missing.grad_sum, right_hess + missing.hess_sum);
-
-                if (missing_right_gain - right_gain) > (missing_left_gain - left_gain) {
-                    // Missing goes right
-                    right_grad += missing.grad_sum;
-                    right_hess += missing.hess_sum;
-                    right_gain = missing_right_gain;
-                    missing_right = true;
-                } else {
-                    // Missing goes left
-                    left_grad += missing.grad_sum;
-                    left_hess += missing.hess_sum;
-                    left_gain = missing_left_gain;
-                    missing_right = false;
-                }
-            } else if !self.impute_missing {
+            if !self.impute_missing {
                 // Missing goes right
                 let missing_right_gain =
                     self.gain(right_grad + missing.grad_sum, right_hess + missing.hess_sum);
@@ -174,6 +168,67 @@ impl Splitter {
                 right_gain = missing_right_gain;
                 missing_right = true;
             }
+            // Otherwise, are there even any missing to worry about?
+            else if (missing.grad_sum != f32::ZERO) || (missing.hess_sum != f32::ZERO) {
+                // TODO: Consider making this safer, by casting to f64, summing, and then
+                // back to f32...
+
+                // The weight if missing went left
+                let missing_left_weight = self.constrained_weight(
+                    left_grad + missing.grad_sum,
+                    left_hess + missing.hess_sum,
+                    node.lower_bound,
+                    node.upper_bound,
+                    constraint,
+                );
+                // The gain if missing went left
+                let missing_left_gain = self.gain_given_weight(
+                    left_grad + missing.grad_sum,
+                    left_hess + missing.hess_sum,
+                    missing_left_weight,
+                );
+                // Confirm this wouldn't break monotonicity.
+                let missing_left_gain = self.cull_gain(
+                    missing_left_gain,
+                    missing_left_weight,
+                    right_weight,
+                    constraint,
+                );
+
+                // The gain if missing went right
+                let missing_right_weight =
+                    self.weight(right_grad + missing.grad_sum, right_hess + missing.hess_sum);
+                // The gain is missing went right
+                let missing_right_gain = self.gain_given_weight(
+                    right_grad + missing.grad_sum,
+                    right_hess + missing.hess_sum,
+                    missing_right_weight,
+                );
+                // Confirm this wouldn't break monotonicity.
+                let missing_left_gain = self.cull_gain(
+                    missing_left_gain,
+                    missing_left_weight,
+                    right_weight,
+                    constraint,
+                );
+
+                if (missing_right_gain - right_gain) < (missing_left_gain - left_gain) {
+                    // Missing goes left
+                    left_grad += missing.grad_sum;
+                    left_hess += missing.hess_sum;
+                    left_gain = missing_left_gain;
+                    left_weight = missing_left_weight;
+                    missing_right = false;
+                } else {
+                    // Missing goes right
+                    right_grad += missing.grad_sum;
+                    right_hess += missing.hess_sum;
+                    right_gain = missing_right_gain;
+                    right_weight = missing_right_weight;
+                    missing_right = true;
+                }
+            }
+
             if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
                 // Update for new value
                 cuml_grad += bin.grad_sum;
@@ -182,12 +237,25 @@ impl Splitter {
             }
 
             let split_gain = (left_gain + right_gain - node.gain_value) - self.gamma;
+            // Check monotonicity holds
+            let split_gain = self.cull_gain(split_gain, left_weight, right_weight, constraint);
+
             if split_gain <= f32::ZERO {
                 // Update for new value
                 cuml_grad += bin.grad_sum;
                 cuml_hess += bin.hess_sum;
                 continue;
             }
+
+            let mid = (left_weight + right_weight) / 2.0;
+            let (left_bounds, right_bounds) = match constraint {
+                None | Some(Constraint::Unconstrained) => (
+                    (node.lower_bound, node.upper_bound),
+                    (node.lower_bound, node.upper_bound),
+                ),
+                Some(Constraint::Negative) => ((mid, node.upper_bound), (node.lower_bound, mid)),
+                Some(Constraint::Positive) => ((node.lower_bound, mid), (mid, node.upper_bound)),
+            };
 
             // If split gain is NaN, one of the sides is empty, do not allow
             // this split.
@@ -203,11 +271,13 @@ impl Splitter {
                     left_grad,
                     left_gain,
                     left_cover: left_hess,
-                    left_weight: self.weight(left_grad, left_hess) * self.learning_rate,
+                    left_weight: left_weight * self.learning_rate,
+                    left_bounds,
                     right_grad,
                     right_gain,
                     right_cover: right_hess,
-                    right_weight: self.weight(right_grad, right_hess) * self.learning_rate,
+                    right_weight: right_weight * self.learning_rate,
+                    right_bounds,
                 });
             }
             // Update for new value
@@ -217,11 +287,59 @@ impl Splitter {
         split_info
     }
 
+    pub fn constrained_weight(
+        &self,
+        grad_sum: f32,
+        hess_sum: f32,
+        lower_bound: f32,
+        upper_bound: f32,
+        constraint: Option<&Constraint>,
+    ) -> f32 {
+        let weight = self.weight(grad_sum, hess_sum);
+        match constraint {
+            None | Some(Constraint::Unconstrained) => weight,
+            _ => {
+                if weight > upper_bound {
+                    upper_bound
+                } else if weight < lower_bound {
+                    lower_bound
+                } else {
+                    weight
+                }
+            }
+        }
+    }
+
     pub fn gain(&self, grad_sum: f32, hess_sum: f32) -> f32 {
         (grad_sum * grad_sum) / (hess_sum + self.l2)
     }
     pub fn gain_given_weight(&self, grad_sum: f32, hess_sum: f32, weight: f32) -> f32 {
         -(2.0 * grad_sum * weight + (hess_sum + self.l2) * (weight * weight))
+    }
+    pub fn cull_gain(
+        &self,
+        gain: f32,
+        left_weight: f32,
+        right_weight: f32,
+        constraint: Option<&Constraint>,
+    ) -> f32 {
+        match constraint {
+            None | Some(Constraint::Unconstrained) => gain,
+            Some(Constraint::Negative) => {
+                if left_weight < right_weight {
+                    f32::NEG_INFINITY
+                } else {
+                    gain
+                }
+            }
+            Some(Constraint::Positive) => {
+                if left_weight > right_weight {
+                    f32::NEG_INFINITY
+                } else {
+                    gain
+                }
+            }
+        }
     }
     pub fn weight(&self, grad_sum: f32, hess_sum: f32) -> f32 {
         -(grad_sum / (hess_sum + self.l2))
@@ -257,6 +375,7 @@ mod tests {
             learning_rate: 1.0,
             allow_missing_splits: true,
             impute_missing: true,
+            constraints_map: ConstraintMap::new(),
         };
         // println!("{:?}", hists);
         let mut n = SplittableNode::new(
@@ -271,6 +390,8 @@ mod tests {
             true,
             0,
             grad.len(),
+            f32::NEG_INFINITY,
+            f32::INFINITY,
         );
         let s = splitter.best_feature_split(&mut n, 0).unwrap();
         println!("{:?}", s);
@@ -304,6 +425,7 @@ mod tests {
             learning_rate: 1.0,
             allow_missing_splits: true,
             impute_missing: true,
+            constraints_map: ConstraintMap::new(),
         };
         let mut n = SplittableNode::new(
             0,
@@ -317,6 +439,8 @@ mod tests {
             true,
             0,
             grad.len(),
+            f32::NEG_INFINITY,
+            f32::INFINITY,
         );
         let s = splitter.best_split(&mut n).unwrap();
         println!("{:?}", s);
@@ -349,12 +473,13 @@ mod tests {
             learning_rate: 0.3,
             allow_missing_splits: true,
             impute_missing: true,
+            constraints_map: ConstraintMap::new(),
         };
         let grad_sum = grad.iter().copied().sum();
         let hess_sum = hess.iter().copied().sum();
         let root_gain = splitter.gain(grad_sum, hess_sum);
         let root_weight = splitter.weight(grad_sum, hess_sum);
-        let gain_given_weight = splitter.gain_given_weight(grad_sum, hess_sum, root_weight);
+        // let gain_given_weight = splitter.gain_given_weight(grad_sum, hess_sum, root_weight);
         // println!("gain: {}, weight: {}, gain from weight: {}", root_gain, root_weight, gain_given_weight);
         let data = Matrix::new(&data_vec, 891, 5);
 
@@ -375,6 +500,8 @@ mod tests {
             true,
             0,
             grad.len(),
+            f32::NEG_INFINITY,
+            f32::INFINITY,
         );
         let s = splitter.best_split(&mut n).unwrap();
         println!("{:?}", s);

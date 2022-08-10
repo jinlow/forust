@@ -70,9 +70,10 @@ pub fn tree_partial_dependence(
 mod tests {
     use super::*;
     use crate::binning::bin_matrix;
+    use crate::constraints::ConstraintMap;
     use crate::data::Matrix;
-    use crate::splitter::Splitter;
     use crate::objective::{LogLoss, ObjectiveFunction};
+    use crate::splitter::Splitter;
     use crate::tree::Tree;
     use std::fs;
     #[test]
@@ -96,6 +97,7 @@ mod tests {
             learning_rate: 0.3,
             allow_missing_splits: true,
             impute_missing: true,
+            constraints_map: ConstraintMap::new(),
         };
         let mut tree = Tree::new();
 
