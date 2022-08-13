@@ -68,7 +68,7 @@ impl SplittableNode {
         start_idx: usize,
         stop_idx: usize,
         lower_bound: f32,
-        upper_bound: f32
+        upper_bound: f32,
     ) -> Self {
         SplittableNode {
             num,

@@ -1,4 +1,4 @@
-use forust_ml::constraints::{Constraint, ConstraintMap};
+use forust_ml::constraints::{self, Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::GradientBooster as CrateGradientBooster;
 use forust_ml::objective::ObjectiveType;
@@ -9,11 +9,23 @@ use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
 use std::collections::HashMap;
-use std::hash::Hash;
+
+fn int_map_to_constraint_map(int_map: HashMap<usize, i8>) -> PyResult<ConstraintMap> {
+    let mut constraints: ConstraintMap = HashMap::new();
+    for (f, c) in int_map.iter() {
+        let c_ = match c {
+                -1 => Ok(Constraint::Negative),
+                1 => Ok(Constraint::Positive),
+                0 => Ok(Constraint::Unconstrained),
+                _ => Err(PyValueError::new_err(format!("Valid monotone constraints are -1, 1 or 0, but '{}' was provided for feature number {}.", c, f))),
+            }?;
+        constraints.insert(*f, c_);
+    }
+    Ok(constraints)
+}
 
 // This macro is used to define the base implementation of
 // the booster.
-
 #[pyclass(subclass)]
 struct GradientBooster {
     booster: CrateGradientBooster,
@@ -39,17 +51,7 @@ impl GradientBooster {
         impute_missing: bool,
         monotone_constraints: HashMap<usize, i8>,
     ) -> PyResult<Self> {
-        let constraints: ConstraintMap = monotone_constraints
-            .iter()
-            .map(|(f, c)| {
-                let c_ = match c {
-                    -1 => Constraint::Negative,
-                    1 => Constraint::Positive,
-                    _ => Constraint::Unconstrained,
-                };
-                (*f, c_)
-            })
-            .collect();
+        let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = match objective_type {
             "LogLoss" => Ok(ObjectiveType::LogLoss),
             "SquaredLoss" => Ok(ObjectiveType::SquaredLoss),
@@ -72,6 +74,13 @@ impl GradientBooster {
             Some(constraints),
         );
         Ok(GradientBooster { booster })
+    }
+
+    #[setter]
+    fn set_monotone_constraints(&mut self, value: HashMap<usize, i8>) -> PyResult<()> {
+        let map = int_map_to_constraint_map(value)?;
+        self.booster.monotone_constraints = Some(map);
+        Ok(())
     }
 
     pub fn fit(

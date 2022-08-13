@@ -154,7 +154,11 @@ impl GradientBooster {
         y: &[f64],
         sample_weight: &[f64],
     ) -> Result<(), ForustError> {
-        let constraints_map = ConstraintMap::new();
+        let constraints_map = self
+            .monotone_constraints
+            .as_ref()
+            .unwrap_or(&ConstraintMap::new())
+            .to_owned();
         let splitter = Splitter {
             l2: self.l2,
             gamma: self.gamma,
@@ -162,7 +166,7 @@ impl GradientBooster {
             learning_rate: self.learning_rate,
             allow_missing_splits: self.allow_missing_splits,
             impute_missing: self.impute_missing,
-            constraints_map: constraints_map,
+            constraints_map,
         };
         let mut yhat = vec![self.base_score; y.len()];
         let (calc_grad, calc_hess) = gradient_hessian_callables(&self.objective_type);

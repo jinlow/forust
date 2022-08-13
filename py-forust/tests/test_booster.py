@@ -1,21 +1,20 @@
 from typing import Tuple
-import pandas as pd
+
 import numpy as np
-from forust import GradientBooster
-from xgboost import XGBClassifier, XGBRegressor
+import pandas as pd
 import pytest
+from xgboost import XGBClassifier, XGBRegressor
+
+from forust import GradientBooster
 
 
 @pytest.fixture
 def X_y() -> Tuple[pd.DataFrame, pd.Series]:
     df = pd.read_csv("../resources/titanic.csv")
-    X = (
-        df.select_dtypes("number")
-        .drop(columns="survived")
-        .reset_index(drop=True)
-    )
+    X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True)
     y = df["survived"]
     return X, y
+
 
 def test_booster_to_xgboosts(X_y):
     X, y = X_y
@@ -191,8 +190,6 @@ def test_booster_saving(X_y, tmp_path):
     fmod.save_booster(f64_model_path)
     fmod_loaded = GradientBooster.load_booster(f64_model_path)
     assert all(fmod_preds == fmod_loaded.predict(X))
-
-    
 
 
 #    f32_model_path = tmp_path / "modelf32.json"
