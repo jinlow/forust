@@ -19,3 +19,5 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 
+[tool.maturin]
+sdist-include = ["LICENSE", "README.md"]
