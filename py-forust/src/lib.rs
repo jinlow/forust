@@ -1,4 +1,4 @@
-use forust_ml::constraints::{self, Constraint, ConstraintMap};
+use forust_ml::constraints::{Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::GradientBooster as CrateGradientBooster;
 use forust_ml::objective::ObjectiveType;
