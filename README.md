@@ -181,7 +181,7 @@ loaded_model = GradientBooster.load_model("model_path.json")
 This is still a work in progress
 - [ ] Early stopping rounds
     * We should be able to accept a validation dataset, and this should be able to be used to determine when to stop training.
-- [ ] Monotonicity support
+- [X] Monotonicity support
     * Right now features are used in the model without any constraints.
 - [X] Ability to save a model.
     * The way the underlying trees are structured, they would lend themselves to being saved as JSon objects.
