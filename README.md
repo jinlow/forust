@@ -152,21 +152,20 @@ We can see how this is impacted if a model is created, where a specific constrai
 ```python
 model = GradientBooster(
     objective_type="LogLoss",
-    monotone_constraints={"age": 1},
+    monotone_constraints={"age": -1},
 )
 model.fit(X, y)
 
-pd_values = model.partial_dependence(X, 1)
+pd_values = model.partial_dependence(X=X, 1)
 fig = lineplot(
     x=pd_values[:, 0],
     y=pd_values[:, 1],
 )
-plt.title("Partial Dependence Plot")
+plt.title("Partial Dependence Plot with Monotonicity")
 plt.xlabel("Age")
 plt.ylabel("Log Odds")
 ```
-
-
+<img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/pdp_plot_age_mono.png">
 
 ### Saving the model
 To save and subsequently load a trained booster, the `save_booster` and `load_booster` methods can be used. Each accepts a path, which is used to write the model to. The model is saved and loaded as a json object.

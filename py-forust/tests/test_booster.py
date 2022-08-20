@@ -192,4 +192,74 @@ def test_booster_saving(X_y, tmp_path):
     assert all(fmod_preds == fmod_loaded.predict(X))
 
 
-#    f32_model_path = tmp_path / "modelf32.json"
+def test_booster_saving_with_montone_constraints(X_y, tmp_path):
+    # squared loss
+    f64_model_path = tmp_path / "modelf64_sl.json"
+    X, y = X_y
+    X = X
+    mono_ = X.apply(lambda x: int(np.sign(x.corr(y)))).to_dict()
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="SquaredLoss",
+        nbins=500,
+        parallel=False,
+        monotone_constraints=mono_,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    fmod.save_booster(f64_model_path)
+    fmod_loaded = GradientBooster.load_booster(f64_model_path)
+    assert all(fmod_preds == fmod_loaded.predict(X))
+
+    # LogLoss
+    f64_model_path = tmp_path / "modelf64_ll.json"
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=False,
+        monotone_constraints=mono_,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    fmod.save_booster(f64_model_path)
+    fmod_loaded = GradientBooster.load_booster(f64_model_path)
+    assert all(fmod_preds == fmod_loaded.predict(X))
+
+
+def test_monotone_constraints(X_y):
+    X, y = X_y
+    X = X
+    mono_ = X.apply(lambda x: int(np.sign(x.corr(y)))).to_dict()
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="SquaredLoss",
+        nbins=500,
+        parallel=False,
+        monotone_constraints=mono_,
+    )
+    fmod.fit(X, y=y)
+    for f, m in mono_.items():
+        p_d = fmod.partial_dependence(X, feature=f)
+        p_d = p_d[~np.isnan(p_d[:, 0])]
+        if m < 0:
+            assert np.all(p_d[0:-1, 1] >= p_d[1:, 1])
+        else:
+            assert np.all(p_d[0:-1, 1] <= p_d[1:, 1])
