@@ -1,6 +1,6 @@
 use crate::data::FloatData;
 use crate::histogram::HistogramMatrix;
-use crate::histsplitter::SplitInfo;
+use crate::splitter::SplitInfo;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 
@@ -21,6 +21,8 @@ pub struct SplittableNode {
     pub right_child: usize,
     pub start_idx: usize,
     pub stop_idx: usize,
+    pub lower_bound: f32,
+    pub upper_bound: f32,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -65,6 +67,8 @@ impl SplittableNode {
         missing_right: bool,
         start_idx: usize,
         stop_idx: usize,
+        lower_bound: f32,
+        upper_bound: f32,
     ) -> Self {
         SplittableNode {
             num,
@@ -82,6 +86,8 @@ impl SplittableNode {
             right_child: 0,
             start_idx,
             stop_idx,
+            lower_bound,
+            upper_bound,
         }
     }
 

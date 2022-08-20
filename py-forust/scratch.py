@@ -125,12 +125,12 @@
 # print(xmod.get_booster().get_dump(with_stats=True)[-1])
 # print(mod.text_dump()[-1])
 
+import numpy as np
 ### Testing weights
 import pandas as pd
-import numpy as np
-from forust import GradientBooster
 from xgboost import XGBClassifier
 
+from forust import GradientBooster
 
 df = (
     pd.read_csv("../resources/titanic.csv")
@@ -174,11 +174,9 @@ print(xmod_preds[0:10])
 print(np.allclose(fmod_preds, xmod_preds, atol=0.0001))
 
 
-
 fmod.save_booster("mod2.json")
 fmod2 = GradientBooster.load_booster("mod2.json")
 fmod2.predict(X)
-
 
 
 # from sklearn.metrics import roc_auc_score
@@ -215,12 +213,12 @@ fmod_preds[~np.isclose(fmod_preds, xmod_preds, atol=0.001)]
 assert np.allclose(fmod_preds, xmod_preds, rtol=0.001)
 
 
+import numpy as np
 # Trying regression
 import pandas as pd
-import numpy as np
-from forust import GradientBooster
 from xgboost import XGBClassifier
 
+from forust import GradientBooster
 
 df = (
     pd.read_csv("../resources/titanic.csv")
@@ -233,6 +231,7 @@ y = df["fare"]
 # X = X.fillna(0)
 # w = X["fare"].to_numpy() + 1
 from xgboost import XGBRegressor
+
 xmod = XGBRegressor(
     n_estimators=100,
     learning_rate=0.3,

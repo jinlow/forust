@@ -59,7 +59,10 @@ It can be initialized with the following arguments.
     accuracy. If there are more bins, than unique values in a column, all unique values
     will be used. Defaults to 256.
  - `parallel` ***(bool, optional)***: Should multiple cores be used when training and predicting
-    with this model? Defaults to True.
+    with this model? Defaults to `True`.
+ - `allow_missing_splits` ***(bool, optional)***: Allow for splits to be made such that all missing values go down one branch, and all non-missing values go down the other, if this results in the greatest reduction of loss. If this is false, splits will only be made on non missing values. Defaults to `True`.
+ - `impute_missing` ***(bool, optional)***: Automatically impute missing values, such that at every split the model learns the best direction to send missing values. If this is false, all missing values will default to right branch. Defaults to `True`.
+ - `monotone_constraints` ***(dict[Any, int], optional)***: Constraints that are used to enforce a specific relationship between the training features and the target variable. A dictionary should be provided where the keys are the feature index value if the model will be fit on a numpy array, or a feature name if it will be fit on a pandas Dataframe. The values of the dictionary should be an integer value of -1, 1, or 0 to specify the relationship that should be estimated between the respective feature and the target variable. Use a value of -1 to enforce a negative relationship, 1 a positive relationship, and 0 will enforce no specific relationship at all. Features not included in the mapping will not have any constraint applied. If `None` is passed no constraints will be enforced on any variable.  Defaults to `None`.
 
 ### Training and Predicting
 
@@ -71,7 +74,7 @@ In the case of this example, the predictions are the log odds of a given record 
 from seaborn import load_dataset
 
 df = load_dataset("titanic")
-X = df.select_dtypes("number").drop(column=["survived"])
+X = df.select_dtypes("number").drop(columns=["survived"])
 y = df["survived"]
 
 # Initialize a booster with defaults.
@@ -136,6 +139,7 @@ from seaborn import lineplot
 import matplotlib.pyplot as plt
 
 pd_values = model.partial_dependence(X=X, feature="age")
+
 fig = lineplot(x=pd_values[:,0], y=pd_values[:,1],)
 plt.title("Partial Dependence Plot")
 plt.xlabel("Age")
@@ -143,7 +147,25 @@ plt.ylabel("Log Odds")
 ```
 <img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/pdp_plot_age.png">
 
+We can see how this is impacted if a model is created, where a specific constraint is applied to the feature using the `monotone_constraint` parameter.
 
+```python
+model = GradientBooster(
+    objective_type="LogLoss",
+    monotone_constraints={"age": -1},
+)
+model.fit(X, y)
+
+pd_values = model.partial_dependence(X=X, 1)
+fig = lineplot(
+    x=pd_values[:, 0],
+    y=pd_values[:, 1],
+)
+plt.title("Partial Dependence Plot with Monotonicity")
+plt.xlabel("Age")
+plt.ylabel("Log Odds")
+```
+<img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/pdp_plot_age_mono.png">
 
 ### Saving the model
 To save and subsequently load a trained booster, the `save_booster` and `load_booster` methods can be used. Each accepts a path, which is used to write the model to. The model is saved and loaded as a json object.
@@ -159,7 +181,7 @@ loaded_model = GradientBooster.load_model("model_path.json")
 This is still a work in progress
 - [ ] Early stopping rounds
     * We should be able to accept a validation dataset, and this should be able to be used to determine when to stop training.
-- [ ] Monotonicity support
+- [X] Monotonicity support
     * Right now features are used in the model without any constraints.
 - [X] Ability to save a model.
     * The way the underlying trees are structured, they would lend themselves to being saved as JSon objects.

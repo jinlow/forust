@@ -1,3 +1,4 @@
+use forust_ml::constraints::{Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::GradientBooster as CrateGradientBooster;
 use forust_ml::objective::ObjectiveType;
@@ -7,10 +8,24 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
+use std::collections::HashMap;
+
+fn int_map_to_constraint_map(int_map: HashMap<usize, i8>) -> PyResult<ConstraintMap> {
+    let mut constraints: ConstraintMap = HashMap::new();
+    for (f, c) in int_map.iter() {
+        let c_ = match c {
+                -1 => Ok(Constraint::Negative),
+                1 => Ok(Constraint::Positive),
+                0 => Ok(Constraint::Unconstrained),
+                _ => Err(PyValueError::new_err(format!("Valid monotone constraints are -1, 1 or 0, but '{}' was provided for feature number {}.", c, f))),
+            }?;
+        constraints.insert(*f, c_);
+    }
+    Ok(constraints)
+}
 
 // This macro is used to define the base implementation of
 // the booster.
-
 #[pyclass(subclass)]
 struct GradientBooster {
     booster: CrateGradientBooster,
@@ -32,11 +47,15 @@ impl GradientBooster {
         base_score: f64,
         nbins: u16,
         parallel: bool,
+        allow_missing_splits: bool,
+        impute_missing: bool,
+        monotone_constraints: HashMap<usize, i8>,
     ) -> PyResult<Self> {
+        let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = match objective_type {
             "LogLoss" => Ok(ObjectiveType::LogLoss),
             "SquaredLoss" => Ok(ObjectiveType::SquaredLoss),
-            _ => Err(PyValueError::new_err(format!("Not a valid objective type passed, expected one of 'LogLoss', 'SquaredLoss', but '{}' was provied.", objective_type))),
+            _ => Err(PyValueError::new_err(format!("Not a valid objective type passed, expected one of 'LogLoss', 'SquaredLoss', but '{}' was provided.", objective_type))),
         }?;
         let booster = CrateGradientBooster::new(
             objective_,
@@ -50,8 +69,18 @@ impl GradientBooster {
             base_score,
             nbins,
             parallel,
+            allow_missing_splits,
+            impute_missing,
+            Some(constraints),
         );
         Ok(GradientBooster { booster })
+    }
+
+    #[setter]
+    fn set_monotone_constraints(&mut self, value: HashMap<usize, i8>) -> PyResult<()> {
+        let map = int_map_to_constraint_map(value)?;
+        self.booster.monotone_constraints = Some(map);
+        Ok(())
     }
 
     pub fn fit(
@@ -66,7 +95,10 @@ impl GradientBooster {
         let data = Matrix::new(flat_data, rows, cols);
         let y = y.as_slice()?;
         let sample_weight = sample_weight.as_slice()?;
-        self.booster.fit(&data, y, sample_weight).unwrap();
+        match self.booster.fit(&data, y, sample_weight) {
+            Ok(m) => Ok(m),
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }?;
         Ok(())
     }
     pub fn predict<'py>(
@@ -132,6 +164,21 @@ impl GradientBooster {
             ObjectiveType::LogLoss => "LogLoss",
             ObjectiveType::SquaredLoss => "SquaredLoss",
         };
+        let constraints: HashMap<usize, i8> = self
+            .booster
+            .monotone_constraints
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|(f, c)| {
+                let c_ = match c {
+                    Constraint::Negative => -1,
+                    Constraint::Positive => 1,
+                    Constraint::Unconstrained => 0,
+                };
+                (*f, c_)
+            })
+            .collect();
         let key_vals: Vec<(&str, PyObject)> = vec![
             ("objective_type", objective_.to_object(py)),
             ("iterations", self.booster.iterations.to_object(py)),
@@ -147,6 +194,12 @@ impl GradientBooster {
             ("base_score", self.booster.base_score.to_object(py)),
             ("nbins", self.booster.nbins.to_object(py)),
             ("parallel", self.booster.parallel.to_object(py)),
+            (
+                "allow_missing_splits",
+                self.booster.allow_missing_splits.to_object(py),
+            ),
+            ("impute_missing", self.booster.impute_missing.to_object(py)),
+            ("monotone_constraints", constraints.to_object(py)),
         ];
         let dict = key_vals.into_py_dict(py);
         Ok(dict.to_object(py))

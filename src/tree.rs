@@ -1,8 +1,8 @@
 use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
-use crate::histsplitter::HistogramSplitter;
 use crate::node::{SplittableNode, TreeNode};
 use crate::partial_dependence::tree_partial_dependence;
+use crate::splitter::Splitter;
 use crate::utils::{fast_f64_sum, pivot_on_split};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -32,7 +32,7 @@ impl Tree {
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
-        splitter: &HistogramSplitter,
+        splitter: &Splitter,
         max_leaves: usize,
         max_depth: usize,
         parallel: bool,
@@ -59,6 +59,8 @@ impl Tree {
             false,
             0,
             data.rows,
+            f32::NEG_INFINITY,
+            f32::INFINITY,
         );
         // Add the first node to the tree nodes.
         self.nodes.push(TreeNode::Splittable(root_node));
@@ -190,6 +192,8 @@ impl Tree {
                             false,
                             node.start_idx,
                             split_idx,
+                            info.left_bounds.0,
+                            info.left_bounds.1,
                         );
                         let right_node = SplittableNode::new(
                             right_idx,
@@ -202,6 +206,8 @@ impl Tree {
                             false,
                             split_idx,
                             node.stop_idx,
+                            info.right_bounds.0,
+                            info.right_bounds.1,
                         );
                         growable.push_front(left_idx);
                         growable.push_front(right_idx);
@@ -304,6 +310,7 @@ impl Display for Tree {
 mod tests {
     use super::*;
     use crate::binning::bin_matrix;
+    use crate::constraints::{Constraint, ConstraintMap};
     use crate::objective::{LogLoss, ObjectiveFunction};
     use std::fs;
     #[test]
@@ -320,11 +327,14 @@ mod tests {
         let h = LogLoss::calc_hess(&y, &yhat, &w);
 
         let data = Matrix::new(&data_vec, 891, 5);
-        let splitter = HistogramSplitter {
+        let splitter = Splitter {
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
+            allow_missing_splits: true,
+            impute_missing: true,
+            constraints_map: ConstraintMap::new(),
         };
         let mut tree = Tree::new();
 
@@ -337,5 +347,48 @@ mod tests {
         let preds = tree.predict(&data, false);
         println!("{:?}", &preds[0..10]);
         assert_eq!(25, tree.nodes.len())
+    }
+
+    #[test]
+    fn test_tree_fit_monotone() {
+        let file = fs::read_to_string("resources/contiguous_no_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let yhat = vec![0.5; y.len()];
+        let w = vec![1.; y.len()];
+        let g = LogLoss::calc_grad(&y, &yhat, &w);
+        let h = LogLoss::calc_hess(&y, &yhat, &w);
+
+        let data_ = Matrix::new(&data_vec, 891, 5);
+        let data = Matrix::new(data_.get_col(1), 891, 1);
+        let map = ConstraintMap::from([(0, Constraint::Negative)]);
+        let splitter = Splitter {
+            l2: 1.0,
+            gamma: 0.0,
+            min_leaf_weight: 1.0,
+            learning_rate: 0.3,
+            allow_missing_splits: true,
+            impute_missing: true,
+            constraints_map: map,
+        };
+        let mut tree = Tree::new();
+
+        let b = bin_matrix(&data, &w, 300).unwrap();
+        let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
+
+        tree.fit(&bdata, &b.cuts, &g, &h, &splitter, usize::MAX, 5, true);
+
+        // println!("{}", tree);
+        let mut pred_data_vec = data.get_col(0).to_owned();
+        pred_data_vec.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        pred_data_vec.dedup();
+        let pred_data = Matrix::new(&pred_data_vec, pred_data_vec.len(), 1);
+
+        let preds = tree.predict(&pred_data, false);
+        let increasing = preds.windows(2).all(|a| a[0] >= a[1]);
+        assert!(increasing);
     }
 }

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -13,6 +13,8 @@ FrameLike = Union[pd.DataFrame, np.ndarray]
 
 
 class BoosterType:
+    monotone_constraints: dict[int, int]
+
     def fit(
         self,
         flat_data: np.ndarray,
@@ -40,7 +42,7 @@ class BoosterType:
     ) -> float:
         raise NotImplementedError()
 
-    def text_dump(self) -> List[str]:
+    def text_dump(self) -> list[str]:
         raise NotImplementedError()
 
     @classmethod
@@ -57,7 +59,7 @@ class BoosterType:
     def json_dump(self) -> str:
         raise NotImplementedError()
 
-    def get_params(self) -> Dict[str, Any]:
+    def get_params(self) -> dict[str, Any]:
         raise NotImplementedError()
 
 
@@ -71,10 +73,13 @@ class GradientBooster:
         max_leaves: int = sys.maxsize,
         l2: float = 1.0,
         gamma: float = 0.0,
-        min_leaf_weight: float = 0.0,
+        min_leaf_weight: float = 1.0,
         base_score: float = 0.5,
         nbins: int = 256,
         parallel: bool = True,
+        allow_missing_splits: bool = True,
+        impute_missing: bool = True,
+        monotone_constraints: Union[dict[Any, int], None] = None,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -97,14 +102,31 @@ class GradientBooster:
             gamma (float, optional): The minimum amount of loss required to further split a node.
                 Valid values are 0 to infinity. Defaults to 0.0.
             min_leaf_weight (float, optional): Minimum sum of the hessian values of the loss function
-                required to be in a node. Defaults to 0.0.
+                required to be in a node. Defaults to 1.0.
             base_score (float, optional): The initial prediction value of the model. Defaults to 0.5.
             nbins (int, optional): Number of bins to calculate to partition the data. Setting this to
                 a smaller number, will result in faster training time, while potentially sacrificing
                 accuracy. If there are more bins, than unique values in a column, all unique values
                 will be used. Defaults to 256.
             parallel (bool, optional): Should multiple cores be used when training and predicting
-                with this model? Defaults to True.
+                with this model? Defaults to `True`.
+            allow_missing_splits (bool, optional): Allow for splits to be made such that all missing values go
+                down one branch, and all non-missing values go down the other, if this results
+                in the greatest reduction of loss. If this is false, splits will only be made on non
+                missing values. Defaults to `True`.
+            impute_missing (bool, optional): Automatically impute missing values, such that at every split
+                the model learns the best direction to send missing values. If this is false, all
+                missing values will default to right branch. Defaults to `True`.
+            monotone_constraints (dict[Any, int], optional): Constraints that are used to enforce a
+                specific relationship between the training features and the target variable. A dictionary
+                should be provided where the keys are the feature index value if the model will be fit on
+                a numpy array, or a feature name if it will be fit on a pandas Dataframe. The values of
+                the dictionary should be an integer value of -1, 1, or 0 to specify the relationship
+                that should be estimated between the respective feature and the target variable.
+                Use a value of -1 to enforce a negative relationship, 1 a positive relationship,
+                and 0 will enforce no specific relationship at all. Features not included in the
+                mapping will not have any constraint applied. If `None` is passed no constraints
+                will be enforced on any variable.  Defaults to `None`.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -121,6 +143,12 @@ class GradientBooster:
             base_score=base_score,
             nbins=nbins,
             parallel=parallel,
+            allow_missing_splits=allow_missing_splits,
+            impute_missing=impute_missing,
+            monotone_constraints={},
+        )
+        monotone_constraints_ = (
+            {} if monotone_constraints is None else monotone_constraints
         )
         self.booster = cast(BoosterType, booster)
         self.objective_type = objective_type
@@ -134,12 +162,15 @@ class GradientBooster:
         self.base_score = base_score
         self.nbins = nbins
         self.parallel = parallel
+        self.allow_missing_splits = (allow_missing_splits,)
+        self.impute_missing = (impute_missing,)
+        self.monotone_constraints = monotone_constraints_
 
     def fit(
         self,
         X: FrameLike,
         y: ArrayLike,
-        sample_weight: Optional[ArrayLike] = None,
+        sample_weight: Union[ArrayLike, None] = None,
     ):
         """Fit the gradient booster on a provided dataset.
 
@@ -149,7 +180,7 @@ class GradientBooster:
                 was the objective type specified, then this should only contain 1 or 0 values,
                 where 1 is the positive class being predicted. If "SquaredLoss" is the
                 objective type, then any continuous variable can be provided.
-            sample_weight (Optional[ArrayLike], optional): Instance weights to use when
+            sample_weight (Union[ArrayLike, None], optional): Instance weights to use when
                 training the model. If None is passed, a weight of 1 will be used for every record.
                 Defaults to None.
         """
@@ -171,6 +202,11 @@ class GradientBooster:
         if not np.issubdtype(sample_weight_.dtype, "float64"):
             sample_weight_ = sample_weight_.astype("float64", copy=False)
 
+        # Convert the monotone constraints into the form needed
+        # by the rust code.
+        monotone_constraints_ = self._standardize_monotonicity_map(X)
+        self.booster.monotone_constraints = monotone_constraints_
+
         flat_data = X_.ravel(order="F")
         rows, cols = X_.shape
         self.booster.fit(
@@ -181,12 +217,12 @@ class GradientBooster:
             sample_weight=sample_weight_,
         )
 
-    def predict(self, X: FrameLike, parallel: Optional[bool] = None) -> np.ndarray:
+    def predict(self, X: FrameLike, parallel: Union[bool, None] = None) -> np.ndarray:
         """Predict with the fitted booster on new data.
 
         Args:
             X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
-            parallel (Optional[bool], optional): Optionally specify if the predict
+            parallel (Union[bool, None], optional): Optionally specify if the predict
                 function should run in parallel on multiple threads. If `None` is
                 passed, the `parallel` attribute of the booster will be used.
                 Defaults to `None`.
@@ -256,11 +292,11 @@ class GradientBooster:
             )
         return np.array(res)
 
-    def text_dump(self) -> List[str]:
+    def text_dump(self) -> list[str]:
         """Return all of the trees of the model in text form.
 
         Returns:
-            List[str]: A list of strings, where each string is a text representation
+            list[str]: A list of strings, where each string is a text representation
                 of the tree.
         """
         return self.booster.text_dump()
@@ -297,3 +333,13 @@ class GradientBooster:
             path (str): Path to save the booster object.
         """
         self.booster.save_booster(str(path))
+
+    def _standardize_monotonicity_map(
+        self,
+        X: Union[pd.DataFrame, np.ndarray],
+    ) -> dict[int, Any]:
+        if isinstance(X, np.ndarray):
+            return self.monotone_constraints
+        else:
+            feature_map = {f: i for i, f in enumerate(X.columns)}
+            return {feature_map[f]: v for f, v in self.monotone_constraints.items()}

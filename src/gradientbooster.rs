@@ -1,8 +1,9 @@
 use crate::binning::bin_matrix;
+use crate::constraints::ConstraintMap;
 use crate::data::Matrix;
 use crate::errors::ForustError;
-use crate::histsplitter::HistogramSplitter;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
+use crate::splitter::Splitter;
 use crate::tree::Tree;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -31,6 +32,13 @@ use std::fs;
 ///   a smaller number, will result in faster training time, while potentially sacrificing
 ///   accuracy. If there are more bins, than unique values in a column, all unique values
 ///   will be used.
+/// * `allow_missing_splits` - Allow for splits to be made such that all missing values go
+///   down one branch, and all non-missing values go down the other, if this results
+///   in the greatest reduction of loss. If this is false, splits will only be made on non
+///   missing values.
+/// * `impute_missing` - Automatically impute missing values, such that at every split
+///   the model learns the best direction to send missing values. If this is false, all
+///   missing values will default to right branch.
 #[derive(Deserialize, Serialize)]
 pub struct GradientBooster {
     pub objective_type: ObjectiveType,
@@ -44,6 +52,9 @@ pub struct GradientBooster {
     pub base_score: f64,
     pub nbins: u16,
     pub parallel: bool,
+    pub allow_missing_splits: bool,
+    pub impute_missing: bool,
+    pub monotone_constraints: Option<ConstraintMap>,
     pub trees: Vec<Tree>,
 }
 
@@ -61,6 +72,9 @@ impl Default for GradientBooster {
             0.5,
             256,
             true,
+            true,
+            true,
+            None,
         )
     }
 }
@@ -90,6 +104,8 @@ impl GradientBooster {
     ///   a smaller number, will result in faster training time, while potentially sacrificing
     ///   accuracy. If there are more bins, than unique values in a column, all unique values
     ///   will be used.
+    /// * `monotone_constraints` - Constraints that are used to enforce a specific relationship
+    ///   between the training features and the target variable.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         objective_type: ObjectiveType,
@@ -103,6 +119,9 @@ impl GradientBooster {
         base_score: f64,
         nbins: u16,
         parallel: bool,
+        allow_missing_splits: bool,
+        impute_missing: bool,
+        monotone_constraints: Option<ConstraintMap>,
     ) -> Self {
         GradientBooster {
             objective_type,
@@ -116,6 +135,9 @@ impl GradientBooster {
             base_score,
             nbins,
             parallel,
+            allow_missing_splits,
+            impute_missing,
+            monotone_constraints,
             trees: Vec::new(),
         }
     }
@@ -132,11 +154,19 @@ impl GradientBooster {
         y: &[f64],
         sample_weight: &[f64],
     ) -> Result<(), ForustError> {
-        let splitter = HistogramSplitter {
+        let constraints_map = self
+            .monotone_constraints
+            .as_ref()
+            .unwrap_or(&ConstraintMap::new())
+            .to_owned();
+        let splitter = Splitter {
             l2: self.l2,
             gamma: self.gamma,
             min_leaf_weight: self.min_leaf_weight,
             learning_rate: self.learning_rate,
+            allow_missing_splits: self.allow_missing_splits,
+            impute_missing: self.impute_missing,
+            constraints_map,
         };
         let mut yhat = vec![self.base_score; y.len()];
         let (calc_grad, calc_hess) = gradient_hessian_callables(&self.objective_type);

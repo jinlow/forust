@@ -4,9 +4,10 @@ mod histogram;
 mod node;
 mod partial_dependence;
 
+pub mod constraints;
 pub mod data;
 pub mod gradientbooster;
-pub mod histsplitter;
 pub mod objective;
+pub mod splitter;
 pub mod tree;
 pub mod utils;
