@@ -26,7 +26,7 @@ pip install forust
 
 To use in a rust project add the following to your Cargo.toml file.
 ```toml
-forust-ml = "0.1.6"
+forust-ml = "0.1.7"
 ```
 
 ## Usage
@@ -52,7 +52,7 @@ It can be initialized with the following arguments.
  - `gamma` ***(float, optional)***: The minimum amount of loss required to further split a node.
     Valid values are 0 to infinity. Defaults to 0.0.
  - `min_leaf_weight` ***(float, optional)***: Minimum sum of the hessian values of the loss function
-    required to be in a node. Defaults to 0.0.
+    required to be in a node. Defaults to 1.0.
  - `base_score` ***(float, optional)***: The initial prediction value of the model. Defaults to 0.5.
  - `nbins` ***(int, optional)***: Number of bins to calculate to partition the data. Setting this to
     a smaller number, will result in faster training time, while potentially sacrificing
