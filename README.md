@@ -156,7 +156,7 @@ model = GradientBooster(
 )
 model.fit(X, y)
 
-pd_values = model.partial_dependence(X=X, 1)
+pd_values = model.partial_dependence(X=X, feature="age")
 fig = lineplot(
     x=pd_values[:, 0],
     y=pd_values[:, 1],
