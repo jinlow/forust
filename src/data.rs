@@ -143,6 +143,7 @@ where
     <T as FromStr>::Err: 'static + std::error::Error,
 {
     // This trait requires `fmt` with this exact signature.
+    /// Format a Matrix.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut val = String::new();
         for i in 0..self.rows {
@@ -160,7 +161,6 @@ where
 }
 
 /// A jagged column aligned matrix, that owns it's data contents.
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JaggedMatrix<T> {
     /// The contents of the matrix.
@@ -203,6 +203,7 @@ where
 }
 
 impl<T> JaggedMatrix<T> {
+    /// Create a new jagged matrix.
     pub fn new() -> Self {
         JaggedMatrix {
             data: Vec::new(),
