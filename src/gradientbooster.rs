@@ -198,6 +198,15 @@ impl GradientBooster {
         Ok(())
     }
 
+    /// Fit the gradient booster on a provided dataset without any weights.
+    ///
+    /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
+    /// * `y` - Either a pandas Series, or a 1 dimensional numpy array.
+    pub fn fit_unweighted(&mut self, data: &Matrix<f64>, y: &[f64]) -> Result<(), ForustError> {
+        let w = vec![1.0; data.rows];
+        self.fit(data, y, &w)
+    }
+
     /// Generate predictions on data using the gradient booster.
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
@@ -264,6 +273,106 @@ impl GradientBooster {
             Err(e) => Err(ForustError::UnableToRead(e.to_string())),
         }?;
         Self::from_json(&json_str)
+    }
+
+    // Set methods for paramters
+    /// Set the objective_type on the booster.
+    /// * `objective_type` - The objective type of the booster.
+    pub fn set_objective_type(mut self, objective_type: ObjectiveType) -> Self {
+        self.objective_type = objective_type;
+        self
+    }
+
+    /// Set the iterations on the booster.
+    /// * `iterations` - The number of iterations of the booster.
+    pub fn set_iterations(mut self, iterations: usize) -> Self {
+        self.iterations = iterations;
+        self
+    }
+
+    /// Set the learning_rate on the booster.
+    /// * `learning_rate` - The learning rate of the booster.
+    pub fn set_learning_rate(mut self, learning_rate: f32) -> Self {
+        self.learning_rate = learning_rate;
+        self
+    }
+
+    /// Set the max_depth on the booster.
+    /// * `max_depth` - The maximum tree depth of the booster.
+    pub fn set_max_depth(mut self, max_depth: usize) -> Self {
+        self.max_depth = max_depth;
+        self
+    }
+
+    /// Set the max_leaves on the booster.
+    /// * `max_leaves` - The maximum number of leaves of the booster.
+    pub fn set_max_leaves(mut self, max_leaves: usize) -> Self {
+        self.max_leaves = max_leaves;
+        self
+    }
+
+    /// Set the l2 on the booster.
+    /// * `l2` - The l2 regulation term of the booster.
+    pub fn set_l2(mut self, l2: f32) -> Self {
+        self.l2 = l2;
+        self
+    }
+
+    /// Set the gamma on the booster.
+    /// * `gamma` - The gamma value of the booster.
+    pub fn set_gamma(mut self, gamma: f32) -> Self {
+        self.gamma = gamma;
+        self
+    }
+
+    /// Set the min_leaf_weight on the booster.
+    /// * `min_leaf_weight` - The minimum sum of the hession values allowed in the
+    ///     node of a tree of the booster.
+    pub fn set_min_leaf_weight(mut self, min_leaf_weight: f32) -> Self {
+        self.min_leaf_weight = min_leaf_weight;
+        self
+    }
+
+    /// Set the base_score on the booster.
+    /// * `base_score` - The base score of the booster.
+    pub fn set_base_score(mut self, base_score: f64) -> Self {
+        self.base_score = base_score;
+        self
+    }
+
+    /// Set the nbins on the booster.
+    /// * `nbins` - The nummber of bins used for partitioning the data of the booster.
+    pub fn set_nbins(mut self, nbins: u16) -> Self {
+        self.nbins = nbins;
+        self
+    }
+
+    /// Set the parallel on the booster.
+    /// * `parallel` - Set if the booster should be trained in parallels.
+    pub fn set_parallel(mut self, parallel: bool) -> Self {
+        self.parallel = parallel;
+        self
+    }
+
+    /// Set the allow_missing_splits on the booster.
+    /// * `allow_missing_splits` - Set if missing splits are allowed for the booster.
+    pub fn set_allow_missing_splits(mut self, allow_missing_splits: bool) -> Self {
+        self.allow_missing_splits = allow_missing_splits;
+        self
+    }
+
+    /// Set the impute_missing on the booster.
+    /// * `impute_missing` - Set if missing values should be imputed when training the booster.
+    pub fn set_impute_missing(mut self, impute_missing: bool) -> Self {
+        self.impute_missing = impute_missing;
+        self
+    }
+
+    /// Set the monotone_constraints on the booster.
+    /// * `monotone_constraints` - The monotone constraints of the booster.
+    pub fn set_monotone_constraints(mut self, monotone_constraints: Option<ConstraintMap>) -> Self {
+        self.monotone_constraints = monotone_constraints;
+        self
     }
 }
 
