@@ -1,32 +1,22 @@
-Cargo.toml
+## A Complete Rust Example
+
+To run this example, add the following code to your `Cargo.toml` file.
 ```toml
-[package]
-name = "forust-rust-example"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-forust-ml = {version="0.1.6", path="../forust/"}
-polars = {version = "0.24.1", features = ["ndarray"]}
-reqwest = { version = "0.11.11", features = ["blocking"] }
-color-eyre = "0.6.2"
-ndarray = "0.15.6"
+forust-ml = "0.1.6"
+polars = "0.24"
+reqwest = { version = "0.11", features = ["blocking"] }
 ```
 
-
-Rust Code
+The following is a runable example using `polars` for data processing. The actual data manipulation can be performed with any tool, the only vital part, is the data be in column major format.
 ```rust
-use color_eyre::Result;
-use forust_ml::data::Matrix;
-use forust_ml::gradientbooster::GradientBooster;
-use ndarray::Axis;
+use forust_ml::{GradientBooster, Matrix};
 use polars::prelude::*;
 use reqwest::blocking::Client;
+use std::error::Error;
 use std::io::Cursor;
 
-fn main() -> Result<()> {
+fn main() -> Result<(), Box<dyn Error>> {
     let data: Vec<u8> = Client::new()
         .get("https://raw.githubusercontent.com/mwaskom/seaborn-data/master/titanic.csv")
         .send()?
@@ -39,28 +29,38 @@ fn main() -> Result<()> {
         .finish()?
         .select(["survived", "pclass", "age", "sibsp", "parch", "fare"])?;
 
-    let mat = df.to_ndarray::<Float64Type>()?;
+    // Get data in column major format...
+    let id_vars: Vec<&str> = Vec::new();
+    let mdf = df.melt(id_vars, ["pclass", "age", "sibsp", "parch", "fare"])?;
 
-    let y = mat.select(Axis(1), &[0]).into_raw_vec();
+    let data: Vec<f64> = mdf
+        .select_at_idx(1)
+        .expect("Invalid column")
+        .f64()?
+        .into_iter()
+        .map(|v| v.unwrap_or(f64::NAN))
+        .collect();
+    let y: Vec<f64> = df
+        .column("survived")?
+        .cast(&DataType::Float64)?
+        .f64()?
+        .into_iter()
+        .map(|v| v.unwrap_or(f64::NAN))
+        .collect();
 
-    // Unravel data, into single vector of data, in columner format.
-    let data = mat.select(Axis(1), &[1, 2, 3, 4, 5]).reversed_axes();
-    let shape = data.shape();
-    let data = data
-        .to_shape((shape[0] * shape[1], 1))?
-        .select(Axis(1), &[0])
-        .into_raw_vec();
+    // Create Matrix from ndarray.
+    let matrix = Matrix::new(&data, y.len(), 5);
 
     // Create booster
     // To provide parameters generate a default booster, and then use
     // the relevant "set_" methods for any parameters you would like to
     // adjust.
-    let mut gb = GradientBooster::default().set_learning_rate(0.3);
-    let gb_matrix = Matrix::new(&data, shape[1], shape[0]);
-    gb.fit_unweighted(&gb_matrix, &y)?;
+    let mut model = GradientBooster::default().set_learning_rate(0.3);
+    model.fit_unweighted(&matrix, &y)?;
 
     // Predict output.
-    println!("{:?}", gb.predict(&gb_matrix, true));
+    println!("{:?} ...", &model.predict(&matrix, true)[0..10]);
     Ok(())
 }
 ```
+We first read in the data, and then, generate a contiguous matrix, that is used for training the booster. At this point, we can then instantiate out gradient booster, using the default parameters. These can be adjusted using the relevant `set_` methods, for any parameters of interest ([see here](src/gradientbooster.rs#L278) for all such methods).
