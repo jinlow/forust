@@ -63,4 +63,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 ```
+```
+[-1.275806741323322, 0.9178487278986722, -1.4758225567638874, 1.0830510996747762, -1.7252372093498707, -1.4195771454833448, -0.27499967138282955, -0.9451315118931234, -0.08839774504303932, 1.374593096319586] ...
+```
+
 We first read in the data, and then, generate a contiguous matrix, that is used for training the booster. At this point, we can then instantiate out gradient booster, using the default parameters. These can be adjusted using the relevant `set_` methods, for any parameters of interest ([see here](src/gradientbooster.rs#L278) for all such methods).
