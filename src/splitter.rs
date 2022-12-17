@@ -9,17 +9,25 @@ pub struct SplitInfo {
     pub split_feature: usize,
     pub split_value: f64,
     pub split_bin: u16,
-    pub missing_right: bool,
-    pub left_grad: f32,
-    pub left_gain: f32,
-    pub left_cover: f32,
-    pub left_weight: f32,
-    pub left_bounds: (f32, f32),
-    pub right_grad: f32,
-    pub right_gain: f32,
-    pub right_cover: f32,
-    pub right_weight: f32,
-    pub right_bounds: (f32, f32),
+    pub left_node: NodeInfo,
+    pub right_node: NodeInfo,
+    pub missing_node: MissingInfo,
+}
+
+#[derive(Debug)]
+pub struct NodeInfo {
+    pub grad: f32,
+    pub gain: f32,
+    pub cover: f32,
+    pub weight: f32,
+    pub bounds: (f32, f32),
+}
+
+#[derive(Debug)]
+pub enum MissingInfo {
+    Left,
+    Right,
+    Branch(NodeInfo),
 }
 
 pub struct Splitter {
@@ -261,23 +269,32 @@ impl Splitter {
             // this split.
             let split_gain = if split_gain.is_nan() { 0.0 } else { split_gain };
             if max_gain.is_none() || split_gain > max_gain.unwrap() {
+                let missing_node = if missing_right {
+                    MissingInfo::Right
+                } else {
+                    MissingInfo::Left
+                };
                 max_gain = Some(split_gain);
                 split_info = Some(SplitInfo {
                     split_gain,
                     split_feature: feature,
                     split_value: bin.cut_value,
                     split_bin: i as u16,
-                    missing_right,
-                    left_grad,
-                    left_gain,
-                    left_cover: left_hess,
-                    left_weight: left_weight * self.learning_rate,
-                    left_bounds,
-                    right_grad,
-                    right_gain,
-                    right_cover: right_hess,
-                    right_weight: right_weight * self.learning_rate,
-                    right_bounds,
+                    left_node: NodeInfo {
+                        grad: left_grad,
+                        gain: left_gain,
+                        cover: left_hess,
+                        weight: left_weight * self.learning_rate,
+                        bounds: left_bounds,
+                    },
+                    right_node: NodeInfo {
+                        grad: right_grad,
+                        gain: right_gain,
+                        cover: right_hess,
+                        weight: right_weight * self.learning_rate,
+                        bounds: right_bounds,
+                    },
+                    missing_node,
                 });
             }
             // Update for new value
@@ -387,7 +404,6 @@ mod tests {
             grad.iter().sum::<f32>(),
             hess.iter().sum::<f32>(),
             0,
-            true,
             0,
             grad.len(),
             f32::NEG_INFINITY,
@@ -396,10 +412,10 @@ mod tests {
         let s = splitter.best_feature_split(&mut n, 0).unwrap();
         println!("{:?}", s);
         assert_eq!(s.split_value, 4.0);
-        assert_eq!(s.left_cover, 0.75);
-        assert_eq!(s.right_cover, 1.0);
-        assert_eq!(s.left_gain, 3.0);
-        assert_eq!(s.right_gain, 1.0);
+        assert_eq!(s.left_node.cover, 0.75);
+        assert_eq!(s.right_node.cover, 1.0);
+        assert_eq!(s.left_node.gain, 3.0);
+        assert_eq!(s.right_node.gain, 1.0);
         assert_eq!(s.split_gain, 3.86);
     }
 
@@ -436,7 +452,6 @@ mod tests {
             grad.iter().sum::<f32>(),
             hess.iter().sum::<f32>(),
             0,
-            true,
             0,
             grad.len(),
             f32::NEG_INFINITY,
@@ -446,10 +461,10 @@ mod tests {
         println!("{:?}", s);
         assert_eq!(s.split_feature, 1);
         assert_eq!(s.split_value, 4.);
-        assert_eq!(s.left_cover, 0.75);
-        assert_eq!(s.right_cover, 1.);
-        assert_eq!(s.left_gain, 3.);
-        assert_eq!(s.right_gain, 1.);
+        assert_eq!(s.left_node.cover, 0.75);
+        assert_eq!(s.right_node.cover, 1.);
+        assert_eq!(s.left_node.gain, 3.);
+        assert_eq!(s.right_node.gain, 1.);
         assert_eq!(s.split_gain, 3.86);
     }
 
@@ -497,7 +512,6 @@ mod tests {
             grad.iter().copied().sum::<f32>(),
             hess.iter().copied().sum::<f32>(),
             0,
-            true,
             0,
             grad.len(),
             f32::NEG_INFINITY,

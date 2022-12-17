@@ -30,11 +30,7 @@ pub fn tree_partial_dependence(
         TreeNode::Parent(n) => {
             if n.split_feature == feature {
                 let child = if value.is_nan() {
-                    if n.missing_right {
-                        n.right_child
-                    } else {
-                        n.left_child
-                    }
+                    n.missing_node
                 } else if value < n.split_value {
                     n.left_child
                 } else {

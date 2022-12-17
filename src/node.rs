@@ -1,6 +1,6 @@
 use crate::data::FloatData;
 use crate::histogram::HistogramMatrix;
-use crate::splitter::SplitInfo;
+use crate::splitter::{MissingInfo, NodeInfo, SplitInfo};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 
@@ -16,7 +16,7 @@ pub struct SplittableNode {
     pub split_value: f64,
     pub split_feature: usize,
     pub split_gain: f32,
-    pub missing_right: bool,
+    pub missing_node: usize,
     pub left_child: usize,
     pub right_child: usize,
     pub start_idx: usize,
@@ -34,7 +34,7 @@ pub struct ParentNode {
     pub split_value: f64,
     pub split_feature: usize,
     pub split_gain: f32,
-    pub missing_right: bool,
+    pub missing_node: usize,
     pub left_child: usize,
     pub right_child: usize,
 }
@@ -55,6 +55,35 @@ pub enum TreeNode {
 }
 
 impl SplittableNode {
+    pub fn from_node_info(
+        num: usize,
+        histograms: HistogramMatrix,
+        depth: usize,
+        start_idx: usize,
+        stop_idx: usize,
+        node_info: NodeInfo,
+    ) -> Self {
+        SplittableNode {
+            num,
+            histograms,
+            weight_value: node_info.weight,
+            gain_value: node_info.gain,
+            grad_sum: node_info.grad,
+            hess_sum: node_info.cover,
+            depth,
+            split_value: f64::ZERO,
+            split_feature: 0,
+            split_gain: f32::ZERO,
+            missing_node: 0,
+            left_child: 0,
+            right_child: 0,
+            start_idx,
+            stop_idx,
+            lower_bound: node_info.bounds.0,
+            upper_bound: node_info.bounds.1,
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         num: usize,
@@ -64,7 +93,6 @@ impl SplittableNode {
         grad_sum: f32,
         hess_sum: f32,
         depth: usize,
-        missing_right: bool,
         start_idx: usize,
         stop_idx: usize,
         lower_bound: f32,
@@ -81,7 +109,7 @@ impl SplittableNode {
             split_value: f64::ZERO,
             split_feature: 0,
             split_gain: f32::ZERO,
-            missing_right,
+            missing_node: 0,
             left_child: 0,
             right_child: 0,
             start_idx,
@@ -100,9 +128,13 @@ impl SplittableNode {
         self.left_child = left_child;
         self.right_child = right_child;
         self.split_feature = split_info.split_feature;
-        self.split_gain = split_info.left_gain + split_info.right_gain - self.gain_value;
+        self.split_gain = split_info.left_node.gain + split_info.right_node.gain - self.gain_value;
         self.split_value = split_info.split_value;
-        self.missing_right = split_info.missing_right;
+        self.missing_node = match split_info.missing_node {
+            MissingInfo::Left => left_child,
+            MissingInfo::Right => right_child,
+            MissingInfo::Branch(_) => todo!(),
+        };
     }
     pub fn as_leaf_node(&self) -> TreeNode {
         TreeNode::Leaf(LeafNode {
@@ -118,7 +150,7 @@ impl SplittableNode {
             weight_value: self.weight_value,
             hess_sum: self.hess_sum,
             depth: self.depth,
-            missing_right: self.missing_right,
+            missing_node: self.missing_node,
             split_value: self.split_value,
             split_feature: self.split_feature,
             split_gain: self.split_gain,
@@ -138,11 +170,6 @@ impl fmt::Display for TreeNode {
                 leaf.num, leaf.weight_value, leaf.hess_sum
             ),
             TreeNode::Parent(parent) => {
-                let missing = if parent.missing_right {
-                    parent.right_child
-                } else {
-                    parent.left_child
-                };
                 write!(
                     f,
                     "{}:[{} < {}] yes={},no={},missing={},gain={},cover={}",
@@ -151,24 +178,19 @@ impl fmt::Display for TreeNode {
                     parent.split_value,
                     parent.left_child,
                     parent.right_child,
-                    missing,
+                    parent.missing_node,
                     parent.split_gain,
                     parent.hess_sum
                 )
             }
             TreeNode::Splittable(node) => {
-                let missing = if node.missing_right {
-                    node.right_child
-                } else {
-                    node.left_child
-                };
                 write!(
                     f,
                     "SPLITTABLE - {}:[{} < {}] yes={},no={},missing={},gain={},cover={}",
                     node.num,
                     node.split_feature,
                     node.split_value,
-                    missing,
+                    node.missing_node,
                     node.left_child,
                     node.right_child,
                     node.split_gain,

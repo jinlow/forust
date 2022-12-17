@@ -2,7 +2,7 @@ use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
 use crate::node::{SplittableNode, TreeNode};
 use crate::partial_dependence::tree_partial_dependence;
-use crate::splitter::Splitter;
+use crate::splitter::{MissingInfo, Splitter};
 use crate::utils::{fast_f64_sum, pivot_on_split};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -56,7 +56,6 @@ impl Tree {
             grad_sum,
             hess_sum,
             0,
-            false,
             0,
             data.rows,
             f32::NEG_INFINITY,
@@ -129,13 +128,20 @@ impl Tree {
                         // We need to move all of the index's above and bellow our
                         // split value.
                         // pivot the sub array that this node has on our split value
+                        // Here we assign missing to a specific direction.
+                        // This will need to be refactored once we add a
+                        // separate missing branch.
+                        let missing_right = match info.missing_node {
+                            MissingInfo::Left => false,
+                            MissingInfo::Right => true,
+                            MissingInfo::Branch(_) => todo!(),
+                        };
                         let mut split_idx = pivot_on_split(
                             &mut index[node.start_idx..node.stop_idx],
                             data.get_col(info.split_feature),
                             info.split_bin,
-                            info.missing_right,
+                            missing_right,
                         );
-
                         // Calculate histograms
                         let total_recs = node.stop_idx - node.start_idx;
                         let n_right = total_recs - split_idx - 1;
@@ -184,30 +190,28 @@ impl Tree {
                         let left_node = SplittableNode::new(
                             left_idx,
                             left_histograms,
-                            info.left_weight,
-                            info.left_gain,
-                            info.left_grad,
-                            info.left_cover,
+                            info.left_node.weight,
+                            info.left_node.gain,
+                            info.left_node.grad,
+                            info.left_node.cover,
                             depth,
-                            false,
                             node.start_idx,
                             split_idx,
-                            info.left_bounds.0,
-                            info.left_bounds.1,
+                            info.left_node.bounds.0,
+                            info.left_node.bounds.1,
                         );
                         let right_node = SplittableNode::new(
                             right_idx,
                             right_histograms,
-                            info.right_weight,
-                            info.right_gain,
-                            info.right_grad,
-                            info.right_cover,
+                            info.right_node.weight,
+                            info.right_node.gain,
+                            info.right_node.grad,
+                            info.right_node.cover,
                             depth,
-                            false,
                             split_idx,
                             node.stop_idx,
-                            info.right_bounds.0,
-                            info.right_bounds.1,
+                            info.right_node.bounds.0,
+                            info.right_node.bounds.1,
                         );
                         growable.push_front(left_idx);
                         growable.push_front(right_idx);
@@ -233,11 +237,7 @@ impl Tree {
                 TreeNode::Parent(node) => {
                     let v = data.get(row, node.split_feature);
                     if v.is_nan() {
-                        if node.missing_right {
-                            node_idx = node.right_child;
-                        } else {
-                            node_idx = node.left_child;
-                        }
+                        node_idx = node.missing_node;
                     } else if v < &node.split_value {
                         node_idx = node.left_child;
                     } else if v >= &node.split_value {
