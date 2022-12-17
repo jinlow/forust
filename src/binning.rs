@@ -23,7 +23,7 @@ where
 }
 
 // We want to be able to bin our dataset into discrete buckets.
-// First we will calculate percentils and the number of unique values
+// First we will calculate percentiles and the number of unique values
 // for each feature.
 // Then we will bucket them into bins from 0 to N + 1 where N is the number
 // of unique bin values created from the percentiles, and the very last

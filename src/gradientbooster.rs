@@ -174,6 +174,9 @@ impl GradientBooster {
         let mut hess = calc_hess(y, &yhat, sample_weight);
 
         // Generate binned data
+        // TODO
+        // In scikit-learn, they sample 200_000 records for generating the bins.
+        // we could consier that, especially if this proved to be a large bottleneck...
         let binned_data = bin_matrix(data, sample_weight, self.nbins)?;
         let bdata = Matrix::new(&binned_data.binned_data, data.rows, data.cols);
 
