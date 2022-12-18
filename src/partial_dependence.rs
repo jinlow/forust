@@ -38,7 +38,6 @@ pub fn tree_partial_dependence(
                 };
                 tree_partial_dependence(tree, child, feature, value, proportion)
             } else {
-                // Left cover
                 let left_cover = get_node_cover(tree, n.left_child);
                 let right_cover = get_node_cover(tree, n.right_child);
                 let total_cover = left_cover + right_cover;

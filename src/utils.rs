@@ -184,6 +184,77 @@ pub fn pivot_on_split(
     low
 }
 
+/// Provided a list of index values, pivot those values
+/// around a specific split value so all of the values less
+/// than the split value are on one side, and then all of the
+/// values greater than or equal to the split value are above.
+/// Missing values, will be pushed to the bottom, a value of
+/// zero is missing in this case.
+///
+/// * `index` - The index values to sort.
+/// * `feature` - The feature vector to use to sort the index by.
+/// * `split_value` - the split value to use to pivot on.
+pub fn pivot_on_split_exclude_missing(
+    index: &mut [usize],
+    feature: &[u16],
+    split_value: u16,
+) -> (usize, usize) {
+    // I think we can do this in O(n) time...
+    let mut low = 0;
+    let mut high = index.len() - 1;
+    // The index of the first value, that is not
+    // missing.
+    let mut missing = 0;
+    let mad_idx = high;
+    while low < high {
+        // Go until we find a low value that needs to
+        // be swapped, this will be the first value
+        // that our split value is less or equal to.
+        while low < mad_idx {
+            let l = feature[index[low]];
+            if l == 0 {
+                index.swap(missing, low);
+                missing += 1;
+                // Low must be at least equal to
+                // missing.
+                // if missing > low {
+                //     low = missing;
+                // }
+            }
+            match &split_value.cmp(&l) {
+                Ordering::Less | Ordering::Equal => break,
+                Ordering::Greater => low += 1,
+            }
+        }
+        while high > 0 {
+            let h = feature[index[high]];
+            // If this is missing, we need to
+            // swap this value with missing, and
+            // then that value with low.
+            if h == 0 {
+                index.swap(missing, high);
+                missing += 1;
+                // Low must be at least equal to
+                // missing.
+                if missing > low {
+                    low = missing;
+                }
+            }
+            // Go until we find a high value that needs to be
+            // swapped, this will be the first value that our
+            // split_value is greater than.
+            match &split_value.cmp(&h) {
+                Ordering::Less | Ordering::Equal => high -= 1,
+                Ordering::Greater => break,
+            }
+        }
+        if low < high {
+            index.swap(high, low);
+        }
+    }
+    (low, missing)
+}
+
 /// Function to compare a value to our split value.
 /// Our split value will _never_ be missing (0), thus we
 /// don't have to worry about that.
@@ -266,6 +337,81 @@ mod tests {
         }
         for i in idx[split_i..].iter() {
             assert!((f[*i] >= 10) || (f[*i] != 0));
+        }
+    }
+
+    #[test]
+    fn test_pivot_missing() {
+        // TODO: Add more tests for this...
+        let mut idx = vec![2, 6, 9, 5, 8, 13, 11, 7];
+        let f = vec![15, 10, 10, 0, 3, 0, 0, 9, 3, 5, 2, 6, 13, 19, 14];
+        let split_i = pivot_on_split_exclude_missing(&mut idx, &f, 10);
+        //let split_i = pivot_on_split(&mut idx, &f, 10, false);
+        // let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
+        // println!("{:?}, {:?}, {:?}", split_i, idx, map_);
+
+        // Check they are lower than..
+        for i in 0..split_i.0 {
+            assert!(f[idx[i]] < 10);
+        }
+        // Check missing got moved
+        for i in 0..split_i.1 {
+            assert!(f[idx[i]] < 10);
+        }
+        // Check none are less than...
+        for i in split_i.0..(idx.len()) {
+            assert!(!(f[idx[i]] < 10));
+        }
+        // Check none other are missing...
+        for i in split_i.1..(idx.len()) {
+            assert!(f[idx[i]] != 0);
+        }
+
+        // Run it again, and ensure it works on an already sorted list...
+        let split_i = pivot_on_split_exclude_missing(&mut idx, &f, 10);
+        //let split_i = pivot_on_split(&mut idx, &f, 10, false);
+        let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
+        println!("{:?}, {:?}, {:?}", split_i, idx, map_);
+
+        // Check they are lower than..
+        for i in 0..split_i.0 {
+            assert!(f[idx[i]] < 10);
+        }
+        // Check missing got moved
+        for i in 0..split_i.1 {
+            assert!(f[idx[i]] < 10);
+        }
+        // Check none are less than...
+        for i in split_i.0..(idx.len()) {
+            assert!(!(f[idx[i]] < 10));
+        }
+        // Check none other are missing...
+        for i in split_i.1..(idx.len()) {
+            assert!(f[idx[i]] != 0);
+        }
+
+        // Run it again, and ensure it works on reversed list...
+        idx.reverse();
+        let split_i = pivot_on_split_exclude_missing(&mut idx, &f, 10);
+        //let split_i = pivot_on_split(&mut idx, &f, 10, false);
+        let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
+        println!("{:?}, {:?}, {:?}", split_i, idx, map_);
+
+        // Check they are lower than..
+        for i in 0..split_i.0 {
+            assert!(f[idx[i]] < 10);
+        }
+        // Check missing got moved
+        for i in 0..split_i.1 {
+            assert!(f[idx[i]] < 10);
+        }
+        // Check none are less than...
+        for i in split_i.0..(idx.len()) {
+            assert!(!(f[idx[i]] < 10));
+        }
+        // Check none other are missing...
+        for i in split_i.1..(idx.len()) {
+            assert!(f[idx[i]] != 0);
         }
     }
 
