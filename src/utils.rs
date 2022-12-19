@@ -1,7 +1,77 @@
+use crate::constraints::Constraint;
 use crate::data::FloatData;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::convert::TryInto;
+
+/// Calculate the constraint weight given bounds
+/// and a constraint.
+pub fn constrained_weight(
+    l2: &f32,
+    gradient_sum: f32,
+    hessian_sum: f32,
+    lower_bound: f32,
+    upper_bound: f32,
+    constraint: Option<&Constraint>,
+) -> f32 {
+    let weight = weight(l2, gradient_sum, hessian_sum);
+    match constraint {
+        None | Some(Constraint::Unconstrained) => weight,
+        _ => {
+            if weight > upper_bound {
+                upper_bound
+            } else if weight < lower_bound {
+                lower_bound
+            } else {
+                weight
+            }
+        }
+    }
+}
+
+/// Calculate the gain given the gradient and hessian of the node.
+pub fn gain(l2: &f32, gradient_sum: f32, hessian_sum: f32) -> f32 {
+    (gradient_sum * gradient_sum) / (hessian_sum + l2)
+}
+
+/// Calculate the gain of a split given a specific weight value.
+/// This is for if the weight has to be constrained, for example for
+/// monotonicity constraints.
+pub fn gain_given_weight(l2: &f32, gradient_sum: f32, hessian_sum: f32, weight: f32) -> f32 {
+    -(2.0 * gradient_sum * weight + (hessian_sum + l2) * (weight * weight))
+}
+
+/// Cull gain, if it does not conform to constraints.
+pub fn cull_gain(
+    gain: f32,
+    left_weight: f32,
+    right_weight: f32,
+    constraint: Option<&Constraint>,
+) -> f32 {
+    match constraint {
+        None | Some(Constraint::Unconstrained) => gain,
+        Some(Constraint::Negative) => {
+            if left_weight < right_weight {
+                f32::NEG_INFINITY
+            } else {
+                gain
+            }
+        }
+        Some(Constraint::Positive) => {
+            if left_weight > right_weight {
+                f32::NEG_INFINITY
+            } else {
+                gain
+            }
+        }
+    }
+}
+
+/// Calculate the weight of a given node, given the sum
+/// of the gradients, and the hessians in a node.
+pub fn weight(l2: &f32, gradient_sum: f32, hessian_sum: f32) -> f32 {
+    -(gradient_sum / (hessian_sum + l2))
+}
 
 const LANES: usize = 16;
 

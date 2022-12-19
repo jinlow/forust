@@ -1,6 +1,7 @@
 use crate::data::FloatData;
 use crate::histogram::HistogramMatrix;
-use crate::splitter::{MissingInfo, NodeInfo, SplitInfo};
+use crate::missinghandler::MissingInfo;
+use crate::splitter::{NodeInfo, SplitInfo};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 

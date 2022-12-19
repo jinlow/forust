@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, SamplingMode};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use forust_ml::binning::bin_matrix;
 use forust_ml::constraints::ConstraintMap;
 use forust_ml::data::Matrix;

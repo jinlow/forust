@@ -1,9 +1,11 @@
 use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
+use crate::missinghandler::MissingInfo;
 use crate::node::{SplittableNode, TreeNode};
 use crate::partial_dependence::tree_partial_dependence;
-use crate::splitter::{MissingInfo, Splitter};
+use crate::splitter::Splitter;
 use crate::utils::{fast_f64_sum, pivot_on_split};
+use crate::utils::{gain, weight};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -44,8 +46,8 @@ impl Tree {
         let mut n_nodes = 1;
         let grad_sum = fast_f64_sum(grad);
         let hess_sum = fast_f64_sum(hess);
-        let root_gain = splitter.gain(grad_sum, hess_sum);
-        let root_weight = splitter.weight(grad_sum, hess_sum);
+        let root_gain = gain(&splitter.l2, grad_sum, hess_sum);
+        let root_weight = weight(&splitter.l2, grad_sum, hess_sum);
         // Calculate the histograms for the root node.
         let root_hists = HistogramMatrix::new(data, cuts, grad, hess, &index, parallel, true);
         let root_node = SplittableNode::new(
