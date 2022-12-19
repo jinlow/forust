@@ -8,6 +8,7 @@ const LANES: usize = 16;
 /// Fast summation, ends up being roughly 8 to 10 times faster
 /// than values.iter().copied().sum().
 /// Shamelessly stolen from https://stackoverflow.com/a/67191480
+#[inline]
 pub fn fast_sum<T: FloatData<T>>(values: &[T]) -> T {
     let chunks = values.chunks_exact(LANES);
     let remainder = chunks.remainder();
@@ -33,6 +34,7 @@ pub fn fast_sum<T: FloatData<T>>(values: &[T]) -> T {
 /// we don't have issues with the precision.
 /// This way, we can still work with f32 values, but get the correct sum
 /// value.
+#[inline]
 pub fn fast_f64_sum(values: &[f32]) -> f32 {
     let chunks = values.chunks_exact(LANES);
     let remainder = chunks.remainder();
@@ -119,6 +121,7 @@ where
 /// * `x` - The sorted slice of values.
 /// * `v` - The value used to calculate the first
 ///   value larger than it.
+#[inline]
 pub fn map_bin<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> Option<u16> {
     let mut low = 0;
     let mut high = x.len();
@@ -146,6 +149,7 @@ pub fn map_bin<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> Option<u16> {
 /// * `split_value` - the split value to use to pivot on.
 /// * `missing_right` - Should missing values go to the left, or
 ///    to the right of the split value.
+#[inline]
 pub fn pivot_on_split(
     index: &mut [usize],
     feature: &[u16],
@@ -197,6 +201,7 @@ pub fn pivot_on_split(
 /// * `index` - The index values to sort.
 /// * `feature` - The feature vector to use to sort the index by.
 /// * `split_value` - the split value to use to pivot on.
+#[inline]
 pub fn pivot_on_split_exclude_missing(
     index: &mut [usize],
     feature: &[u16],
@@ -258,6 +263,7 @@ pub fn pivot_on_split_exclude_missing(
 /// Function to compare a value to our split value.
 /// Our split value will _never_ be missing (0), thus we
 /// don't have to worry about that.
+#[inline]
 pub fn missing_compare(split_value: &u16, cmp_value: u16, missing_right: bool) -> Ordering {
     if cmp_value == 0 {
         if missing_right {
