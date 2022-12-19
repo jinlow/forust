@@ -324,64 +324,216 @@ mod tests {
 
     #[test]
     fn test_pivot() {
+        fn pivot_assert(
+            f: &[u16],
+            idx: &[usize],
+            split_i: usize,
+            missing_right: bool,
+            split_val: u16,
+        ) {
+            if missing_right {
+                for i in 0..split_i {
+                    assert!((f[idx[i]] < split_val) && f[idx[i]] != 0);
+                }
+                for i in idx[split_i..].iter() {
+                    assert!((f[*i] >= split_val) || (f[*i] == 0));
+                }
+            } else {
+                for i in 0..split_i {
+                    assert!((f[idx[i]] < split_val) || (f[idx[i]] == 0));
+                }
+                for i in idx[split_i..].iter() {
+                    assert!((f[*i] >= split_val) || (f[*i] != 0));
+                }
+            }
+        }
+
         let mut idx = vec![2, 6, 9, 5, 8, 13, 11, 7];
         let f = vec![15, 10, 10, 11, 3, 18, 0, 9, 3, 5, 2, 6, 13, 19, 14];
         let split_i = pivot_on_split(&mut idx, &f, 10, true);
-        for i in 0..split_i {
-            assert!((f[idx[i]] < 10) && f[idx[i]] != 0);
-        }
-        for i in idx[split_i..].iter() {
-            assert!((f[*i] >= 10) || (f[*i] == 0));
-        }
+        pivot_assert(&f, &idx, split_i, true, 10);
+
         let mut idx = vec![2, 6, 9, 5, 8, 13, 11, 7];
         let f = vec![15, 10, 10, 11, 3, 18, 0, 9, 3, 5, 2, 6, 13, 19, 14];
         let split_i = pivot_on_split(&mut idx, &f, 10, false);
-        for i in 0..split_i {
-            assert!((f[idx[i]] < 10) || (f[idx[i]] == 0));
-        }
-        for i in idx[split_i..].iter() {
-            assert!((f[*i] >= 10) || (f[*i] != 0));
-        }
+        pivot_assert(&f, &idx, split_i, false, 10);
 
         // Test Minimum value...
         let mut idx = vec![2, 6, 9, 5, 8, 13, 11, 7];
         let f = vec![15, 10, 10, 11, 3, 18, 0, 9, 3, 5, 2, 6, 13, 19, 14];
         let split_i = pivot_on_split(&mut idx, &f, 1, true);
-        for i in 0..split_i {
-            assert!((f[idx[i]] < 1) && f[idx[i]] != 0);
-        }
-        for i in idx[split_i..].iter() {
-            assert!((f[*i] >= 1) || (f[*i] == 0));
-        }
+        pivot_assert(&f, &idx, split_i, true, 1);
+
         let mut idx = vec![2, 6, 9, 5, 8, 13, 11, 7];
         let f = vec![15, 10, 10, 11, 3, 18, 0, 9, 3, 5, 2, 6, 13, 19, 14];
         let split_i = pivot_on_split(&mut idx, &f, 1, false);
-        for i in 0..split_i {
-            assert!((f[idx[i]] < 1) || (f[idx[i]] == 0));
-        }
-        for i in idx[split_i..].iter() {
-            assert!((f[*i] >= 1) || (f[*i] != 0));
-        }
+        pivot_assert(&f, &idx, split_i, false, 1);
 
         // Test Maximum value...
         let mut idx = vec![2, 6, 9, 5, 8, 13, 11, 7];
         let f = vec![15, 10, 10, 11, 3, 18, 0, 9, 3, 5, 2, 6, 13, 19, 14];
         let split_i = pivot_on_split(&mut idx, &f, 19, true);
-        for i in 0..split_i {
-            assert!((f[idx[i]] < 19) && f[idx[i]] != 0);
-        }
-        for i in idx[split_i..].iter() {
-            assert!((f[*i] >= 19) || (f[*i] == 0));
-        }
+        pivot_assert(&f, &idx, split_i, true, 19);
+
         let mut idx = vec![2, 6, 9, 5, 8, 13, 11, 7];
         let f = vec![15, 10, 10, 11, 3, 18, 0, 9, 3, 5, 2, 6, 13, 19, 14];
         let split_i = pivot_on_split(&mut idx, &f, 19, false);
-        for i in 0..split_i {
-            assert!((f[idx[i]] < 19) || (f[idx[i]] == 0));
-        }
-        for i in idx[split_i..].iter() {
-            assert!((f[*i] >= 19) || (f[*i] != 0));
-        }
+        pivot_assert(&f, &idx, split_i, false, 19);
+
+        // Random tests... right...
+        // With missing
+        let index = (0..100).collect::<Vec<usize>>();
+        let mut rng = StdRng::seed_from_u64(0);
+        let f = (0..100).map(|_| rng.gen_range(0..15)).collect::<Vec<u16>>();
+        let mut idx = index
+            .choose_multiple(&mut rng, 73)
+            .copied()
+            .collect::<Vec<usize>>();
+        let split_i = pivot_on_split(&mut idx, &f, 7, true);
+        pivot_assert(&f, &idx, split_i, true, 7);
+
+        // Already sorted...
+        let split_i = pivot_on_split(&mut idx, &f, 7, true);
+        pivot_assert(&f, &idx, split_i, true, 7);
+
+        // Reversed
+        idx.reverse();
+        let split_i = pivot_on_split(&mut idx, &f, 7, true);
+        pivot_assert(&f, &idx, split_i, true, 7);
+
+        // Without missing...
+        let index = (0..100).collect::<Vec<usize>>();
+        let mut rng = StdRng::seed_from_u64(0);
+        let f = (0..100).map(|_| rng.gen_range(1..15)).collect::<Vec<u16>>();
+        let mut idx = index
+            .choose_multiple(&mut rng, 73)
+            .copied()
+            .collect::<Vec<usize>>();
+        let split_i = pivot_on_split(&mut idx, &f, 5, true);
+        pivot_assert(&f, &idx, split_i, true, 5);
+
+        // Using max...
+        let index = (0..100).collect::<Vec<usize>>();
+        let mut rng = StdRng::seed_from_u64(0);
+        let f = (0..100).map(|_| rng.gen_range(0..15)).collect::<Vec<u16>>();
+        let mut idx = index
+            .choose_multiple(&mut rng, 73)
+            .copied()
+            .collect::<Vec<usize>>();
+        let sv = idx.iter().map(|i| f[*i]).max().unwrap();
+        let split_i = pivot_on_split(&mut idx, &f, sv, true);
+        pivot_assert(&f, &idx, split_i, true, sv);
+
+        // Using non-0 minimum...
+        let index = (0..100).collect::<Vec<usize>>();
+        let mut rng = StdRng::seed_from_u64(0);
+        let f = (0..100).map(|_| rng.gen_range(0..15)).collect::<Vec<u16>>();
+        let mut idx = index
+            .choose_multiple(&mut rng, 73)
+            .copied()
+            .collect::<Vec<usize>>();
+        let sv = idx
+            .iter()
+            .filter(|i| f[**i] > 0)
+            .map(|i| f[*i])
+            .min()
+            .unwrap();
+        let split_i = pivot_on_split(&mut idx, &f, sv, true);
+        pivot_assert(&f, &idx, split_i, true, sv);
+
+        // Using non-0 minimum with no missing...
+        let index = (0..100).collect::<Vec<usize>>();
+        let mut rng = StdRng::seed_from_u64(0);
+        let f = (0..100).map(|_| rng.gen_range(1..15)).collect::<Vec<u16>>();
+        let mut idx = index
+            .choose_multiple(&mut rng, 73)
+            .copied()
+            .collect::<Vec<usize>>();
+        let sv = idx
+            .iter()
+            .filter(|i| f[**i] > 0)
+            .map(|i| f[*i])
+            .min()
+            .unwrap();
+        let split_i = pivot_on_split(&mut idx, &f, sv, true);
+        pivot_assert(&f, &idx, split_i, true, sv);
+
+        // Left
+        let index = (0..100).collect::<Vec<usize>>();
+        let mut rng = StdRng::seed_from_u64(0);
+        let f = (0..100).map(|_| rng.gen_range(0..15)).collect::<Vec<u16>>();
+        let mut idx = index
+            .choose_multiple(&mut rng, 73)
+            .copied()
+            .collect::<Vec<usize>>();
+        let split_i = pivot_on_split(&mut idx, &f, 7, false);
+        pivot_assert(&f, &idx, split_i, false, 7);
+
+        // Already sorted...
+        let split_i = pivot_on_split(&mut idx, &f, 7, false);
+        pivot_assert(&f, &idx, split_i, false, 7);
+
+        // Reversed
+        idx.reverse();
+        let split_i = pivot_on_split(&mut idx, &f, 7, false);
+        pivot_assert(&f, &idx, split_i, false, 7);
+
+        // Without missing...
+        let index = (0..100).collect::<Vec<usize>>();
+        let mut rng = StdRng::seed_from_u64(0);
+        let f = (0..100).map(|_| rng.gen_range(1..15)).collect::<Vec<u16>>();
+        let mut idx = index
+            .choose_multiple(&mut rng, 73)
+            .copied()
+            .collect::<Vec<usize>>();
+        let split_i = pivot_on_split(&mut idx, &f, 5, false);
+        pivot_assert(&f, &idx, split_i, false, 5);
+
+        // Using max...
+        let index = (0..100).collect::<Vec<usize>>();
+        let mut rng = StdRng::seed_from_u64(0);
+        let f = (0..100).map(|_| rng.gen_range(0..15)).collect::<Vec<u16>>();
+        let mut idx = index
+            .choose_multiple(&mut rng, 73)
+            .copied()
+            .collect::<Vec<usize>>();
+        let sv = idx.iter().map(|i| f[*i]).max().unwrap();
+        let split_i = pivot_on_split(&mut idx, &f, sv, false);
+        pivot_assert(&f, &idx, split_i, false, sv);
+
+        // Using non-0 minimum...
+        let index = (0..100).collect::<Vec<usize>>();
+        let mut rng = StdRng::seed_from_u64(0);
+        let f = (0..100).map(|_| rng.gen_range(0..15)).collect::<Vec<u16>>();
+        let mut idx = index
+            .choose_multiple(&mut rng, 73)
+            .copied()
+            .collect::<Vec<usize>>();
+        let sv = idx
+            .iter()
+            .filter(|i| f[**i] > 0)
+            .map(|i| f[*i])
+            .min()
+            .unwrap();
+        let split_i = pivot_on_split(&mut idx, &f, sv, false);
+        pivot_assert(&f, &idx, split_i, false, sv);
+
+        // Using non-0 minimum with no missing...
+        let index = (0..100).collect::<Vec<usize>>();
+        let mut rng = StdRng::seed_from_u64(0);
+        let f = (0..100).map(|_| rng.gen_range(1..15)).collect::<Vec<u16>>();
+        let mut idx = index
+            .choose_multiple(&mut rng, 73)
+            .copied()
+            .collect::<Vec<usize>>();
+        let sv = idx
+            .iter()
+            .filter(|i| f[**i] > 0)
+            .map(|i| f[*i])
+            .min()
+            .unwrap();
+        let split_i = pivot_on_split(&mut idx, &f, sv, false);
+        pivot_assert(&f, &idx, split_i, false, sv);
     }
 
     #[test]
@@ -414,8 +566,8 @@ mod tests {
         let mut idx = vec![2, 6, 9, 5, 8, 13, 11, 7];
         let f = vec![15, 10, 10, 0, 3, 0, 0, 9, 3, 5, 2, 6, 13, 19, 14];
         let split_i = pivot_on_split_exclude_missing(&mut idx, &f, 1);
-        let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
-        println!("{:?}, {:?}, {:?}", split_i, idx, map_);
+        // let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
+        // println!("{:?}, {:?}, {:?}", split_i, idx, map_);
         pivot_missing_assert(1, &idx, &f, &split_i);
 
         // Higher value...
@@ -430,33 +582,24 @@ mod tests {
         // Run it again, and ensure it works on an already sorted list...
         let split_i = pivot_on_split_exclude_missing(&mut idx, &f, 10);
         //let split_i = pivot_on_split(&mut idx, &f, 10, false);
-        let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
-        println!("{:?}, {:?}, {:?}", split_i, idx, map_);
+        // let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
+        // println!("{:?}, {:?}, {:?}", split_i, idx, map_);
         pivot_missing_assert(10, &idx, &f, &split_i);
 
         // Run it again, and ensure it works on reversed list...
         idx.reverse();
         let split_i = pivot_on_split_exclude_missing(&mut idx, &f, 10);
         //let split_i = pivot_on_split(&mut idx, &f, 10, false);
-        let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
-        println!("{:?}, {:?}, {:?}", split_i, idx, map_);
-        pivot_missing_assert(10, &idx, &f, &split_i);
-
-        // Check if all missing...
-        // let mut idx = vec![2, 6, 9, 5, 8, 13, 11, 7];
-        // let f = vec![0; 15];
-        // let split_i = pivot_on_split_exclude_missing(&mut idx, &f, 10);
-        // //let split_i = pivot_on_split(&mut idx, &f, 10, false);
         // let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
         // println!("{:?}, {:?}, {:?}", split_i, idx, map_);
-        // pivot_missing_assert(10, &idx, &f, &split_i);
+        pivot_missing_assert(10, &idx, &f, &split_i);
 
         // Small test done with python
         let mut idx = vec![0, 1, 2, 3, 4, 5];
         let f = vec![1, 0, 1, 3, 0, 4];
         let split_i = pivot_on_split_exclude_missing(&mut idx, &f, 2);
-        let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
-        println!("{:?}, {:?}, {:?}", split_i, idx, map_);
+        // let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
+        // println!("{:?}, {:?}, {:?}", split_i, idx, map_);
         pivot_missing_assert(2, &idx, &f, &split_i);
 
         // Check if none missing...
@@ -466,8 +609,8 @@ mod tests {
         let split_i = pivot_on_split_exclude_missing(&mut idx, &f, 10);
         //let split_i = pivot_on_split(&mut idx, &f, 10, false);
         // println!("{:?}, {:?}, {:?}", split_i, idx, map_);
-        let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
-        println!("{:?}, {:?}, {:?}", split_i, idx, map_);
+        // let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
+        // println!("{:?}, {:?}, {:?}", split_i, idx, map_);
         pivot_missing_assert(10, &idx, &f, &split_i);
 
         // Random tests...
@@ -509,8 +652,6 @@ mod tests {
             .collect::<Vec<usize>>();
         let sv = idx.iter().map(|i| f[*i]).max().unwrap();
         let split_i = pivot_on_split_exclude_missing(&mut idx, &f, sv);
-        // let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
-        // println!("{:?}, {:?}, {:?}", split_i, idx, map_);
         pivot_missing_assert(sv, &idx, &f, &split_i);
 
         // Using non-0 minimum...
@@ -528,8 +669,6 @@ mod tests {
             .min()
             .unwrap();
         let split_i = pivot_on_split_exclude_missing(&mut idx, &f, sv);
-        let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
-        println!("{:?}, {:?}, {:?}", split_i, idx, map_);
         pivot_missing_assert(sv, &idx, &f, &split_i);
 
         // Using non-0 minimum with no missing...
@@ -547,8 +686,6 @@ mod tests {
             .min()
             .unwrap();
         let split_i = pivot_on_split_exclude_missing(&mut idx, &f, sv);
-        let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
-        println!("{:?}, {:?}, {:?}", split_i, idx, map_);
         pivot_missing_assert(sv, &idx, &f, &split_i);
     }
 
