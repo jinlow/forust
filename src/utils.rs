@@ -6,6 +6,7 @@ use std::convert::TryInto;
 
 /// Calculate the constraint weight given bounds
 /// and a constraint.
+#[inline]
 pub fn constrained_weight(
     l2: &f32,
     gradient_sum: f32,
@@ -30,6 +31,7 @@ pub fn constrained_weight(
 }
 
 /// Calculate the gain given the gradient and hessian of the node.
+#[inline]
 pub fn gain(l2: &f32, gradient_sum: f32, hessian_sum: f32) -> f32 {
     (gradient_sum * gradient_sum) / (hessian_sum + l2)
 }
@@ -37,11 +39,13 @@ pub fn gain(l2: &f32, gradient_sum: f32, hessian_sum: f32) -> f32 {
 /// Calculate the gain of a split given a specific weight value.
 /// This is for if the weight has to be constrained, for example for
 /// monotonicity constraints.
+#[inline]
 pub fn gain_given_weight(l2: &f32, gradient_sum: f32, hessian_sum: f32, weight: f32) -> f32 {
     -(2.0 * gradient_sum * weight + (hessian_sum + l2) * (weight * weight))
 }
 
 /// Cull gain, if it does not conform to constraints.
+#[inline]
 pub fn cull_gain(
     gain: f32,
     left_weight: f32,
@@ -69,6 +73,7 @@ pub fn cull_gain(
 
 /// Calculate the weight of a given node, given the sum
 /// of the gradients, and the hessians in a node.
+#[inline]
 pub fn weight(l2: &f32, gradient_sum: f32, hessian_sum: f32) -> f32 {
     -(gradient_sum / (hessian_sum + l2))
 }

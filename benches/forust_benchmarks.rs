@@ -71,7 +71,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
                 black_box(&h),
                 black_box(&splitter),
                 black_box(usize::MAX),
-                black_box(5),
+                black_box(10),
                 black_box(false),
             );
         })

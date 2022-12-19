@@ -6,7 +6,3 @@ pub enum MissingInfo {
     Right,
     Branch(NodeInfo),
 }
-
-pub trait MissingHandler {
-    fn handle_missing() -> MissingInfo;
-}

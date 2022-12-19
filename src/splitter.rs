@@ -1,5 +1,4 @@
 use crate::constraints::{Constraint, ConstraintMap};
-use crate::data::FloatData;
 use crate::histogram::HistogramMatrix;
 use crate::missinghandler::MissingInfo;
 use crate::node::SplittableNode;
@@ -58,7 +57,7 @@ impl Splitter {
 
     pub fn best_split(&self, node: &SplittableNode) -> Option<SplitInfo> {
         let mut best_split_info = None;
-        let mut best_gain = f32::ZERO;
+        let mut best_gain = 0.0;
         let HistogramMatrix(histograms) = &node.histograms;
         for i in 0..histograms.cols {
             let split_info = self.best_feature_split(node, i);
@@ -73,6 +72,162 @@ impl Splitter {
             }
         }
         best_split_info
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn evaluate_split(
+        &self,
+        left_gradient: f32,
+        left_hessian: f32,
+        right_gradient: f32,
+        right_hessian: f32,
+        missing_gradient: f32,
+        missing_hessian: f32,
+        lower_bound: f32,
+        upper_bound: f32,
+        constraint: Option<&Constraint>,
+    ) -> Option<(NodeInfo, NodeInfo, MissingInfo)> {
+        let mut missing_info = MissingInfo::Right;
+
+        let mut left_gradient = left_gradient;
+        let mut left_hessian = left_hessian;
+
+        let mut right_gradient = right_gradient;
+        let mut right_hessian = right_hessian;
+
+        let mut left_weight = constrained_weight(
+            &self.l2,
+            left_gradient,
+            left_hessian,
+            lower_bound,
+            upper_bound,
+            constraint,
+        );
+        let mut right_weight = constrained_weight(
+            &self.l2,
+            right_gradient,
+            right_hessian,
+            lower_bound,
+            upper_bound,
+            constraint,
+        );
+
+        let mut left_gain = gain_given_weight(&self.l2, left_gradient, left_hessian, left_weight);
+        let mut right_gain =
+            gain_given_weight(&self.l2, right_gradient, right_hessian, right_weight);
+
+        if !self.allow_missing_splits {
+            // Check the min_hessian constraint first, if we do not
+            // want to allow missing only splits.
+            if (right_hessian < self.min_leaf_weight) || (left_hessian < self.min_leaf_weight) {
+                // Update for new value
+                return None;
+            }
+        }
+
+        // Check Missing direction
+        // Don't even worry about it, if there are no missing values
+        // in this bin.
+        if !self.impute_missing {
+            // Missing goes right
+            let missing_right_gain = gain(
+                &self.l2,
+                right_gradient + missing_gradient,
+                right_hessian + missing_hessian,
+            );
+            right_gradient += missing_gradient;
+            right_hessian += missing_hessian;
+            right_gain = missing_right_gain;
+            missing_info = MissingInfo::Right;
+        }
+        // Otherwise, are there even any missing to worry about?
+        else if (missing_gradient != 0.0) || (missing_hessian != 0.0) {
+            // TODO: Consider making this safer, by casting to f64, summing, and then
+            // back to f32...
+
+            // The weight if missing went left
+            let missing_left_weight = constrained_weight(
+                &self.l2,
+                left_gradient + missing_gradient,
+                left_hessian + missing_hessian,
+                lower_bound,
+                upper_bound,
+                constraint,
+            );
+            // The gain if missing went left
+            let missing_left_gain = gain_given_weight(
+                &self.l2,
+                left_gradient + missing_gradient,
+                left_hessian + missing_hessian,
+                missing_left_weight,
+            );
+            // Confirm this wouldn't break monotonicity.
+            let missing_left_gain = cull_gain(
+                missing_left_gain,
+                missing_left_weight,
+                right_weight,
+                constraint,
+            );
+
+            // The gain if missing went right
+            let missing_right_weight = weight(
+                &self.l2,
+                right_gradient + missing_gradient,
+                right_hessian + missing_hessian,
+            );
+            // The gain is missing went right
+            let missing_right_gain = gain_given_weight(
+                &self.l2,
+                right_gradient + missing_gradient,
+                right_hessian + missing_hessian,
+                missing_right_weight,
+            );
+            // Confirm this wouldn't break monotonicity.
+            let missing_left_gain = cull_gain(
+                missing_left_gain,
+                missing_left_weight,
+                right_weight,
+                constraint,
+            );
+
+            if (missing_right_gain - right_gain) < (missing_left_gain - left_gain) {
+                // Missing goes left
+                left_gradient += missing_gradient;
+                left_hessian += missing_hessian;
+                left_gain = missing_left_gain;
+                left_weight = missing_left_weight;
+                missing_info = MissingInfo::Left;
+            } else {
+                // Missing goes right
+                right_gradient += missing_gradient;
+                right_hessian += missing_hessian;
+                right_gain = missing_right_gain;
+                right_weight = missing_right_weight;
+                missing_info = MissingInfo::Right;
+            }
+        }
+
+        if (right_hessian < self.min_leaf_weight) || (left_hessian < self.min_leaf_weight) {
+            // Update for new value
+            return None;
+        }
+        Some((
+            NodeInfo {
+                grad: left_gradient,
+                gain: left_gain,
+                cover: left_hessian,
+                weight: left_weight * self.learning_rate,
+                bounds: (f32::NEG_INFINITY, f32::INFINITY),
+            },
+            NodeInfo {
+                grad: right_gradient,
+                gain: right_gain,
+                cover: right_hessian,
+                weight: right_weight * self.learning_rate,
+                bounds: (f32::NEG_INFINITY, f32::INFINITY),
+            },
+            missing_info,
+        ))
     }
 
     pub fn best_feature_split(&self, node: &SplittableNode, feature: usize) -> Option<SplitInfo> {
@@ -96,7 +251,7 @@ impl Splitter {
             for bin in &histogram[1..] {
                 i += 1;
                 first_idx += 1;
-                if (bin.grad_sum == f32::ZERO) && (bin.hess_sum == f32::ZERO) {
+                if (bin.grad_sum == 0.0) && (bin.hess_sum == 0.0) {
                     continue;
                 }
                 cuml_grad += bin.grad_sum;
@@ -114,154 +269,53 @@ impl Splitter {
             // however we are only concerned about this
             // if we don't want a split to happen only
             // on missing values.
-            if (bin.grad_sum == f32::ZERO)
-                && (bin.hess_sum == f32::ZERO)
-                && !self.allow_missing_splits
-            {
+            if (bin.grad_sum == 0.0) && (bin.hess_sum == 0.0) && !self.allow_missing_splits {
                 continue;
             }
             // By default missing values will go into the right node.
-            let mut missing_right = true;
-            let mut left_grad = cuml_grad;
-            let mut left_hess = cuml_hess;
-            let mut right_grad = node.grad_sum - cuml_grad - missing.grad_sum;
-            let mut right_hess = node.hess_sum - cuml_hess - missing.hess_sum;
+            let left_gradient = cuml_grad;
+            let left_hessian = cuml_hess;
+            let right_gradient = node.grad_sum - cuml_grad - missing.grad_sum;
+            let right_hessian = node.hess_sum - cuml_hess - missing.hess_sum;
 
-            let mut left_weight = constrained_weight(
-                &self.l2,
-                left_grad,
-                left_hess,
+            let (mut left_node_info, mut right_node_info, missing_info) = match self.evaluate_split(
+                left_gradient,
+                left_hessian,
+                right_gradient,
+                right_hessian,
+                missing.grad_sum,
+                missing.hess_sum,
                 node.lower_bound,
                 node.upper_bound,
                 constraint,
-            );
-            let mut right_weight = constrained_weight(
-                &self.l2,
-                right_grad,
-                right_hess,
-                node.lower_bound,
-                node.upper_bound,
-                constraint,
-            );
-
-            let mut left_gain = gain_given_weight(&self.l2, left_grad, left_hess, left_weight);
-            let mut right_gain = gain_given_weight(&self.l2, right_grad, right_hess, right_weight);
-
-            // let mut left_gain = self.gain(left_grad, left_hess);
-            // let mut right_gain = self.gain(right_grad, right_hess);
-
-            if !self.allow_missing_splits {
-                // Check the min_hessian constraint first, if we do not
-                // want to allow missing only splits.
-                if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
-                    // Update for new value
+            ) {
+                None => {
                     cuml_grad += bin.grad_sum;
                     cuml_hess += bin.hess_sum;
                     continue;
                 }
-            }
+                Some(v) => v,
+            };
 
-            // Check Missing direction
-            // Don't even worry about it, if there are no missing values
-            // in this bin.
-            if !self.impute_missing {
-                // Missing goes right
-                let missing_right_gain = gain(
-                    &self.l2,
-                    right_grad + missing.grad_sum,
-                    right_hess + missing.hess_sum,
-                );
-                right_grad += missing.grad_sum;
-                right_hess += missing.hess_sum;
-                right_gain = missing_right_gain;
-                missing_right = true;
-            }
-            // Otherwise, are there even any missing to worry about?
-            else if (missing.grad_sum != f32::ZERO) || (missing.hess_sum != f32::ZERO) {
-                // TODO: Consider making this safer, by casting to f64, summing, and then
-                // back to f32...
+            let split_gain =
+                (left_node_info.gain + right_node_info.gain - node.gain_value) - self.gamma;
 
-                // The weight if missing went left
-                let missing_left_weight = constrained_weight(
-                    &self.l2,
-                    left_grad + missing.grad_sum,
-                    left_hess + missing.hess_sum,
-                    node.lower_bound,
-                    node.upper_bound,
-                    constraint,
-                );
-                // The gain if missing went left
-                let missing_left_gain = gain_given_weight(
-                    &self.l2,
-                    left_grad + missing.grad_sum,
-                    left_hess + missing.hess_sum,
-                    missing_left_weight,
-                );
-                // Confirm this wouldn't break monotonicity.
-                let missing_left_gain = cull_gain(
-                    missing_left_gain,
-                    missing_left_weight,
-                    right_weight,
-                    constraint,
-                );
-
-                // The gain if missing went right
-                let missing_right_weight = weight(
-                    &self.l2,
-                    right_grad + missing.grad_sum,
-                    right_hess + missing.hess_sum,
-                );
-                // The gain is missing went right
-                let missing_right_gain = gain_given_weight(
-                    &self.l2,
-                    right_grad + missing.grad_sum,
-                    right_hess + missing.hess_sum,
-                    missing_right_weight,
-                );
-                // Confirm this wouldn't break monotonicity.
-                let missing_left_gain = cull_gain(
-                    missing_left_gain,
-                    missing_left_weight,
-                    right_weight,
-                    constraint,
-                );
-
-                if (missing_right_gain - right_gain) < (missing_left_gain - left_gain) {
-                    // Missing goes left
-                    left_grad += missing.grad_sum;
-                    left_hess += missing.hess_sum;
-                    left_gain = missing_left_gain;
-                    left_weight = missing_left_weight;
-                    missing_right = false;
-                } else {
-                    // Missing goes right
-                    right_grad += missing.grad_sum;
-                    right_hess += missing.hess_sum;
-                    right_gain = missing_right_gain;
-                    right_weight = missing_right_weight;
-                    missing_right = true;
-                }
-            }
-
-            if (right_hess < self.min_leaf_weight) || (left_hess < self.min_leaf_weight) {
-                // Update for new value
-                cuml_grad += bin.grad_sum;
-                cuml_hess += bin.hess_sum;
-                continue;
-            }
-
-            let split_gain = (left_gain + right_gain - node.gain_value) - self.gamma;
             // Check monotonicity holds
-            let split_gain = cull_gain(split_gain, left_weight, right_weight, constraint);
+            let split_gain = cull_gain(
+                split_gain,
+                left_node_info.weight,
+                right_node_info.weight,
+                constraint,
+            );
 
-            if split_gain <= f32::ZERO {
+            if split_gain <= 0.0 {
                 // Update for new value
                 cuml_grad += bin.grad_sum;
                 cuml_hess += bin.hess_sum;
                 continue;
             }
 
-            let mid = (left_weight + right_weight) / 2.0;
+            let mid = (left_node_info.weight + right_node_info.weight) / 2.0;
             let (left_bounds, right_bounds) = match constraint {
                 None | Some(Constraint::Unconstrained) => (
                     (node.lower_bound, node.upper_bound),
@@ -270,37 +324,22 @@ impl Splitter {
                 Some(Constraint::Negative) => ((mid, node.upper_bound), (node.lower_bound, mid)),
                 Some(Constraint::Positive) => ((node.lower_bound, mid), (mid, node.upper_bound)),
             };
+            left_node_info.bounds = left_bounds;
+            right_node_info.bounds = right_bounds;
 
             // If split gain is NaN, one of the sides is empty, do not allow
             // this split.
             let split_gain = if split_gain.is_nan() { 0.0 } else { split_gain };
             if max_gain.is_none() || split_gain > max_gain.unwrap() {
-                let missing_node = if missing_right {
-                    MissingInfo::Right
-                } else {
-                    MissingInfo::Left
-                };
                 max_gain = Some(split_gain);
                 split_info = Some(SplitInfo {
                     split_gain,
                     split_feature: feature,
                     split_value: bin.cut_value,
                     split_bin: i as u16,
-                    left_node: NodeInfo {
-                        grad: left_grad,
-                        gain: left_gain,
-                        cover: left_hess,
-                        weight: left_weight * self.learning_rate,
-                        bounds: left_bounds,
-                    },
-                    right_node: NodeInfo {
-                        grad: right_grad,
-                        gain: right_gain,
-                        cover: right_hess,
-                        weight: right_weight * self.learning_rate,
-                        bounds: right_bounds,
-                    },
-                    missing_node,
+                    left_node: left_node_info,
+                    right_node: right_node_info,
+                    missing_node: missing_info,
                 });
             }
             // Update for new value
