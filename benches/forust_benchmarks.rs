@@ -4,7 +4,7 @@ use forust_ml::constraints::ConstraintMap;
 use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::GradientBooster;
 use forust_ml::objective::{LogLoss, ObjectiveFunction};
-use forust_ml::splitter::Splitter;
+use forust_ml::splitter::MissingImputerSplitter;
 use forust_ml::tree::Tree;
 use forust_ml::utils::{fast_f64_sum, fast_sum, naive_sum};
 use std::fs;
@@ -36,13 +36,12 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     });
 
     let data = Matrix::new(&data_vec, y.len(), 5);
-    let splitter = Splitter {
+    let splitter = MissingImputerSplitter {
         l2: 1.0,
         gamma: 3.0,
         min_leaf_weight: 1.0,
         learning_rate: 0.3,
         allow_missing_splits: true,
-        impute_missing: true,
         constraints_map: ConstraintMap::new(),
     };
     let mut tree = Tree::new();

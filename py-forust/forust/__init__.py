@@ -78,7 +78,6 @@ class GradientBooster:
         nbins: int = 256,
         parallel: bool = True,
         allow_missing_splits: bool = True,
-        impute_missing: bool = True,
         monotone_constraints: Union[dict[Any, int], None] = None,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
@@ -114,9 +113,6 @@ class GradientBooster:
                 down one branch, and all non-missing values go down the other, if this results
                 in the greatest reduction of loss. If this is false, splits will only be made on non
                 missing values. Defaults to `True`.
-            impute_missing (bool, optional): Automatically impute missing values, such that at every split
-                the model learns the best direction to send missing values. If this is false, all
-                missing values will default to right branch. Defaults to `True`.
             monotone_constraints (dict[Any, int], optional): Constraints that are used to enforce a
                 specific relationship between the training features and the target variable. A dictionary
                 should be provided where the keys are the feature index value if the model will be fit on
@@ -144,7 +140,6 @@ class GradientBooster:
             nbins=nbins,
             parallel=parallel,
             allow_missing_splits=allow_missing_splits,
-            impute_missing=impute_missing,
             monotone_constraints={},
         )
         monotone_constraints_ = (
@@ -163,7 +158,6 @@ class GradientBooster:
         self.nbins = nbins
         self.parallel = parallel
         self.allow_missing_splits = (allow_missing_splits,)
-        self.impute_missing = (impute_missing,)
         self.monotone_constraints = monotone_constraints_
 
     def fit(

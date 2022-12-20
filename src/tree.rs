@@ -1,9 +1,8 @@
 use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
-use crate::missinghandler::MissingInfo;
 use crate::node::{SplittableNode, TreeNode};
 use crate::partial_dependence::tree_partial_dependence;
-use crate::splitter::Splitter;
+use crate::splitter::{MissingInfo, Splitter};
 use crate::utils::{fast_f64_sum, pivot_on_split};
 use crate::utils::{gain, weight};
 use rayon::prelude::*;
@@ -28,13 +27,13 @@ impl Tree {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn fit(
+    pub fn fit<T: Splitter>(
         &mut self,
         data: &Matrix<u16>,
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
-        splitter: &Splitter,
+        splitter: &T,
         max_leaves: usize,
         max_depth: usize,
         parallel: bool,
@@ -46,8 +45,8 @@ impl Tree {
         let mut n_nodes = 1;
         let grad_sum = fast_f64_sum(grad);
         let hess_sum = fast_f64_sum(hess);
-        let root_gain = gain(&splitter.l2, grad_sum, hess_sum);
-        let root_weight = weight(&splitter.l2, grad_sum, hess_sum);
+        let root_gain = gain(&splitter.get_l2(), grad_sum, hess_sum);
+        let root_weight = weight(&splitter.get_l2(), grad_sum, hess_sum);
         // Calculate the histograms for the root node.
         let root_hists = HistogramMatrix::new(data, cuts, grad, hess, &index, parallel, true);
         let root_node = SplittableNode::new(
@@ -314,6 +313,7 @@ mod tests {
     use crate::binning::bin_matrix;
     use crate::constraints::{Constraint, ConstraintMap};
     use crate::objective::{LogLoss, ObjectiveFunction};
+    use crate::splitter::MissingImputerSplitter;
     use std::fs;
     #[test]
     fn test_tree_fit() {
@@ -329,13 +329,12 @@ mod tests {
         let h = LogLoss::calc_hess(&y, &yhat, &w);
 
         let data = Matrix::new(&data_vec, 891, 5);
-        let splitter = Splitter {
+        let splitter = MissingImputerSplitter {
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
             allow_missing_splits: true,
-            impute_missing: true,
             constraints_map: ConstraintMap::new(),
         };
         let mut tree = Tree::new();
@@ -367,13 +366,12 @@ mod tests {
         let data_ = Matrix::new(&data_vec, 891, 5);
         let data = Matrix::new(data_.get_col(1), 891, 1);
         let map = ConstraintMap::from([(0, Constraint::Negative)]);
-        let splitter = Splitter {
+        let splitter = MissingImputerSplitter {
             l2: 1.0,
             gamma: 0.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
             allow_missing_splits: true,
-            impute_missing: true,
             constraints_map: map,
         };
         let mut tree = Tree::new();

@@ -1,8 +1,7 @@
 use crate::constraints::{Constraint, ConstraintMap};
 use crate::histogram::HistogramMatrix;
-use crate::missinghandler::MissingInfo;
 use crate::node::SplittableNode;
-use crate::utils::{constrained_weight, cull_gain, gain, gain_given_weight, weight};
+use crate::utils::{constrained_weight, cull_gain, gain_given_weight, weight};
 
 #[derive(Debug)]
 pub struct SplitInfo {
@@ -24,58 +23,48 @@ pub struct NodeInfo {
     pub bounds: (f32, f32),
 }
 
-pub struct Splitter {
+#[derive(Debug)]
+pub enum MissingInfo {
+    Left,
+    Right,
+    Branch(NodeInfo),
+}
+
+/// Splitter that imputes missing values, by sending
+/// them down either the right or left branch, depending
+/// on which results in a higher increase in gain.
+pub struct MissingImputerSplitter {
     pub l2: f32,
     pub gamma: f32,
     pub min_leaf_weight: f32,
     pub learning_rate: f32,
     pub allow_missing_splits: bool,
-    pub impute_missing: bool,
     pub constraints_map: ConstraintMap,
 }
 
-impl Splitter {
+impl MissingImputerSplitter {
     pub fn new(
         l2: f32,
         gamma: f32,
         min_leaf_weight: f32,
         learning_rate: f32,
         allow_missing_splits: bool,
-        impute_missing: bool,
         constraints_map: ConstraintMap,
     ) -> Self {
-        Splitter {
+        MissingImputerSplitter {
             l2,
             gamma,
             min_leaf_weight,
             learning_rate,
             allow_missing_splits,
-            impute_missing,
             constraints_map,
         }
     }
+}
 
-    pub fn best_split(&self, node: &SplittableNode) -> Option<SplitInfo> {
-        let mut best_split_info = None;
-        let mut best_gain = 0.0;
-        let HistogramMatrix(histograms) = &node.histograms;
-        for i in 0..histograms.cols {
-            let split_info = self.best_feature_split(node, i);
-            match split_info {
-                Some(info) => {
-                    if info.split_gain > best_gain {
-                        best_gain = info.split_gain;
-                        best_split_info = Some(info);
-                    }
-                }
-                None => continue,
-            }
-        }
-        best_split_info
-    }
-
+impl Splitter for MissingImputerSplitter {
     #[allow(clippy::too_many_arguments)]
-    pub fn evaluate_split(
+    fn evaluate_split(
         &self,
         left_gradient: f32,
         left_hessian: f32,
@@ -87,6 +76,17 @@ impl Splitter {
         upper_bound: f32,
         constraint: Option<&Constraint>,
     ) -> Option<(NodeInfo, NodeInfo, MissingInfo)> {
+        // If there is no info right, or there is no
+        // info left, we will possibly lead to a missing only
+        // split, if we don't want this, bomb.
+        if ((left_gradient == 0.0) && (left_hessian == 0.0)
+            || (right_gradient == 0.0) && (right_hessian == 0.0))
+            && !self.allow_missing_splits
+        {
+            return None;
+        }
+
+        // By default missing values will go into the right node.
         let mut missing_info = MissingInfo::Right;
 
         let mut left_gradient = left_gradient;
@@ -128,20 +128,7 @@ impl Splitter {
         // Check Missing direction
         // Don't even worry about it, if there are no missing values
         // in this bin.
-        if !self.impute_missing {
-            // Missing goes right
-            let missing_right_gain = gain(
-                &self.l2,
-                right_gradient + missing_gradient,
-                right_hessian + missing_hessian,
-            );
-            right_gradient += missing_gradient;
-            right_hessian += missing_hessian;
-            right_gain = missing_right_gain;
-            missing_info = MissingInfo::Right;
-        }
-        // Otherwise, are there even any missing to worry about?
-        else if (missing_gradient != 0.0) || (missing_hessian != 0.0) {
+        if (missing_gradient != 0.0) || (missing_hessian != 0.0) {
             // TODO: Consider making this safer, by casting to f64, summing, and then
             // back to f32...
 
@@ -230,7 +217,63 @@ impl Splitter {
         ))
     }
 
-    pub fn best_feature_split(&self, node: &SplittableNode, feature: usize) -> Option<SplitInfo> {
+    fn get_constraint(&self, feature: &usize) -> Option<&Constraint> {
+        self.constraints_map.get(feature)
+    }
+
+    // fn get_allow_missing_splits(&self) -> bool {
+    //     self.allow_missing_splits
+    // }
+
+    fn get_gamma(&self) -> f32 {
+        self.gamma
+    }
+
+    fn get_l2(&self) -> f32 {
+        self.l2
+    }
+}
+
+pub trait Splitter {
+    fn get_constraint(&self, feature: &usize) -> Option<&Constraint>;
+    // fn get_allow_missing_splits(&self) -> bool;
+    fn get_gamma(&self) -> f32;
+    fn get_l2(&self) -> f32;
+
+    fn best_split(&self, node: &SplittableNode) -> Option<SplitInfo> {
+        let mut best_split_info = None;
+        let mut best_gain = 0.0;
+        let HistogramMatrix(histograms) = &node.histograms;
+        for i in 0..histograms.cols {
+            let split_info = self.best_feature_split(node, i);
+            match split_info {
+                Some(info) => {
+                    if info.split_gain > best_gain {
+                        best_gain = info.split_gain;
+                        best_split_info = Some(info);
+                    }
+                }
+                None => continue,
+            }
+        }
+        best_split_info
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn evaluate_split(
+        &self,
+        left_gradient: f32,
+        left_hessian: f32,
+        right_gradient: f32,
+        right_hessian: f32,
+        missing_gradient: f32,
+        missing_hessian: f32,
+        lower_bound: f32,
+        upper_bound: f32,
+        constraint: Option<&Constraint>,
+    ) -> Option<(NodeInfo, NodeInfo, MissingInfo)>;
+
+    fn best_feature_split(&self, node: &SplittableNode, feature: usize) -> Option<SplitInfo> {
         let mut split_info: Option<SplitInfo> = None;
         let mut max_gain: Option<f32> = None;
 
@@ -241,38 +284,12 @@ impl Splitter {
         let missing = &histogram[0];
         let mut cuml_grad = 0.0; // first_bin.grad_sum;
         let mut cuml_hess = 0.0; // first_bin.hess_sum;
-        let mut i = 0;
-        let mut first_idx = 1;
-        let constraint = self.constraints_map.get(&feature);
-
-        if !self.allow_missing_splits {
-            // If we don't want a split to be only on missing, we need
-            // to start at the first bin that is populated.
-            for bin in &histogram[1..] {
-                i += 1;
-                first_idx += 1;
-                if (bin.grad_sum == 0.0) && (bin.hess_sum == 0.0) {
-                    continue;
-                }
-                cuml_grad += bin.grad_sum;
-                cuml_hess += bin.hess_sum;
-                break;
-            }
-        }
+        let constraint = self.get_constraint(&feature);
 
         let elements = histogram.len();
         assert!(elements == histogram.len());
 
-        for bin in &histogram[first_idx..] {
-            i += 1;
-            // If this bin is empty, continue...
-            // however we are only concerned about this
-            // if we don't want a split to happen only
-            // on missing values.
-            if (bin.grad_sum == 0.0) && (bin.hess_sum == 0.0) && !self.allow_missing_splits {
-                continue;
-            }
-            // By default missing values will go into the right node.
+        for (i, bin) in histogram[1..].iter().enumerate() {
             let left_gradient = cuml_grad;
             let left_hessian = cuml_hess;
             let right_gradient = node.grad_sum - cuml_grad - missing.grad_sum;
@@ -298,7 +315,7 @@ impl Splitter {
             };
 
             let split_gain =
-                (left_node_info.gain + right_node_info.gain - node.gain_value) - self.gamma;
+                (left_node_info.gain + right_node_info.gain - node.gain_value) - self.get_gamma();
 
             // Check monotonicity holds
             let split_gain = cull_gain(
@@ -336,7 +353,7 @@ impl Splitter {
                     split_gain,
                     split_feature: feature,
                     split_value: bin.cut_value,
-                    split_bin: i as u16,
+                    split_bin: (i + 1) as u16,
                     left_node: left_node_info,
                     right_node: right_node_info,
                     missing_node: missing_info,
@@ -357,6 +374,7 @@ mod tests {
     use crate::data::Matrix;
     use crate::node::SplittableNode;
     use crate::objective::{LogLoss, ObjectiveFunction};
+    use crate::utils::gain;
     use std::fs;
     #[test]
     fn test_best_feature_split() {
@@ -372,13 +390,12 @@ mod tests {
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
         let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
-        let splitter = Splitter {
+        let splitter = MissingImputerSplitter {
             l2: 0.0,
             gamma: 0.0,
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
             allow_missing_splits: true,
-            impute_missing: true,
             constraints_map: ConstraintMap::new(),
         };
         // println!("{:?}", hists);
@@ -421,13 +438,12 @@ mod tests {
         let index = data.index.to_owned();
         let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
         println!("{:?}", hists);
-        let splitter = Splitter {
+        let splitter = MissingImputerSplitter {
             l2: 0.0,
             gamma: 0.0,
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
             allow_missing_splits: true,
-            impute_missing: true,
             constraints_map: ConstraintMap::new(),
         };
         let mut n = SplittableNode::new(
@@ -468,13 +484,12 @@ mod tests {
         let grad = LogLoss::calc_grad(&y, &yhat, &w);
         let hess = LogLoss::calc_hess(&y, &yhat, &w);
 
-        let splitter = Splitter {
+        let splitter = MissingImputerSplitter {
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
             allow_missing_splits: true,
-            impute_missing: true,
             constraints_map: ConstraintMap::new(),
         };
         let grad_sum = grad.iter().copied().sum();

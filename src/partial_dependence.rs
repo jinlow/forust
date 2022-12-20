@@ -68,7 +68,7 @@ mod tests {
     use crate::constraints::ConstraintMap;
     use crate::data::Matrix;
     use crate::objective::{LogLoss, ObjectiveFunction};
-    use crate::splitter::Splitter;
+    use crate::splitter::MissingImputerSplitter;
     use crate::tree::Tree;
     use std::fs;
     #[test]
@@ -85,13 +85,12 @@ mod tests {
         let h = LogLoss::calc_hess(&y, &yhat, &w);
 
         let data = Matrix::new(&data_vec, 891, 5);
-        let splitter = Splitter {
+        let splitter = MissingImputerSplitter {
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
             allow_missing_splits: true,
-            impute_missing: true,
             constraints_map: ConstraintMap::new(),
         };
         let mut tree = Tree::new();

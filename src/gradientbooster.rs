@@ -3,7 +3,7 @@ use crate::constraints::ConstraintMap;
 use crate::data::Matrix;
 use crate::errors::ForustError;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
-use crate::splitter::Splitter;
+use crate::splitter::MissingImputerSplitter;
 use crate::tree::Tree;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -36,9 +36,6 @@ use std::fs;
 ///   down one branch, and all non-missing values go down the other, if this results
 ///   in the greatest reduction of loss. If this is false, splits will only be made on non
 ///   missing values.
-/// * `impute_missing` - Automatically impute missing values, such that at every split
-///   the model learns the best direction to send missing values. If this is false, all
-///   missing values will default to right branch.
 #[derive(Deserialize, Serialize)]
 pub struct GradientBooster {
     pub objective_type: ObjectiveType,
@@ -53,7 +50,6 @@ pub struct GradientBooster {
     pub nbins: u16,
     pub parallel: bool,
     pub allow_missing_splits: bool,
-    pub impute_missing: bool,
     pub monotone_constraints: Option<ConstraintMap>,
     pub trees: Vec<Tree>,
 }
@@ -71,7 +67,6 @@ impl Default for GradientBooster {
             1.,
             0.5,
             256,
-            true,
             true,
             true,
             None,
@@ -120,7 +115,6 @@ impl GradientBooster {
         nbins: u16,
         parallel: bool,
         allow_missing_splits: bool,
-        impute_missing: bool,
         monotone_constraints: Option<ConstraintMap>,
     ) -> Self {
         GradientBooster {
@@ -136,7 +130,6 @@ impl GradientBooster {
             nbins,
             parallel,
             allow_missing_splits,
-            impute_missing,
             monotone_constraints,
             trees: Vec::new(),
         }
@@ -159,13 +152,12 @@ impl GradientBooster {
             .as_ref()
             .unwrap_or(&ConstraintMap::new())
             .to_owned();
-        let splitter = Splitter {
+        let splitter = MissingImputerSplitter {
             l2: self.l2,
             gamma: self.gamma,
             min_leaf_weight: self.min_leaf_weight,
             learning_rate: self.learning_rate,
             allow_missing_splits: self.allow_missing_splits,
-            impute_missing: self.impute_missing,
             constraints_map,
         };
         let mut yhat = vec![self.base_score; y.len()];
@@ -361,13 +353,6 @@ impl GradientBooster {
     /// * `allow_missing_splits` - Set if missing splits are allowed for the booster.
     pub fn set_allow_missing_splits(mut self, allow_missing_splits: bool) -> Self {
         self.allow_missing_splits = allow_missing_splits;
-        self
-    }
-
-    /// Set the impute_missing on the booster.
-    /// * `impute_missing` - Set if missing values should be imputed when training the booster.
-    pub fn set_impute_missing(mut self, impute_missing: bool) -> Self {
-        self.impute_missing = impute_missing;
         self
     }
 

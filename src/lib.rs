@@ -1,7 +1,6 @@
 pub mod binning;
 mod errors;
 mod histogram;
-mod missinghandler;
 mod node;
 mod partial_dependence;
 
