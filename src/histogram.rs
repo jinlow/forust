@@ -24,10 +24,26 @@ impl Bin<f32> {
         }
     }
 
+    /// Calculate a new bin, using the subtraction trick on the parent bin,
+    /// and the child bin.
     pub fn from_parent_child(root_bin: &Bin<f32>, child_bin: &Bin<f32>) -> Self {
         Bin {
             grad_sum: root_bin.grad_sum - child_bin.grad_sum,
             hess_sum: root_bin.hess_sum - child_bin.hess_sum,
+            cut_value: root_bin.cut_value,
+        }
+    }
+
+    /// Calculate a new bin, using the subtraction trick when the parent node
+    /// has three directions, left, right, and missing.
+    pub fn from_parent_two_children(
+        root_bin: &Bin<f32>,
+        first_child_bin: &Bin<f32>,
+        second_child_bin: &Bin<f32>,
+    ) -> Self {
+        Bin {
+            grad_sum: root_bin.grad_sum - (first_child_bin.grad_sum + second_child_bin.grad_sum),
+            hess_sum: root_bin.hess_sum - (first_child_bin.hess_sum + second_child_bin.hess_sum),
             cut_value: root_bin.cut_value,
         }
     }
@@ -146,6 +162,9 @@ impl HistogramMatrix {
         })
     }
 
+    /// Calculate the histogram matrix, for a child, given the parent histogram
+    /// matrix, and the other child histogram matrix. This should be used
+    /// when the node has only two possible splits, left and right.
     pub fn from_parent_child(
         root_histogram: &HistogramMatrix,
         child_histogram: &HistogramMatrix,
@@ -163,6 +182,34 @@ impl HistogramMatrix {
             ends: child.ends.to_owned(),
             cols: child.cols,
             n_records: child.n_records,
+        })
+    }
+
+    /// Calculate the histogram matrix for a child, given the parent histogram
+    /// and two other child histograms. This should be used with the node has
+    /// three possible split paths, right, left, and missing.
+    pub fn from_parent_two_children(
+        root_histogram: &HistogramMatrix,
+        first_child_histogram: &HistogramMatrix,
+        second_child_histogram: &HistogramMatrix,
+    ) -> Self {
+        let HistogramMatrix(root) = root_histogram;
+        let HistogramMatrix(first_child) = first_child_histogram;
+        let HistogramMatrix(second_child) = second_child_histogram;
+        let histograms = root
+            .data
+            .iter()
+            .zip(first_child.data.iter())
+            .zip(second_child.data.iter())
+            .map(|((root_bin, first_child_bin), second_child_bin)| {
+                Bin::from_parent_two_children(root_bin, first_child_bin, second_child_bin)
+            })
+            .collect();
+        HistogramMatrix(JaggedMatrix {
+            data: histograms,
+            ends: first_child.ends.to_owned(),
+            cols: first_child.cols,
+            n_records: first_child.n_records,
         })
     }
 }

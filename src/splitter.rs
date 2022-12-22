@@ -1,7 +1,11 @@
+use std::collections::VecDeque;
+
 use crate::constraints::{Constraint, ConstraintMap};
+use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
 use crate::node::SplittableNode;
-use crate::utils::{constrained_weight, cull_gain, gain_given_weight, weight};
+use crate::node::TreeNode;
+use crate::utils::{constrained_weight, cull_gain, gain_given_weight, pivot_on_split, weight};
 
 #[derive(Debug)]
 pub struct SplitInfo {
@@ -217,13 +221,119 @@ impl Splitter for MissingImputerSplitter {
         ))
     }
 
+    fn handle_split_info(
+        &self,
+        split_info: SplitInfo,
+        n_nodes: &usize,
+        node: &mut SplittableNode,
+        index: &mut [usize],
+        data: &Matrix<u16>,
+        cuts: &JaggedMatrix<f64>,
+        grad: &[f32],
+        hess: &[f32],
+        parallel: bool,
+        growable_buffer: &mut VecDeque<usize>,
+    ) -> Vec<TreeNode> {
+        let left_idx = *n_nodes;
+        let right_idx = left_idx + 1;
+
+        // We need to move all of the index's above and below our
+        // split value.
+        // pivot the sub array that this node has on our split value
+        // Here we assign missing to a specific direction.
+        // This will need to be refactored once we add a
+        // separate missing branch.
+        let missing_right = match split_info.missing_node {
+            MissingInfo::Left => false,
+            MissingInfo::Right => true,
+            MissingInfo::Branch(_) => todo!(),
+        };
+
+        let mut split_idx = pivot_on_split(
+            &mut index[node.start_idx..node.stop_idx],
+            data.get_col(split_info.split_feature),
+            split_info.split_bin,
+            missing_right,
+        );
+        // Calculate histograms
+        let total_recs = node.stop_idx - node.start_idx;
+        let n_right = total_recs - split_idx - 1;
+        let n_left = total_recs - n_right;
+
+        // Now that we have calculated the number of records
+        // add the start index, to make the split_index
+        // relative to the entire index array
+        split_idx += node.start_idx;
+
+        // Build the histograms for the smaller node.
+        let left_histograms: HistogramMatrix;
+        let right_histograms: HistogramMatrix;
+        if n_left < n_right {
+            left_histograms = HistogramMatrix::new(
+                data,
+                cuts,
+                grad,
+                hess,
+                &index[node.start_idx..split_idx],
+                parallel,
+                false,
+            );
+            right_histograms =
+                HistogramMatrix::from_parent_child(&node.histograms, &left_histograms);
+        } else {
+            right_histograms = HistogramMatrix::new(
+                data,
+                cuts,
+                grad,
+                hess,
+                &index[split_idx..node.stop_idx],
+                parallel,
+                false,
+            );
+            left_histograms =
+                HistogramMatrix::from_parent_child(&node.histograms, &right_histograms);
+        }
+
+        node.update_children(left_idx, right_idx, &split_info);
+
+        let left_node = SplittableNode::new(
+            left_idx,
+            left_histograms,
+            split_info.left_node.weight,
+            split_info.left_node.gain,
+            split_info.left_node.grad,
+            split_info.left_node.cover,
+            node.depth + 1,
+            node.start_idx,
+            split_idx,
+            split_info.left_node.bounds.0,
+            split_info.left_node.bounds.1,
+        );
+        let right_node = SplittableNode::new(
+            right_idx,
+            right_histograms,
+            split_info.right_node.weight,
+            split_info.right_node.gain,
+            split_info.right_node.grad,
+            split_info.right_node.cover,
+            node.depth + 1,
+            split_idx,
+            node.stop_idx,
+            split_info.right_node.bounds.0,
+            split_info.right_node.bounds.1,
+        );
+        growable_buffer.push_front(left_idx);
+        growable_buffer.push_front(right_idx);
+        // It has children, so we know it's going to be a parent node
+        vec![
+            TreeNode::Splittable(left_node),
+            TreeNode::Splittable(right_node),
+        ]
+    }
+
     fn get_constraint(&self, feature: &usize) -> Option<&Constraint> {
         self.constraints_map.get(feature)
     }
-
-    // fn get_allow_missing_splits(&self) -> bool {
-    //     self.allow_missing_splits
-    // }
 
     fn get_gamma(&self) -> f32 {
         self.gamma
@@ -364,6 +474,56 @@ pub trait Splitter {
             cuml_hess += bin.hess_sum;
         }
         split_info
+    }
+
+    /// Handle the split info, creating the children nodes, for the provided nodes
+    /// push them onto the growable stack.
+    /// Return a tuple, where the first value is the number of nodes pushed onto the
+    /// growable stack, and the second value is the number of potential leaves
+    /// that have been added.
+    #[allow(clippy::too_many_arguments)]
+    fn handle_split_info(
+        &self,
+        split_info: SplitInfo,
+        n_nodes: &usize,
+        node: &mut SplittableNode,
+        index: &mut [usize],
+        data: &Matrix<u16>,
+        cuts: &JaggedMatrix<f64>,
+        grad: &[f32],
+        hess: &[f32],
+        parallel: bool,
+        growable_buffer: &mut VecDeque<usize>,
+    ) -> Vec<TreeNode>;
+
+    #[allow(clippy::too_many_arguments)]
+    fn split_node(
+        &self,
+        n_nodes: &usize,
+        node: &mut SplittableNode,
+        index: &mut [usize],
+        data: &Matrix<u16>,
+        cuts: &JaggedMatrix<f64>,
+        grad: &[f32],
+        hess: &[f32],
+        parallel: bool,
+        growable_buffer: &mut VecDeque<usize>,
+    ) -> Vec<TreeNode> {
+        match self.best_split(node) {
+            Some(split_info) => self.handle_split_info(
+                split_info,
+                n_nodes,
+                node,
+                index,
+                data,
+                cuts,
+                grad,
+                hess,
+                parallel,
+                growable_buffer,
+            ),
+            None => Vec::new(),
+        }
     }
 }
 

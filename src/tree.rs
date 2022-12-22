@@ -2,8 +2,8 @@ use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
 use crate::node::{SplittableNode, TreeNode};
 use crate::partial_dependence::tree_partial_dependence;
-use crate::splitter::{MissingInfo, Splitter};
-use crate::utils::{fast_f64_sum, pivot_on_split};
+use crate::splitter::Splitter;
+use crate::utils::fast_f64_sum;
 use crate::utils::{gain, weight};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -106,122 +106,27 @@ impl Tree {
                 // more, then just add 1 back to n_leaves
                 n_leaves -= 1;
 
-                // Try to find a valid split for this node.
-                let split_info = splitter.best_split(node);
+                let new_nodes = splitter.split_node(
+                    &n_nodes,
+                    node,
+                    &mut index,
+                    data,
+                    cuts,
+                    grad,
+                    hess,
+                    parallel,
+                    &mut growable,
+                );
 
-                // If this is None, this means there
-                // are no more valid nodes.
-                match split_info {
-                    // If the split info is None, we can't split
-                    // this node any further, make a leaf, and keep going.
-                    None => {
-                        n_leaves += 1;
-                        self.nodes[n_idx] = node.as_leaf_node();
-                        continue;
-                    }
-                    Some(info) => {
-                        // If we can add two more leaves
-                        // add two.
-                        n_leaves += 2;
-                        let left_idx = n_nodes;
-                        let right_idx = left_idx + 1;
-
-                        // We need to move all of the index's above and bellow our
-                        // split value.
-                        // pivot the sub array that this node has on our split value
-                        // Here we assign missing to a specific direction.
-                        // This will need to be refactored once we add a
-                        // separate missing branch.
-                        let missing_right = match info.missing_node {
-                            MissingInfo::Left => false,
-                            MissingInfo::Right => true,
-                            MissingInfo::Branch(_) => todo!(),
-                        };
-                        let mut split_idx = pivot_on_split(
-                            &mut index[node.start_idx..node.stop_idx],
-                            data.get_col(info.split_feature),
-                            info.split_bin,
-                            missing_right,
-                        );
-                        // Calculate histograms
-                        let total_recs = node.stop_idx - node.start_idx;
-                        let n_right = total_recs - split_idx - 1;
-                        let n_left = total_recs - n_right;
-
-                        // Now that we have calculated the number of records
-                        // add the start index, to make the split_index
-                        // relative to the entire index array
-                        split_idx += node.start_idx;
-
-                        // Build the histograms for the smaller node.
-                        let left_histograms: HistogramMatrix;
-                        let right_histograms: HistogramMatrix;
-                        if n_left < n_right {
-                            left_histograms = HistogramMatrix::new(
-                                data,
-                                cuts,
-                                grad,
-                                hess,
-                                &index[node.start_idx..split_idx],
-                                parallel,
-                                false,
-                            );
-                            right_histograms = HistogramMatrix::from_parent_child(
-                                &node.histograms,
-                                &left_histograms,
-                            );
-                        } else {
-                            right_histograms = HistogramMatrix::new(
-                                data,
-                                cuts,
-                                grad,
-                                hess,
-                                &index[split_idx..node.stop_idx],
-                                parallel,
-                                false,
-                            );
-                            left_histograms = HistogramMatrix::from_parent_child(
-                                &node.histograms,
-                                &right_histograms,
-                            );
-                        }
-
-                        node.update_children(left_idx, right_idx, &info);
-
-                        let left_node = SplittableNode::new(
-                            left_idx,
-                            left_histograms,
-                            info.left_node.weight,
-                            info.left_node.gain,
-                            info.left_node.grad,
-                            info.left_node.cover,
-                            depth,
-                            node.start_idx,
-                            split_idx,
-                            info.left_node.bounds.0,
-                            info.left_node.bounds.1,
-                        );
-                        let right_node = SplittableNode::new(
-                            right_idx,
-                            right_histograms,
-                            info.right_node.weight,
-                            info.right_node.gain,
-                            info.right_node.grad,
-                            info.right_node.cover,
-                            depth,
-                            split_idx,
-                            node.stop_idx,
-                            info.right_node.bounds.0,
-                            info.right_node.bounds.1,
-                        );
-                        growable.push_front(left_idx);
-                        growable.push_front(right_idx);
-                        // It has children, so we know it's going to be a parent node
-                        self.nodes[n_idx] = node.as_parent_node();
-                        self.nodes.push(TreeNode::Splittable(left_node));
-                        self.nodes.push(TreeNode::Splittable(right_node));
-                        n_nodes += 2;
-                    }
+                let n_new_nodes = new_nodes.len();
+                if n_new_nodes == 0 {
+                    n_leaves += 1;
+                    self.nodes[n_idx] = node.as_leaf_node();
+                } else {
+                    self.nodes[n_idx] = node.as_parent_node();
+                    n_leaves += n_new_nodes;
+                    n_nodes += n_new_nodes;
+                    self.nodes.extend(new_nodes);
                 }
             }
         }
