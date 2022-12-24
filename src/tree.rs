@@ -43,10 +43,10 @@ impl Tree {
         // because we are starting from a nearly sorted array.
         let mut index = data.index.to_owned();
         let mut n_nodes = 1;
-        let grad_sum = fast_f64_sum(grad);
-        let hess_sum = fast_f64_sum(hess);
-        let root_gain = gain(&splitter.get_l2(), grad_sum, hess_sum);
-        let root_weight = weight(&splitter.get_l2(), grad_sum, hess_sum);
+        let gradient_sum = fast_f64_sum(grad);
+        let hessian_sum = fast_f64_sum(hess);
+        let root_gain = gain(&splitter.get_l2(), gradient_sum, hessian_sum);
+        let root_weight = weight(&splitter.get_l2(), gradient_sum, hessian_sum);
         // Calculate the histograms for the root node.
         let root_hists = HistogramMatrix::new(data, cuts, grad, hess, &index, parallel, true);
         let root_node = SplittableNode::new(
@@ -54,8 +54,8 @@ impl Tree {
             root_hists,
             root_weight,
             root_gain,
-            grad_sum,
-            hess_sum,
+            gradient_sum,
+            hessian_sum,
             0,
             0,
             data.rows,

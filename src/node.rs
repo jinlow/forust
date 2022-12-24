@@ -10,8 +10,8 @@ pub struct SplittableNode {
     pub histograms: HistogramMatrix,
     pub weight_value: f32,
     pub gain_value: f32,
-    pub grad_sum: f32,
-    pub hess_sum: f32,
+    pub gradient_sum: f32,
+    pub hessian_sum: f32,
     pub depth: usize,
     pub split_value: f64,
     pub split_feature: usize,
@@ -29,7 +29,7 @@ pub struct SplittableNode {
 pub struct ParentNode {
     pub num: usize,
     pub weight_value: f32,
-    pub hess_sum: f32,
+    pub hessian_sum: f32,
     pub depth: usize,
     pub split_value: f64,
     pub split_feature: usize,
@@ -43,7 +43,7 @@ pub struct ParentNode {
 pub struct LeafNode {
     pub num: usize,
     pub weight_value: f32,
-    pub hess_sum: f32,
+    pub hessian_sum: f32,
     pub depth: usize,
 }
 
@@ -68,8 +68,8 @@ impl SplittableNode {
             histograms,
             weight_value: node_info.weight,
             gain_value: node_info.gain,
-            grad_sum: node_info.grad,
-            hess_sum: node_info.cover,
+            gradient_sum: node_info.grad,
+            hessian_sum: node_info.cover,
             depth,
             split_value: f64::ZERO,
             split_feature: 0,
@@ -90,8 +90,8 @@ impl SplittableNode {
         histograms: HistogramMatrix,
         weight_value: f32,
         gain_value: f32,
-        grad_sum: f32,
-        hess_sum: f32,
+        gradient_sum: f32,
+        hessian_sum: f32,
         depth: usize,
         start_idx: usize,
         stop_idx: usize,
@@ -103,8 +103,8 @@ impl SplittableNode {
             histograms,
             weight_value,
             gain_value,
-            grad_sum,
-            hess_sum,
+            gradient_sum,
+            hessian_sum,
             depth,
             split_value: f64::ZERO,
             split_feature: 0,
@@ -140,7 +140,7 @@ impl SplittableNode {
         TreeNode::Leaf(LeafNode {
             num: self.num,
             weight_value: self.weight_value,
-            hess_sum: self.hess_sum,
+            hessian_sum: self.hessian_sum,
             depth: self.depth,
         })
     }
@@ -148,7 +148,7 @@ impl SplittableNode {
         TreeNode::Parent(ParentNode {
             num: self.num,
             weight_value: self.weight_value,
-            hess_sum: self.hess_sum,
+            hessian_sum: self.hessian_sum,
             depth: self.depth,
             missing_node: self.missing_node,
             split_value: self.split_value,
@@ -167,7 +167,7 @@ impl fmt::Display for TreeNode {
             TreeNode::Leaf(leaf) => write!(
                 f,
                 "{}:leaf={},cover={}",
-                leaf.num, leaf.weight_value, leaf.hess_sum
+                leaf.num, leaf.weight_value, leaf.hessian_sum
             ),
             TreeNode::Parent(parent) => {
                 write!(
@@ -180,7 +180,7 @@ impl fmt::Display for TreeNode {
                     parent.right_child,
                     parent.missing_node,
                     parent.split_gain,
-                    parent.hess_sum
+                    parent.hessian_sum
                 )
             }
             TreeNode::Splittable(node) => {
@@ -194,7 +194,7 @@ impl fmt::Display for TreeNode {
                     node.left_child,
                     node.right_child,
                     node.split_gain,
-                    node.hess_sum
+                    node.hessian_sum
                 )
             }
         }

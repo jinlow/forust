@@ -11,8 +11,8 @@ use crate::tree::Tree;
 
 fn get_node_cover(tree: &Tree, node_idx: usize) -> f32 {
     match &tree.nodes[node_idx] {
-        TreeNode::Leaf(n) => n.hess_sum,
-        TreeNode::Parent(n) => n.hess_sum,
+        TreeNode::Leaf(n) => n.hessian_sum,
+        TreeNode::Parent(n) => n.hessian_sum,
         TreeNode::Splittable(_) => unreachable!(),
     }
 }

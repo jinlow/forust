@@ -237,18 +237,18 @@ impl Splitter for MissingImputerSplitter {
         let left_idx = *n_nodes;
         let right_idx = left_idx + 1;
 
-        // We need to move all of the index's above and below our
-        // split value.
-        // pivot the sub array that this node has on our split value
-        // Here we assign missing to a specific direction.
-        // This will need to be refactored once we add a
-        // separate missing branch.
         let missing_right = match split_info.missing_node {
             MissingInfo::Left => false,
             MissingInfo::Right => true,
             MissingInfo::Branch(_) => todo!(),
         };
 
+        // We need to move all of the index's above and below our
+        // split value.
+        // pivot the sub array that this node has on our split value
+        // Here we assign missing to a specific direction.
+        // This will need to be refactored once we add a
+        // separate missing branch.
         let mut split_idx = pivot_on_split(
             &mut index[node.start_idx..node.stop_idx],
             data.get_col(split_info.split_feature),
@@ -296,31 +296,21 @@ impl Splitter for MissingImputerSplitter {
 
         node.update_children(left_idx, right_idx, &split_info);
 
-        let left_node = SplittableNode::new(
+        let left_node = SplittableNode::from_node_info(
             left_idx,
             left_histograms,
-            split_info.left_node.weight,
-            split_info.left_node.gain,
-            split_info.left_node.grad,
-            split_info.left_node.cover,
             node.depth + 1,
             node.start_idx,
             split_idx,
-            split_info.left_node.bounds.0,
-            split_info.left_node.bounds.1,
+            split_info.left_node,
         );
-        let right_node = SplittableNode::new(
+        let right_node = SplittableNode::from_node_info(
             right_idx,
             right_histograms,
-            split_info.right_node.weight,
-            split_info.right_node.gain,
-            split_info.right_node.grad,
-            split_info.right_node.cover,
             node.depth + 1,
             split_idx,
             node.stop_idx,
-            split_info.right_node.bounds.0,
-            split_info.right_node.bounds.1,
+            split_info.right_node,
         );
         growable_buffer.push_front(left_idx);
         growable_buffer.push_front(right_idx);
@@ -392,8 +382,8 @@ pub trait Splitter {
 
         // We also know we will have a missing bin.
         let missing = &histogram[0];
-        let mut cuml_grad = 0.0; // first_bin.grad_sum;
-        let mut cuml_hess = 0.0; // first_bin.hess_sum;
+        let mut cuml_grad = 0.0; // first_bin.gradient_sum;
+        let mut cuml_hess = 0.0; // first_bin.hessian_sum;
         let constraint = self.get_constraint(&feature);
 
         let elements = histogram.len();
@@ -402,23 +392,23 @@ pub trait Splitter {
         for (i, bin) in histogram[1..].iter().enumerate() {
             let left_gradient = cuml_grad;
             let left_hessian = cuml_hess;
-            let right_gradient = node.grad_sum - cuml_grad - missing.grad_sum;
-            let right_hessian = node.hess_sum - cuml_hess - missing.hess_sum;
+            let right_gradient = node.gradient_sum - cuml_grad - missing.gradient_sum;
+            let right_hessian = node.hessian_sum - cuml_hess - missing.hessian_sum;
 
             let (mut left_node_info, mut right_node_info, missing_info) = match self.evaluate_split(
                 left_gradient,
                 left_hessian,
                 right_gradient,
                 right_hessian,
-                missing.grad_sum,
-                missing.hess_sum,
+                missing.gradient_sum,
+                missing.hessian_sum,
                 node.lower_bound,
                 node.upper_bound,
                 constraint,
             ) {
                 None => {
-                    cuml_grad += bin.grad_sum;
-                    cuml_hess += bin.hess_sum;
+                    cuml_grad += bin.gradient_sum;
+                    cuml_hess += bin.hessian_sum;
                     continue;
                 }
                 Some(v) => v,
@@ -437,8 +427,8 @@ pub trait Splitter {
 
             if split_gain <= 0.0 {
                 // Update for new value
-                cuml_grad += bin.grad_sum;
-                cuml_hess += bin.hess_sum;
+                cuml_grad += bin.gradient_sum;
+                cuml_hess += bin.hessian_sum;
                 continue;
             }
 
@@ -470,8 +460,8 @@ pub trait Splitter {
                 });
             }
             // Update for new value
-            cuml_grad += bin.grad_sum;
-            cuml_hess += bin.hess_sum;
+            cuml_grad += bin.gradient_sum;
+            cuml_hess += bin.hessian_sum;
         }
         split_info
     }
@@ -652,11 +642,11 @@ mod tests {
             allow_missing_splits: true,
             constraints_map: ConstraintMap::new(),
         };
-        let grad_sum = grad.iter().copied().sum();
-        let hess_sum = hess.iter().copied().sum();
-        let root_gain = gain(&splitter.l2, grad_sum, hess_sum);
-        let root_weight = weight(&splitter.l2, grad_sum, hess_sum);
-        // let gain_given_weight = splitter.gain_given_weight(grad_sum, hess_sum, root_weight);
+        let gradient_sum = grad.iter().copied().sum();
+        let hessian_sum = hess.iter().copied().sum();
+        let root_gain = gain(&splitter.l2, gradient_sum, hessian_sum);
+        let root_weight = weight(&splitter.l2, gradient_sum, hessian_sum);
+        // let gain_given_weight = splitter.gain_given_weight(gradient_sum, hessian_sum, root_weight);
         // println!("gain: {}, weight: {}, gain from weight: {}", root_gain, root_weight, gain_given_weight);
         let data = Matrix::new(&data_vec, 891, 5);
 
