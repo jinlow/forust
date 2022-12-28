@@ -134,6 +134,7 @@ impl SplittableNode {
             MissingInfo::Left => left_child,
             MissingInfo::Right => right_child,
             MissingInfo::Branch(_) => todo!(),
+            MissingInfo::EmptyBranch => todo!(),
         };
     }
     pub fn as_leaf_node(&self) -> TreeNode {

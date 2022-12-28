@@ -31,9 +31,335 @@ pub struct NodeInfo {
 pub enum MissingInfo {
     Left,
     Right,
+    EmptyBranch,
     Branch(NodeInfo),
 }
 
+pub trait Splitter {
+    fn get_constraint(&self, feature: &usize) -> Option<&Constraint>;
+    // fn get_allow_missing_splits(&self) -> bool;
+    fn get_gamma(&self) -> f32;
+    fn get_l2(&self) -> f32;
+
+    fn best_split(&self, node: &SplittableNode) -> Option<SplitInfo> {
+        let mut best_split_info = None;
+        let mut best_gain = 0.0;
+        let HistogramMatrix(histograms) = &node.histograms;
+        for i in 0..histograms.cols {
+            let split_info = self.best_feature_split(node, i);
+            match split_info {
+                Some(info) => {
+                    if info.split_gain > best_gain {
+                        best_gain = info.split_gain;
+                        best_split_info = Some(info);
+                    }
+                }
+                None => continue,
+            }
+        }
+        best_split_info
+    }
+
+    /// Evaluate a split, returning the node info for the left, and right splits,
+    /// as well as the node info the missing data of a feature.
+    #[allow(clippy::too_many_arguments)]
+    fn evaluate_split(
+        &self,
+        left_gradient: f32,
+        left_hessian: f32,
+        right_gradient: f32,
+        right_hessian: f32,
+        missing_gradient: f32,
+        missing_hessian: f32,
+        lower_bound: f32,
+        upper_bound: f32,
+        constraint: Option<&Constraint>,
+    ) -> Option<(NodeInfo, NodeInfo, MissingInfo)>;
+
+    fn best_feature_split(&self, node: &SplittableNode, feature: usize) -> Option<SplitInfo> {
+        let mut split_info: Option<SplitInfo> = None;
+        let mut max_gain: Option<f32> = None;
+
+        let HistogramMatrix(histograms) = &node.histograms;
+        let histogram = histograms.get_col(feature);
+
+        // We also know we will have a missing bin.
+        let missing = &histogram[0];
+        let mut cuml_grad = 0.0; // first_bin.gradient_sum;
+        let mut cuml_hess = 0.0; // first_bin.hessian_sum;
+        let constraint = self.get_constraint(&feature);
+
+        let elements = histogram.len();
+        assert!(elements == histogram.len());
+
+        for (i, bin) in histogram[1..].iter().enumerate() {
+            let left_gradient = cuml_grad;
+            let left_hessian = cuml_hess;
+            let right_gradient = node.gradient_sum - cuml_grad - missing.gradient_sum;
+            let right_hessian = node.hessian_sum - cuml_hess - missing.hessian_sum;
+
+            let (mut left_node_info, mut right_node_info, missing_info) = match self.evaluate_split(
+                left_gradient,
+                left_hessian,
+                right_gradient,
+                right_hessian,
+                missing.gradient_sum,
+                missing.hessian_sum,
+                node.lower_bound,
+                node.upper_bound,
+                constraint,
+            ) {
+                None => {
+                    cuml_grad += bin.gradient_sum;
+                    cuml_hess += bin.hessian_sum;
+                    continue;
+                }
+                Some(v) => v,
+            };
+
+            let split_gain =
+                (left_node_info.gain + right_node_info.gain - node.gain_value) - self.get_gamma();
+
+            // Check monotonicity holds
+            let split_gain = cull_gain(
+                split_gain,
+                left_node_info.weight,
+                right_node_info.weight,
+                constraint,
+            );
+
+            if split_gain <= 0.0 {
+                // Update for new value
+                cuml_grad += bin.gradient_sum;
+                cuml_hess += bin.hessian_sum;
+                continue;
+            }
+
+            let mid = (left_node_info.weight + right_node_info.weight) / 2.0;
+            let (left_bounds, right_bounds) = match constraint {
+                None | Some(Constraint::Unconstrained) => (
+                    (node.lower_bound, node.upper_bound),
+                    (node.lower_bound, node.upper_bound),
+                ),
+                Some(Constraint::Negative) => ((mid, node.upper_bound), (node.lower_bound, mid)),
+                Some(Constraint::Positive) => ((node.lower_bound, mid), (mid, node.upper_bound)),
+            };
+            left_node_info.bounds = left_bounds;
+            right_node_info.bounds = right_bounds;
+
+            // If split gain is NaN, one of the sides is empty, do not allow
+            // this split.
+            let split_gain = if split_gain.is_nan() { 0.0 } else { split_gain };
+            if max_gain.is_none() || split_gain > max_gain.unwrap() {
+                max_gain = Some(split_gain);
+                split_info = Some(SplitInfo {
+                    split_gain,
+                    split_feature: feature,
+                    split_value: bin.cut_value,
+                    split_bin: (i + 1) as u16,
+                    left_node: left_node_info,
+                    right_node: right_node_info,
+                    missing_node: missing_info,
+                });
+            }
+            // Update for new value
+            cuml_grad += bin.gradient_sum;
+            cuml_hess += bin.hessian_sum;
+        }
+        split_info
+    }
+
+    /// Handle the split info, creating the children nodes, for the provided nodes
+    /// push them onto the growable stack.
+    /// Return a tuple, where the first value is the number of nodes pushed onto the
+    /// growable stack, and the second value is the number of potential leaves
+    /// that have been added.
+    #[allow(clippy::too_many_arguments)]
+    fn handle_split_info(
+        &self,
+        split_info: SplitInfo,
+        n_nodes: &usize,
+        node: &mut SplittableNode,
+        index: &mut [usize],
+        data: &Matrix<u16>,
+        cuts: &JaggedMatrix<f64>,
+        grad: &[f32],
+        hess: &[f32],
+        parallel: bool,
+        growable_buffer: &mut VecDeque<usize>,
+    ) -> Vec<TreeNode>;
+
+    #[allow(clippy::too_many_arguments)]
+    fn split_node(
+        &self,
+        n_nodes: &usize,
+        node: &mut SplittableNode,
+        index: &mut [usize],
+        data: &Matrix<u16>,
+        cuts: &JaggedMatrix<f64>,
+        grad: &[f32],
+        hess: &[f32],
+        parallel: bool,
+        growable_buffer: &mut VecDeque<usize>,
+    ) -> Vec<TreeNode> {
+        match self.best_split(node) {
+            Some(split_info) => self.handle_split_info(
+                split_info,
+                n_nodes,
+                node,
+                index,
+                data,
+                cuts,
+                grad,
+                hess,
+                parallel,
+                growable_buffer,
+            ),
+            None => Vec::new(),
+        }
+    }
+}
+
+/// Missing branch splitter
+/// Always creates a separate branch for the missing values of a feature.
+/// This results, in every node having a specific "missing", direction.
+/// If this node is able, it will be split further, otherwise it will
+/// a leaf node will be generated.
+pub struct MissingBranchSplitter {
+    pub l2: f32,
+    pub gamma: f32,
+    pub min_leaf_weight: f32,
+    pub learning_rate: f32,
+    pub allow_missing_splits: bool,
+    pub constraints_map: ConstraintMap,
+}
+
+impl Splitter for MissingBranchSplitter {
+    fn get_constraint(&self, feature: &usize) -> Option<&Constraint> {
+        self.constraints_map.get(feature)
+    }
+
+    fn get_gamma(&self) -> f32 {
+        self.gamma
+    }
+
+    fn get_l2(&self) -> f32 {
+        self.l2
+    }
+
+    fn evaluate_split(
+        &self,
+        left_gradient: f32,
+        left_hessian: f32,
+        right_gradient: f32,
+        right_hessian: f32,
+        missing_gradient: f32,
+        missing_hessian: f32,
+        lower_bound: f32,
+        upper_bound: f32,
+        constraint: Option<&Constraint>,
+    ) -> Option<(NodeInfo, NodeInfo, MissingInfo)> {
+        // If there is no info right, or there is no
+        // info left, there is nothing to split on,
+        // and so we should continue.
+        if (left_gradient == 0.0) && (left_hessian == 0.0)
+            || (right_gradient == 0.0) && (right_hessian == 0.0)
+        {
+            return None;
+        }
+
+        let left_gradient = left_gradient;
+        let left_hessian = left_hessian;
+
+        let right_gradient = right_gradient;
+        let right_hessian = right_hessian;
+
+        let left_weight = constrained_weight(
+            &self.l2,
+            left_gradient,
+            left_hessian,
+            lower_bound,
+            upper_bound,
+            constraint,
+        );
+        let right_weight = constrained_weight(
+            &self.l2,
+            right_gradient,
+            right_hessian,
+            lower_bound,
+            upper_bound,
+            constraint,
+        );
+
+        let left_gain = gain_given_weight(&self.l2, left_gradient, left_hessian, left_weight);
+        let right_gain = gain_given_weight(&self.l2, right_gradient, right_hessian, right_weight);
+
+        // Check the min_hessian constraint first
+        if (right_hessian < self.min_leaf_weight) || (left_hessian < self.min_leaf_weight) {
+            // Update for new value
+            return None;
+        }
+
+        // If we don't want to allow the missing branch to be split further,
+        // we will default to creating an empty branch.
+        let missing_info = // Check Missing direction
+        if ((missing_gradient != 0.0) || (missing_hessian != 0.0)) || !self.allow_missing_splits {
+            MissingInfo::EmptyBranch
+        } else {
+            let missing_weight = weight(&self.get_l2(), missing_gradient, missing_hessian);
+            let missing_gain = gain_given_weight(&self.get_l2(), missing_gradient, missing_hessian, missing_weight);
+            MissingInfo::Branch(
+                NodeInfo {
+                    grad: missing_gradient,
+                    gain: missing_gain,
+                    cover: missing_hessian,
+                    weight: missing_weight * self.learning_rate,
+                    bounds: (f32::NEG_INFINITY, f32::INFINITY),
+                }
+            )
+        };
+
+        if (right_hessian < self.min_leaf_weight) || (left_hessian < self.min_leaf_weight) {
+            // Update for new value
+            return None;
+        }
+        Some((
+            NodeInfo {
+                grad: left_gradient,
+                gain: left_gain,
+                cover: left_hessian,
+                weight: left_weight * self.learning_rate,
+                bounds: (f32::NEG_INFINITY, f32::INFINITY),
+            },
+            NodeInfo {
+                grad: right_gradient,
+                gain: right_gain,
+                cover: right_hessian,
+                weight: right_weight * self.learning_rate,
+                bounds: (f32::NEG_INFINITY, f32::INFINITY),
+            },
+            missing_info,
+        ))
+    }
+
+    fn handle_split_info(
+        &self,
+        split_info: SplitInfo,
+        n_nodes: &usize,
+        node: &mut SplittableNode,
+        index: &mut [usize],
+        data: &Matrix<u16>,
+        cuts: &JaggedMatrix<f64>,
+        grad: &[f32],
+        hess: &[f32],
+        parallel: bool,
+        growable_buffer: &mut VecDeque<usize>,
+    ) -> Vec<TreeNode> {
+        todo!()
+    }
+}
+
+/// Missing imputer splitter
 /// Splitter that imputes missing values, by sending
 /// them down either the right or left branch, depending
 /// on which results in a higher increase in gain.
@@ -47,6 +373,7 @@ pub struct MissingImputerSplitter {
 }
 
 impl MissingImputerSplitter {
+    /// Generate a new missing imputer splitter object.
     pub fn new(
         l2: f32,
         gamma: f32,
@@ -241,6 +568,7 @@ impl Splitter for MissingImputerSplitter {
             MissingInfo::Left => false,
             MissingInfo::Right => true,
             MissingInfo::Branch(_) => todo!(),
+            MissingInfo::EmptyBranch => todo!(),
         };
 
         // We need to move all of the index's above and below our
@@ -331,189 +659,6 @@ impl Splitter for MissingImputerSplitter {
 
     fn get_l2(&self) -> f32 {
         self.l2
-    }
-}
-
-pub trait Splitter {
-    fn get_constraint(&self, feature: &usize) -> Option<&Constraint>;
-    // fn get_allow_missing_splits(&self) -> bool;
-    fn get_gamma(&self) -> f32;
-    fn get_l2(&self) -> f32;
-
-    fn best_split(&self, node: &SplittableNode) -> Option<SplitInfo> {
-        let mut best_split_info = None;
-        let mut best_gain = 0.0;
-        let HistogramMatrix(histograms) = &node.histograms;
-        for i in 0..histograms.cols {
-            let split_info = self.best_feature_split(node, i);
-            match split_info {
-                Some(info) => {
-                    if info.split_gain > best_gain {
-                        best_gain = info.split_gain;
-                        best_split_info = Some(info);
-                    }
-                }
-                None => continue,
-            }
-        }
-        best_split_info
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn evaluate_split(
-        &self,
-        left_gradient: f32,
-        left_hessian: f32,
-        right_gradient: f32,
-        right_hessian: f32,
-        missing_gradient: f32,
-        missing_hessian: f32,
-        lower_bound: f32,
-        upper_bound: f32,
-        constraint: Option<&Constraint>,
-    ) -> Option<(NodeInfo, NodeInfo, MissingInfo)>;
-
-    fn best_feature_split(&self, node: &SplittableNode, feature: usize) -> Option<SplitInfo> {
-        let mut split_info: Option<SplitInfo> = None;
-        let mut max_gain: Option<f32> = None;
-
-        let HistogramMatrix(histograms) = &node.histograms;
-        let histogram = histograms.get_col(feature);
-
-        // We also know we will have a missing bin.
-        let missing = &histogram[0];
-        let mut cuml_grad = 0.0; // first_bin.gradient_sum;
-        let mut cuml_hess = 0.0; // first_bin.hessian_sum;
-        let constraint = self.get_constraint(&feature);
-
-        let elements = histogram.len();
-        assert!(elements == histogram.len());
-
-        for (i, bin) in histogram[1..].iter().enumerate() {
-            let left_gradient = cuml_grad;
-            let left_hessian = cuml_hess;
-            let right_gradient = node.gradient_sum - cuml_grad - missing.gradient_sum;
-            let right_hessian = node.hessian_sum - cuml_hess - missing.hessian_sum;
-
-            let (mut left_node_info, mut right_node_info, missing_info) = match self.evaluate_split(
-                left_gradient,
-                left_hessian,
-                right_gradient,
-                right_hessian,
-                missing.gradient_sum,
-                missing.hessian_sum,
-                node.lower_bound,
-                node.upper_bound,
-                constraint,
-            ) {
-                None => {
-                    cuml_grad += bin.gradient_sum;
-                    cuml_hess += bin.hessian_sum;
-                    continue;
-                }
-                Some(v) => v,
-            };
-
-            let split_gain =
-                (left_node_info.gain + right_node_info.gain - node.gain_value) - self.get_gamma();
-
-            // Check monotonicity holds
-            let split_gain = cull_gain(
-                split_gain,
-                left_node_info.weight,
-                right_node_info.weight,
-                constraint,
-            );
-
-            if split_gain <= 0.0 {
-                // Update for new value
-                cuml_grad += bin.gradient_sum;
-                cuml_hess += bin.hessian_sum;
-                continue;
-            }
-
-            let mid = (left_node_info.weight + right_node_info.weight) / 2.0;
-            let (left_bounds, right_bounds) = match constraint {
-                None | Some(Constraint::Unconstrained) => (
-                    (node.lower_bound, node.upper_bound),
-                    (node.lower_bound, node.upper_bound),
-                ),
-                Some(Constraint::Negative) => ((mid, node.upper_bound), (node.lower_bound, mid)),
-                Some(Constraint::Positive) => ((node.lower_bound, mid), (mid, node.upper_bound)),
-            };
-            left_node_info.bounds = left_bounds;
-            right_node_info.bounds = right_bounds;
-
-            // If split gain is NaN, one of the sides is empty, do not allow
-            // this split.
-            let split_gain = if split_gain.is_nan() { 0.0 } else { split_gain };
-            if max_gain.is_none() || split_gain > max_gain.unwrap() {
-                max_gain = Some(split_gain);
-                split_info = Some(SplitInfo {
-                    split_gain,
-                    split_feature: feature,
-                    split_value: bin.cut_value,
-                    split_bin: (i + 1) as u16,
-                    left_node: left_node_info,
-                    right_node: right_node_info,
-                    missing_node: missing_info,
-                });
-            }
-            // Update for new value
-            cuml_grad += bin.gradient_sum;
-            cuml_hess += bin.hessian_sum;
-        }
-        split_info
-    }
-
-    /// Handle the split info, creating the children nodes, for the provided nodes
-    /// push them onto the growable stack.
-    /// Return a tuple, where the first value is the number of nodes pushed onto the
-    /// growable stack, and the second value is the number of potential leaves
-    /// that have been added.
-    #[allow(clippy::too_many_arguments)]
-    fn handle_split_info(
-        &self,
-        split_info: SplitInfo,
-        n_nodes: &usize,
-        node: &mut SplittableNode,
-        index: &mut [usize],
-        data: &Matrix<u16>,
-        cuts: &JaggedMatrix<f64>,
-        grad: &[f32],
-        hess: &[f32],
-        parallel: bool,
-        growable_buffer: &mut VecDeque<usize>,
-    ) -> Vec<TreeNode>;
-
-    #[allow(clippy::too_many_arguments)]
-    fn split_node(
-        &self,
-        n_nodes: &usize,
-        node: &mut SplittableNode,
-        index: &mut [usize],
-        data: &Matrix<u16>,
-        cuts: &JaggedMatrix<f64>,
-        grad: &[f32],
-        hess: &[f32],
-        parallel: bool,
-        growable_buffer: &mut VecDeque<usize>,
-    ) -> Vec<TreeNode> {
-        match self.best_split(node) {
-            Some(split_info) => self.handle_split_info(
-                split_info,
-                n_nodes,
-                node,
-                index,
-                data,
-                cuts,
-                grad,
-                hess,
-                parallel,
-                growable_buffer,
-            ),
-            None => Vec::new(),
-        }
     }
 }
 
