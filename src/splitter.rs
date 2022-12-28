@@ -342,6 +342,7 @@ impl Splitter for MissingBranchSplitter {
         ))
     }
 
+    #[allow(unused)]
     fn handle_split_info(
         &self,
         split_info: SplitInfo,
