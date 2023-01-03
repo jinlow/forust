@@ -24,7 +24,7 @@ jobs:
           cp README.md py-forust/README.md
           cp LICENSE py-forust/LICENSE
       - name: Build test data
-        run: python resources/make_resources.py
+        run: python scripts/make_resources.py
       - name: Run Cargo tests
         uses: actions-rs/cargo@v1
         with:
@@ -77,7 +77,7 @@ jobs:
           cp README.md py-forust/README.md
           cp LICENSE py-forust/LICENSE
       - name: Build test data
-        run: python resources/make_resources.py
+        run: python scripts/make_resources.py
       - name: Run Cargo tests
         uses: actions-rs/cargo@v1
         with:
@@ -132,7 +132,7 @@ jobs:
           cp README.md py-forust/README.md
           cp LICENSE py-forust/LICENSE
       - name: Build test data
-        run: python resources/make_resources.py
+        run: python scripts/make_resources.py
       - name: Run Cargo tests
         uses: actions-rs/cargo@v1
         with:
