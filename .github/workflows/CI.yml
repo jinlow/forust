@@ -5,7 +5,7 @@ jobs:
   windows-build-tests:
     strategy:
       matrix:
-        pyversion: ["3.8", "3.9", "3.10"]
+        pyversion: ["3.8", "3.9", "3.10", "3.11"]
     runs-on: "windows-latest"
     steps:
       - uses: actions/checkout@v2
@@ -58,7 +58,7 @@ jobs:
   macos-build-test:
     strategy:
       matrix:
-        pyversion: ["3.8", "3.9", "3.10"]
+        pyversion: ["3.8", "3.9", "3.10", "3.11"]
     runs-on: "macos-latest"
     steps:
       - uses: actions/checkout@v2
@@ -113,7 +113,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pyversion: ["3.8", "3.9", "3.10"]
+        pyversion: ["3.8", "3.9", "3.10", "3.11"]
         # target: [x86_64, i686]
     steps:
       - uses: actions/checkout@v2
