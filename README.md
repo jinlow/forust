@@ -26,7 +26,7 @@ pip install forust
 
 To use in a rust project add the following to your Cargo.toml file.
 ```toml
-forust-ml = "0.1.8"
+forust-ml = "0.2.0"
 ```
 
 ## Usage
