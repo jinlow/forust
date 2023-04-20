@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Bin<T> {
     /// The sum of the gradient for this bin.
-    pub grad_sum: T,
+    pub gradient_sum: T,
     /// The sum of the hession values for this bin.
-    pub hess_sum: T,
+    pub hessian_sum: T,
     /// The value used to split at, this is for deciding
     /// the split value for non-binned values.
     /// This value will be missing for the missing bin.
@@ -18,16 +18,34 @@ pub struct Bin<T> {
 impl Bin<f32> {
     pub fn new_f32(cut_value: f64) -> Self {
         Bin {
-            grad_sum: f32::ZERO,
-            hess_sum: f32::ZERO,
+            gradient_sum: f32::ZERO,
+            hessian_sum: f32::ZERO,
             cut_value,
         }
     }
 
+    /// Calculate a new bin, using the subtraction trick on the parent bin,
+    /// and the child bin.
     pub fn from_parent_child(root_bin: &Bin<f32>, child_bin: &Bin<f32>) -> Self {
         Bin {
-            grad_sum: root_bin.grad_sum - child_bin.grad_sum,
-            hess_sum: root_bin.hess_sum - child_bin.hess_sum,
+            gradient_sum: root_bin.gradient_sum - child_bin.gradient_sum,
+            hessian_sum: root_bin.hessian_sum - child_bin.hessian_sum,
+            cut_value: root_bin.cut_value,
+        }
+    }
+
+    /// Calculate a new bin, using the subtraction trick when the parent node
+    /// has three directions, left, right, and missing.
+    pub fn from_parent_two_children(
+        root_bin: &Bin<f32>,
+        first_child_bin: &Bin<f32>,
+        second_child_bin: &Bin<f32>,
+    ) -> Self {
+        Bin {
+            gradient_sum: root_bin.gradient_sum
+                - (first_child_bin.gradient_sum + second_child_bin.gradient_sum),
+            hessian_sum: root_bin.hessian_sum
+                - (first_child_bin.hessian_sum + second_child_bin.hessian_sum),
             cut_value: root_bin.cut_value,
         }
     }
@@ -36,16 +54,16 @@ impl Bin<f32> {
 impl Bin<f64> {
     pub fn new_f64(cut_value: f64) -> Self {
         Bin {
-            grad_sum: f64::ZERO,
-            hess_sum: f64::ZERO,
+            gradient_sum: f64::ZERO,
+            hessian_sum: f64::ZERO,
             cut_value,
         }
     }
 
     pub fn as_f32_bin(&self) -> Bin<f32> {
         Bin {
-            grad_sum: self.grad_sum as f32,
-            hess_sum: self.hess_sum as f32,
+            gradient_sum: self.gradient_sum as f32,
+            hessian_sum: self.hessian_sum as f32,
             cut_value: self.cut_value,
         }
     }
@@ -75,8 +93,8 @@ pub fn create_feature_histogram(
         .zip(sorted_hess)
         .for_each(|((i, g), h)| {
             if let Some(v) = histogram.get_mut(feature[*i] as usize) {
-                v.grad_sum += f64::from(*g);
-                v.hess_sum += f64::from(*h);
+                v.gradient_sum += f64::from(*g);
+                v.hessian_sum += f64::from(*h);
             }
         });
     histogram.iter().map(|b| b.as_f32_bin()).collect()
@@ -146,6 +164,9 @@ impl HistogramMatrix {
         })
     }
 
+    /// Calculate the histogram matrix, for a child, given the parent histogram
+    /// matrix, and the other child histogram matrix. This should be used
+    /// when the node has only two possible splits, left and right.
     pub fn from_parent_child(
         root_histogram: &HistogramMatrix,
         child_histogram: &HistogramMatrix,
@@ -163,6 +184,34 @@ impl HistogramMatrix {
             ends: child.ends.to_owned(),
             cols: child.cols,
             n_records: child.n_records,
+        })
+    }
+
+    /// Calculate the histogram matrix for a child, given the parent histogram
+    /// and two other child histograms. This should be used with the node has
+    /// three possible split paths, right, left, and missing.
+    pub fn from_parent_two_children(
+        root_histogram: &HistogramMatrix,
+        first_child_histogram: &HistogramMatrix,
+        second_child_histogram: &HistogramMatrix,
+    ) -> Self {
+        let HistogramMatrix(root) = root_histogram;
+        let HistogramMatrix(first_child) = first_child_histogram;
+        let HistogramMatrix(second_child) = second_child_histogram;
+        let histograms = root
+            .data
+            .iter()
+            .zip(first_child.data.iter())
+            .zip(second_child.data.iter())
+            .map(|((root_bin, first_child_bin), second_child_bin)| {
+                Bin::from_parent_two_children(root_bin, first_child_bin, second_child_bin)
+            })
+            .collect();
+        HistogramMatrix(JaggedMatrix {
+            data: histograms,
+            ends: first_child.ends.to_owned(),
+            cols: first_child.cols,
+            n_records: first_child.n_records,
         })
     }
 }

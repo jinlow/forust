@@ -178,7 +178,7 @@ where
     T: Copy,
 {
     /// Generate a jagged array from a vector of vectors
-    pub fn from_vecs(vecs: &Vec<Vec<T>>) -> Self {
+    pub fn from_vecs(vecs: &[Vec<T>]) -> Self {
         let mut data = Vec::new();
         let mut ends = Vec::new();
         let mut e = 0;

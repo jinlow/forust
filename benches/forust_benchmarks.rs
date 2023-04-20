@@ -4,10 +4,11 @@ use forust_ml::constraints::ConstraintMap;
 use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::GradientBooster;
 use forust_ml::objective::{LogLoss, ObjectiveFunction};
-use forust_ml::splitter::Splitter;
+use forust_ml::splitter::MissingImputerSplitter;
 use forust_ml::tree::Tree;
 use forust_ml::utils::{fast_f64_sum, fast_sum, naive_sum};
 use std::fs;
+use std::time::Duration;
 
 pub fn tree_benchmarks(c: &mut Criterion) {
     let file = fs::read_to_string("resources/contiguous_no_missing_100k_samp_seed0.csv")
@@ -35,13 +36,12 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     });
 
     let data = Matrix::new(&data_vec, y.len(), 5);
-    let splitter = Splitter {
+    let splitter = MissingImputerSplitter {
         l2: 1.0,
         gamma: 3.0,
         min_leaf_weight: 1.0,
         learning_rate: 0.3,
         allow_missing_splits: true,
-        impute_missing: true,
         constraints_map: ConstraintMap::new(),
     };
     let mut tree = Tree::new();
@@ -70,8 +70,8 @@ pub fn tree_benchmarks(c: &mut Criterion) {
                 black_box(&h),
                 black_box(&splitter),
                 black_box(usize::MAX),
-                black_box(5),
-                black_box(true),
+                black_box(10),
+                black_box(false),
             );
         })
     });
@@ -84,9 +84,13 @@ pub fn tree_benchmarks(c: &mut Criterion) {
 
     // Gradient Booster
     // Bench building
-    c.bench_function("Train Booster", |b| {
+    let mut booster_train = c.benchmark_group("train-booster");
+    booster_train.warm_up_time(Duration::from_secs(10));
+    booster_train.sample_size(50);
+    // booster_train.sampling_mode(SamplingMode::Linear);
+    booster_train.bench_function("Train Booster", |b| {
         b.iter(|| {
-            let mut booster = GradientBooster::default();
+            let mut booster = GradientBooster::default().set_parallel(false);
             booster
                 .fit(black_box(&data), black_box(&y), black_box(&w))
                 .unwrap();
@@ -94,8 +98,8 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     });
     let mut booster = GradientBooster::default();
     booster.fit(&data, &y, &w).unwrap();
-    c.bench_function("Predict Booster", |b| {
-        b.iter(|| booster.predict(black_box(&data), true))
+    booster_train.bench_function("Predict Booster", |b| {
+        b.iter(|| booster.predict(black_box(&data), false))
     });
 }
 

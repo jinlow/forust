@@ -9,7 +9,7 @@ name = "forust"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.17.1", features = ["extension-module"] }
+pyo3 = { version = "0.17", features = ["extension-module"] }
 forust-ml = { version="0.1.8", path="../" }
 numpy = "0.17.2"
 ndarray = "0.15.1"

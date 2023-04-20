@@ -48,7 +48,6 @@ impl GradientBooster {
         nbins: u16,
         parallel: bool,
         allow_missing_splits: bool,
-        impute_missing: bool,
         monotone_constraints: HashMap<usize, i8>,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
@@ -70,7 +69,6 @@ impl GradientBooster {
             nbins,
             parallel,
             allow_missing_splits,
-            impute_missing,
             Some(constraints),
         );
         Ok(GradientBooster { booster })
@@ -198,7 +196,6 @@ impl GradientBooster {
                 "allow_missing_splits",
                 self.booster.allow_missing_splits.to_object(py),
             ),
-            ("impute_missing", self.booster.impute_missing.to_object(py)),
             ("monotone_constraints", constraints.to_object(py)),
         ];
         let dict = key_vals.into_py_dict(py);

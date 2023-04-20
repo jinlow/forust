@@ -61,7 +61,6 @@ It can be initialized with the following arguments.
  - `parallel` ***(bool, optional)***: Should multiple cores be used when training and predicting
     with this model? Defaults to `True`.
  - `allow_missing_splits` ***(bool, optional)***: Allow for splits to be made such that all missing values go down one branch, and all non-missing values go down the other, if this results in the greatest reduction of loss. If this is false, splits will only be made on non missing values. Defaults to `True`.
- - `impute_missing` ***(bool, optional)***: Automatically impute missing values, such that at every split the model learns the best direction to send missing values. If this is false, all missing values will default to right branch. Defaults to `True`.
  - `monotone_constraints` ***(dict[Any, int], optional)***: Constraints that are used to enforce a specific relationship between the training features and the target variable. A dictionary should be provided where the keys are the feature index value if the model will be fit on a numpy array, or a feature name if it will be fit on a pandas Dataframe. The values of the dictionary should be an integer value of -1, 1, or 0 to specify the relationship that should be estimated between the respective feature and the target variable. Use a value of -1 to enforce a negative relationship, 1 a positive relationship, and 0 will enforce no specific relationship at all. Features not included in the mapping will not have any constraint applied. If `None` is passed no constraints will be enforced on any variable.  Defaults to `None`.
 
 ### Training and Predicting
@@ -176,13 +175,3 @@ trained_model.save_booster("model_path.json")
 # To load a model from a json path.
 loaded_model = GradientBooster.load_model("model_path.json")
 ```
-
-## TODOs
-This is still a work in progress
-- [ ] Early stopping rounds
-    * We should be able to accept a validation dataset, and this should be able to be used to determine when to stop training.
-- [X] Monotonicity support
-    * Right now features are used in the model without any constraints.
-- [X] Ability to save a model.
-    * The way the underlying trees are structured, they would lend themselves to being saved as JSon objects.
-- [ ] Clean up the CICD pipeline.

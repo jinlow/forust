@@ -11,8 +11,8 @@ use crate::tree::Tree;
 
 fn get_node_cover(tree: &Tree, node_idx: usize) -> f32 {
     match &tree.nodes[node_idx] {
-        TreeNode::Leaf(n) => n.hess_sum,
-        TreeNode::Parent(n) => n.hess_sum,
+        TreeNode::Leaf(n) => n.hessian_sum,
+        TreeNode::Parent(n) => n.hessian_sum,
         TreeNode::Splittable(_) => unreachable!(),
     }
 }
@@ -30,11 +30,7 @@ pub fn tree_partial_dependence(
         TreeNode::Parent(n) => {
             if n.split_feature == feature {
                 let child = if value.is_nan() {
-                    if n.missing_right {
-                        n.right_child
-                    } else {
-                        n.left_child
-                    }
+                    n.missing_node
                 } else if value < n.split_value {
                     n.left_child
                 } else {
@@ -42,7 +38,6 @@ pub fn tree_partial_dependence(
                 };
                 tree_partial_dependence(tree, child, feature, value, proportion)
             } else {
-                // Left cover
                 let left_cover = get_node_cover(tree, n.left_child);
                 let right_cover = get_node_cover(tree, n.right_child);
                 let total_cover = left_cover + right_cover;
@@ -73,7 +68,7 @@ mod tests {
     use crate::constraints::ConstraintMap;
     use crate::data::Matrix;
     use crate::objective::{LogLoss, ObjectiveFunction};
-    use crate::splitter::Splitter;
+    use crate::splitter::MissingImputerSplitter;
     use crate::tree::Tree;
     use std::fs;
     #[test]
@@ -90,13 +85,12 @@ mod tests {
         let h = LogLoss::calc_hess(&y, &yhat, &w);
 
         let data = Matrix::new(&data_vec, 891, 5);
-        let splitter = Splitter {
+        let splitter = MissingImputerSplitter {
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
             allow_missing_splits: true,
-            impute_missing: true,
             constraints_map: ConstraintMap::new(),
         };
         let mut tree = Tree::new();
