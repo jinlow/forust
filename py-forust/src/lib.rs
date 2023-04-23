@@ -112,6 +112,22 @@ impl GradientBooster {
         let parallel = parallel.unwrap_or(true);
         Ok(self.booster.predict(&data, parallel).into_pyarray(py))
     }
+    pub fn predict_contributions<'py>(
+        &self,
+        py: Python<'py>,
+        flat_data: PyReadonlyArray1<f64>,
+        rows: usize,
+        cols: usize,
+        parallel: Option<bool>,
+    ) -> PyResult<&'py PyArray1<f64>> {
+        let flat_data = flat_data.as_slice()?;
+        let data = Matrix::new(flat_data, rows, cols);
+        let parallel = parallel.unwrap_or(true);
+        Ok(self
+            .booster
+            .predict_contributions(&data, parallel)
+            .into_pyarray(py))
+    }
 
     pub fn value_partial_dependence(&self, feature: usize, value: f64) -> PyResult<f64> {
         Ok(self.booster.value_partial_dependence(feature, value))

@@ -23,10 +23,11 @@ pub struct SplittableNode {
     pub stop_idx: usize,
     pub lower_bound: f32,
     pub upper_bound: f32,
+    pub is_leaf: bool,
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct ParentNode {
+pub struct Node {
     pub num: usize,
     pub weight_value: f32,
     pub hessian_sum: f32,
@@ -37,6 +38,32 @@ pub struct ParentNode {
     pub missing_node: usize,
     pub left_child: usize,
     pub right_child: usize,
+    pub is_leaf: bool,
+}
+
+impl Node {
+    /// Update all the info that is needed if this node is a
+    /// parent node, this consumes the SplitableNode.
+    pub fn make_parent_node(&mut self, split_node: SplittableNode) {
+        self.is_leaf = false;
+        self.missing_node = split_node.missing_node;
+        self.split_value = split_node.split_value;
+        self.split_feature = split_node.split_feature;
+        self.split_gain = split_node.split_gain;
+        self.left_child = split_node.left_child;
+        self.right_child = split_node.right_child;
+    }
+    /// Get the path that should be traveled down, given a value.
+    pub fn get_child_idx(&self, v: &f64) -> usize {
+        if v.is_nan() {
+            self.missing_node
+        } else if v < &self.split_value {
+            self.left_child
+        } else {
+            //  if v >= &self.split_value
+            self.right_child
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -45,13 +72,6 @@ pub struct LeafNode {
     pub weight_value: f32,
     pub hessian_sum: f32,
     pub depth: usize,
-}
-
-#[derive(Deserialize, Serialize)]
-pub enum TreeNode {
-    Parent(ParentNode),
-    Leaf(LeafNode),
-    Splittable(SplittableNode),
 }
 
 impl SplittableNode {
@@ -81,9 +101,12 @@ impl SplittableNode {
             stop_idx,
             lower_bound: node_info.bounds.0,
             upper_bound: node_info.bounds.1,
+            is_leaf: true,
         }
     }
 
+    /// Create a default splitable node,
+    /// we default to the node being a leaf.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         num: usize,
@@ -116,6 +139,7 @@ impl SplittableNode {
             stop_idx,
             lower_bound,
             upper_bound,
+            is_leaf: true,
         }
     }
 
@@ -136,17 +160,10 @@ impl SplittableNode {
             MissingInfo::Branch(_) => todo!(),
             MissingInfo::EmptyBranch => todo!(),
         };
+        self.is_leaf = false;
     }
-    pub fn as_leaf_node(&self) -> TreeNode {
-        TreeNode::Leaf(LeafNode {
-            num: self.num,
-            weight_value: self.weight_value,
-            hessian_sum: self.hessian_sum,
-            depth: self.depth,
-        })
-    }
-    pub fn as_parent_node(&self) -> TreeNode {
-        TreeNode::Parent(ParentNode {
+    pub fn as_node(&self) -> Node {
+        Node {
             num: self.num,
             weight_value: self.weight_value,
             hessian_sum: self.hessian_sum,
@@ -157,47 +174,33 @@ impl SplittableNode {
             split_gain: self.split_gain,
             left_child: self.left_child,
             right_child: self.right_child,
-        })
+            is_leaf: self.is_leaf,
+        }
     }
 }
 
-impl fmt::Display for TreeNode {
+impl fmt::Display for Node {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            TreeNode::Leaf(leaf) => write!(
+        if self.is_leaf {
+            write!(
                 f,
                 "{}:leaf={},cover={}",
-                leaf.num, leaf.weight_value, leaf.hessian_sum
-            ),
-            TreeNode::Parent(parent) => {
-                write!(
-                    f,
-                    "{}:[{} < {}] yes={},no={},missing={},gain={},cover={}",
-                    parent.num,
-                    parent.split_feature,
-                    parent.split_value,
-                    parent.left_child,
-                    parent.right_child,
-                    parent.missing_node,
-                    parent.split_gain,
-                    parent.hessian_sum
-                )
-            }
-            TreeNode::Splittable(node) => {
-                write!(
-                    f,
-                    "SPLITTABLE - {}:[{} < {}] yes={},no={},missing={},gain={},cover={}",
-                    node.num,
-                    node.split_feature,
-                    node.split_value,
-                    node.missing_node,
-                    node.left_child,
-                    node.right_child,
-                    node.split_gain,
-                    node.hessian_sum
-                )
-            }
+                self.num, self.weight_value, self.hessian_sum
+            )
+        } else {
+            write!(
+                f,
+                "{}:[{} < {}] yes={},no={},missing={},gain={},cover={}",
+                self.num,
+                self.split_feature,
+                self.split_value,
+                self.left_child,
+                self.right_child,
+                self.missing_node,
+                self.split_gain,
+                self.hessian_sum
+            )
         }
     }
 }

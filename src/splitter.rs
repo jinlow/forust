@@ -1,10 +1,7 @@
-use std::collections::VecDeque;
-
 use crate::constraints::{Constraint, ConstraintMap};
 use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
 use crate::node::SplittableNode;
-use crate::node::TreeNode;
 use crate::utils::{constrained_weight, cull_gain, gain_given_weight, pivot_on_split, weight};
 
 #[derive(Debug)]
@@ -186,8 +183,7 @@ pub trait Splitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
-        growable_buffer: &mut VecDeque<usize>,
-    ) -> Vec<TreeNode>;
+    ) -> Vec<SplittableNode>;
 
     #[allow(clippy::too_many_arguments)]
     fn split_node(
@@ -200,20 +196,10 @@ pub trait Splitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
-        growable_buffer: &mut VecDeque<usize>,
-    ) -> Vec<TreeNode> {
+    ) -> Vec<SplittableNode> {
         match self.best_split(node) {
             Some(split_info) => self.handle_split_info(
-                split_info,
-                n_nodes,
-                node,
-                index,
-                data,
-                cuts,
-                grad,
-                hess,
-                parallel,
-                growable_buffer,
+                split_info, n_nodes, node, index, data, cuts, grad, hess, parallel,
             ),
             None => Vec::new(),
         }
@@ -354,8 +340,7 @@ impl Splitter for MissingBranchSplitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
-        growable_buffer: &mut VecDeque<usize>,
-    ) -> Vec<TreeNode> {
+    ) -> Vec<SplittableNode> {
         todo!()
     }
 }
@@ -560,8 +545,7 @@ impl Splitter for MissingImputerSplitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
-        growable_buffer: &mut VecDeque<usize>,
-    ) -> Vec<TreeNode> {
+    ) -> Vec<SplittableNode> {
         let left_idx = *n_nodes;
         let right_idx = left_idx + 1;
 
@@ -641,13 +625,7 @@ impl Splitter for MissingImputerSplitter {
             node.stop_idx,
             split_info.right_node,
         );
-        growable_buffer.push_front(left_idx);
-        growable_buffer.push_front(right_idx);
-        // It has children, so we know it's going to be a parent node
-        vec![
-            TreeNode::Splittable(left_node),
-            TreeNode::Splittable(right_node),
-        ]
+        vec![left_node, right_node]
     }
 
     fn get_constraint(&self, feature: &usize) -> Option<&Constraint> {

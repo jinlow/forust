@@ -35,6 +35,15 @@ class BoosterType:
     ) -> np.ndarray:
         raise NotImplementedError()
 
+    def predict_contributions(
+        self,
+        flat_data: np.ndarray,
+        rows: int,
+        cols: int,
+        parallel: bool = True,
+    ) -> np.ndarray:
+        raise NotImplementedError
+
     def value_partial_dependence(
         self,
         feature: int,
@@ -237,6 +246,37 @@ class GradientBooster:
             cols=cols,
             parallel=parallel_,
         )
+
+    def predict_contributions(
+        self, X: FrameLike, parallel: Union[bool, None] = None
+    ) -> np.ndarray:
+        """Predict with the fitted booster on new data, returning the feature
+        contribution matrix. The last column is the bias term.
+
+        Args:
+            X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
+            parallel (Union[bool, None], optional): Optionally specify if the predict
+                function should run in parallel on multiple threads. If `None` is
+                passed, the `parallel` attribute of the booster will be used.
+                Defaults to `None`.
+
+        Returns:
+            np.ndarray: Returns a numpy array of the predictions.
+        """
+        X_ = X.to_numpy() if isinstance(X, pd.DataFrame) else X
+        if not np.issubdtype(X_.dtype, "float64"):
+            X_ = X_.astype(dtype="float64", copy=False)
+
+        parallel_ = self.parallel if parallel is None else parallel
+        flat_data = X_.ravel(order="F")
+        rows, cols = X_.shape
+        contributions = self.booster.predict_contributions(
+            flat_data=flat_data,
+            rows=rows,
+            cols=cols,
+            parallel=parallel_,
+        )
+        return np.reshape(contributions, (X_.shape[0], X_.shape[1] + 1))
 
     def partial_dependence(self, X: FrameLike, feature: Union[str, int]) -> np.ndarray:
         """Calculate the partial dependence values of a feature. For each unique

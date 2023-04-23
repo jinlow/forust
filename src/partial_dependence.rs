@@ -1,4 +1,3 @@
-use crate::node::TreeNode;
 use crate::tree::Tree;
 
 /// Partial Dependence Calculator
@@ -10,11 +9,7 @@ use crate::tree::Tree;
 // }
 
 fn get_node_cover(tree: &Tree, node_idx: usize) -> f32 {
-    match &tree.nodes[node_idx] {
-        TreeNode::Leaf(n) => n.hessian_sum,
-        TreeNode::Parent(n) => n.hessian_sum,
-        TreeNode::Splittable(_) => unreachable!(),
-    }
+    tree.nodes[node_idx].hessian_sum
 }
 
 pub fn tree_partial_dependence(
@@ -24,40 +19,35 @@ pub fn tree_partial_dependence(
     value: f64,
     proportion: f32,
 ) -> f64 {
-    let node = &tree.nodes[node_idx];
-    match node {
-        TreeNode::Leaf(n) => f64::from(proportion * n.weight_value),
-        TreeNode::Parent(n) => {
-            if n.split_feature == feature {
-                let child = if value.is_nan() {
-                    n.missing_node
-                } else if value < n.split_value {
-                    n.left_child
-                } else {
-                    n.right_child
-                };
-                tree_partial_dependence(tree, child, feature, value, proportion)
-            } else {
-                let left_cover = get_node_cover(tree, n.left_child);
-                let right_cover = get_node_cover(tree, n.right_child);
-                let total_cover = left_cover + right_cover;
-
-                tree_partial_dependence(
-                    tree,
-                    n.left_child,
-                    feature,
-                    value,
-                    proportion * (left_cover / total_cover),
-                ) + tree_partial_dependence(
-                    tree,
-                    n.right_child,
-                    feature,
-                    value,
-                    proportion * (right_cover / total_cover),
-                )
-            }
-        }
-        TreeNode::Splittable(_) => unreachable!(),
+    let n = &tree.nodes[node_idx];
+    if n.is_leaf {
+        f64::from(proportion * n.weight_value)
+    } else if n.split_feature == feature {
+        let child = if value.is_nan() {
+            n.missing_node
+        } else if value < n.split_value {
+            n.left_child
+        } else {
+            n.right_child
+        };
+        tree_partial_dependence(tree, child, feature, value, proportion)
+    } else {
+        let left_cover = get_node_cover(tree, n.left_child);
+        let right_cover = get_node_cover(tree, n.right_child);
+        let total_cover = left_cover + right_cover;
+        tree_partial_dependence(
+            tree,
+            n.left_child,
+            feature,
+            value,
+            proportion * (left_cover / total_cover),
+        ) + tree_partial_dependence(
+            tree,
+            n.right_child,
+            feature,
+            value,
+            proportion * (right_cover / total_cover),
+        )
     }
 }
 

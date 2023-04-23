@@ -5,6 +5,7 @@ use crate::errors::ForustError;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
 use crate::splitter::MissingImputerSplitter;
 use crate::tree::Tree;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -215,6 +216,28 @@ impl GradientBooster {
         init_preds
     }
 
+    /// Generate predictions on data using the gradient booster.
+    ///
+    /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
+    pub fn predict_contributions(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
+        let weights: Vec<Vec<f64>> = if parallel {
+            self.trees
+                .par_iter()
+                .map(|t| t.distribute_leaf_weights())
+                .collect()
+        } else {
+            self.trees
+                .iter()
+                .map(|t| t.distribute_leaf_weights())
+                .collect()
+        };
+        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
+        self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
+            t.predict_contributions(data, &mut contribs, w, parallel);
+        });
+        contribs
+    }
+
     /// Given a value, return the partial dependence value of that value for that
     /// feature in the model.
     ///
@@ -390,6 +413,8 @@ mod tests {
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight).unwrap();
         let preds = booster.predict(&data, false);
+        let contribs = booster.predict_contributions(&data, false);
+        assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
         println!("{}", booster.trees[0]);
         println!("{}", booster.trees[0].nodes.len());
         println!("{}", booster.trees.last().unwrap().nodes.len());
