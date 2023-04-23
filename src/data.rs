@@ -119,6 +119,14 @@ impl<'a, T> Matrix<'a, T> {
         idx
     }
 
+    /// Get access to a row of the data, as an iterator.
+    pub fn get_row_iter(
+        &self,
+        row: usize,
+    ) -> std::iter::StepBy<std::iter::Skip<std::slice::Iter<T>>> {
+        self.data.iter().skip(row).step_by(self.rows)
+    }
+
     /// Get a slice of a column in the matrix.
     ///
     /// * `col` - The index of the column to select.
@@ -135,6 +143,16 @@ impl<'a, T> Matrix<'a, T> {
     /// * `col` - The index of the column to get.
     pub fn get_col(&self, col: usize) -> &[T] {
         self.get_col_slice(col, 0, self.rows)
+    }
+}
+
+impl<'a, T> Matrix<'a, T>
+where
+    T: Copy,
+{
+    /// Get a row of the data as a vector.
+    pub fn get_row(&self, row: usize) -> Vec<T> {
+        self.get_row_iter(row).copied().collect()
     }
 }
 
@@ -227,7 +245,6 @@ impl<T> JaggedMatrix<T> {
             n_records: 0,
         }
     }
-
     /// Get the column of a jagged array.
     pub fn get_col(&self, col: usize) -> &[T] {
         assert!(col < self.ends.len());
@@ -283,6 +300,15 @@ mod tests {
         let v = vec![1, 2, 3, 5, 6, 7];
         let m = Matrix::new(&v, 3, 2);
         assert_eq!(m.get_col(1), &vec![5, 6, 7]);
+    }
+
+    #[test]
+    fn test_matrix_row() {
+        let v = vec![1, 2, 3, 5, 6, 7];
+        let m = Matrix::new(&v, 3, 2);
+        assert_eq!(m.get_row(2), vec![3, 7]);
+        assert_eq!(m.get_row(0), vec![1, 5]);
+        assert_eq!(m.get_row(1), vec![2, 6]);
     }
 
     #[test]

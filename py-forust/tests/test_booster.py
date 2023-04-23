@@ -278,7 +278,7 @@ def test_booster_to_xgboosts_with_contributions(X_y):
         objective_type="LogLoss",
         nbins=500,
         parallel=False,
-        base_score=0.0,
+        base_score=0.5,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -299,7 +299,7 @@ def test_booster_to_xgboosts_with_contributions(X_y):
         eval_metric="auc",
         tree_method="hist",
         max_bin=10000,
-        base_score=0.0,
+        base_score=0.5,
     )
     xmod.fit(X, y)
     xmod_preds = xmod.predict(X, output_margin=True)

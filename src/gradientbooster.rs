@@ -216,6 +216,30 @@ impl GradientBooster {
         init_preds
     }
 
+    // pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
+    //     // After we disconvered it's faster materializing the row once, and then
+    //     // Passing that to each tree, let's see if we can do the same with the booster
+    //     // prediction...
+    //     // Clean this up..
+    //     let mut init_preds = vec![self.base_score; data.rows];
+    //     if parallel {
+    //         init_preds.par_iter_mut().enumerate().for_each(|(i, p)| {
+    //             let pred_row = data.get_row(i);
+    //             for t in &self.trees {
+    //                 *p += t.predict_row_from_row_slice(&pred_row);
+    //             }
+    //         });
+    //     } else {
+    //         init_preds.iter_mut().enumerate().for_each(|(i, p)| {
+    //             let pred_row = data.get_row(i);
+    //             for t in &self.trees {
+    //                 *p += t.predict_row_from_row_slice(&pred_row);
+    //             }
+    //         });
+    //     }
+    //     init_preds
+    // }
+
     /// Generate predictions on data using the gradient booster.
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
@@ -232,9 +256,38 @@ impl GradientBooster {
                 .collect()
         };
         let mut contribs = vec![0.; (data.cols + 1) * data.rows];
-        self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
-            t.predict_contributions(data, &mut contribs, w, parallel);
-        });
+
+        // Add the bias term to every bias value...
+        let bias_idx = data.cols + 1;
+        contribs
+            .iter_mut()
+            .skip(bias_idx - 1)
+            .step_by(bias_idx)
+            .for_each(|v| *v += self.base_score);
+
+        // Clean this up..
+        if parallel {
+            data.index
+                .par_iter()
+                .zip(contribs.par_chunks_mut(data.cols + 1))
+                .for_each(|(row, c)| {
+                    let r_ = data.get_row(*row);
+                    self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
+                        t.predict_contributions_row(data, &r_, c, w);
+                    });
+                });
+        } else {
+            data.index
+                .iter()
+                .zip(contribs.chunks_mut(data.cols + 1))
+                .for_each(|(row, c)| {
+                    let r_ = data.get_row(*row);
+                    self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
+                        t.predict_contributions_row(data, &r_, c, w);
+                    });
+                });
+        }
+
         contribs
     }
 
