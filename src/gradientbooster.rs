@@ -266,6 +266,9 @@ impl GradientBooster {
             .for_each(|v| *v += self.base_score);
 
         // Clean this up..
+        // materializing a row, and then passing that to all of the
+        // trees seems to be the fastest approach (5X faster), we should test
+        // something like this for normal predictions.
         if parallel {
             data.index
                 .par_iter()
@@ -273,7 +276,7 @@ impl GradientBooster {
                 .for_each(|(row, c)| {
                     let r_ = data.get_row(*row);
                     self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
-                        t.predict_contributions_row(data, &r_, c, w);
+                        t.predict_contributions_row(&r_, c, w);
                     });
                 });
         } else {
@@ -283,7 +286,7 @@ impl GradientBooster {
                 .for_each(|(row, c)| {
                     let r_ = data.get_row(*row);
                     self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
-                        t.predict_contributions_row(data, &r_, c, w);
+                        t.predict_contributions_row(&r_, c, w);
                     });
                 });
         }

@@ -118,15 +118,9 @@ impl Tree {
             }
         }
     }
-    pub fn predict_contributions_row(
-        &self,
-        data: &Matrix<f64>,
-        row: &[f64],
-        contribs: &mut [f64],
-        weights: &[f64],
-    ) {
+    pub fn predict_contributions_row(&self, row: &[f64], contribs: &mut [f64], weights: &[f64]) {
         // Add the bias term first...
-        contribs[data.cols] += weights[0];
+        contribs[contribs.len() - 1] += weights[0];
         let mut node_idx = 0;
         loop {
             let node = &self.nodes[node_idx];
@@ -154,7 +148,7 @@ impl Tree {
             .iter()
             .zip(contribs.chunks_mut(data.cols + 1))
             .for_each(|(row, contribs)| {
-                self.predict_contributions_row(data, &data.get_row(*row), contribs, weights)
+                self.predict_contributions_row(&data.get_row(*row), contribs, weights)
             })
     }
 
@@ -169,7 +163,7 @@ impl Tree {
             .par_iter()
             .zip(contribs.par_chunks_mut(data.cols + 1))
             .for_each(|(row, contribs)| {
-                self.predict_contributions_row(data, &data.get_row(*row), contribs, weights)
+                self.predict_contributions_row(&data.get_row(*row), contribs, weights)
             })
     }
 
