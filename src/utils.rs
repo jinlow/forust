@@ -355,6 +355,12 @@ pub fn missing_compare(split_value: &u16, cmp_value: u16, missing_right: bool) -
     }
 }
 
+#[inline]
+pub fn precision_round(n: f64, precision: i32) -> f64 {
+    let p = (10.0_f64).powi(precision);
+    (n * p).round() / p
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,6 +368,11 @@ mod tests {
     use rand::seq::SliceRandom;
     use rand::Rng;
     use rand::SeedableRng;
+    #[test]
+    fn test_round() {
+        assert_eq!(0.3, precision_round(0.3333, 1));
+        assert_eq!(0.2343, precision_round(0.2343123123123, 4));
+    }
     #[test]
     fn test_percentiles() {
         let v = vec![4., 5., 6., 1., 2., 3., 7., 8., 9., 10.];

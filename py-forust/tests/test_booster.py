@@ -263,3 +263,49 @@ def test_monotone_constraints(X_y):
             assert np.all(p_d[0:-1, 1] >= p_d[1:, 1])
         else:
             assert np.all(p_d[0:-1, 1] <= p_d[1:, 1])
+
+
+def test_booster_to_xgboosts_with_contributions(X_y):
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=False,
+        base_score=0.0,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    fmod_contribs = fmod.predict_contributions(X)
+    fmod_preds[~np.isclose(fmod_contribs.sum(1), fmod_preds, rtol=5)]
+    fmod_contribs.sum(1)[~np.isclose(fmod_contribs.sum(1), fmod_preds, rtol=5)]
+    assert fmod_contribs.shape[1] == X.shape[1] + 1
+    assert np.allclose(fmod_contribs.sum(1), fmod_preds)
+
+    xmod = XGBClassifier(
+        n_estimators=100,
+        learning_rate=0.3,
+        max_depth=5,
+        reg_lambda=1,
+        min_child_weight=1,
+        gamma=1,
+        objective="binary:logitraw",
+        eval_metric="auc",
+        tree_method="hist",
+        max_bin=10000,
+        base_score=0.0,
+    )
+    xmod.fit(X, y)
+    xmod_preds = xmod.predict(X, output_margin=True)
+    import xgboost as xgb
+
+    xmod_contribs = xmod.get_booster().predict(
+        xgb.DMatrix(X), approx_contribs=True, pred_contribs=True
+    )
+    assert np.allclose(fmod_contribs, xmod_contribs, atol=0.000001)

@@ -93,6 +93,7 @@ pub struct Matrix<'a, T> {
 }
 
 impl<'a, T> Matrix<'a, T> {
+    // Defaults to column major
     pub fn new(data: &'a [T], rows: usize, cols: usize) -> Self {
         Matrix {
             data,
@@ -136,6 +137,20 @@ impl<'a, T> Matrix<'a, T> {
         self.get_col_slice(col, 0, self.rows)
     }
 }
+
+/// A lightweight row major matrix, this is primarily
+/// for returning data to the user, it is especially
+/// suited for appending rows to, such as when building
+/// up a matrix of contributions to return to the
+/// user, the added benefit is it will be even
+/// faster to return to numpy.
+// pub struct RowMajorMatrix<T> {
+//     pub data: Vec<T>,
+//     pub rows: usize,
+//     pub cols: usize,
+//     stride1: usize,
+//     stride2: usize,
+// }
 
 impl<'a, T> fmt::Display for Matrix<'a, T>
 where
