@@ -233,7 +233,7 @@ impl GradientBooster {
         };
         let mut contribs = vec![0.; (data.cols + 1) * data.rows];
         self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
-            t.predict_contributions(data, &mut contribs, w);
+            t.predict_contributions(data, &mut contribs, w, parallel);
         });
         contribs
     }

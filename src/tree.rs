@@ -157,15 +157,33 @@ impl Tree {
                 self.predict_contributions_row(data, *row, contribs, weights)
             })
     }
-    // fn predict_contributions_parallel(&self, data: &Matrix<f64>,
-    //     contribs: &mut [f64],weights: &[f64]) {
-    //         data.index.par_iter().zip(contribs.chunks_mut(data.cols + 1)).for_each(
-    //             |(row, contribs)| self.predict_contributions_row(data, *row, contribs, weights)
-    //         )
-    // }
+    fn predict_contributions_parallel(
+        &self,
+        data: &Matrix<f64>,
+        contribs: &mut [f64],
+        weights: &[f64],
+    ) {
+        // There needs to always be at least 2 trees
+        data.index
+            .par_iter()
+            .zip(contribs.par_chunks_mut(data.cols + 1))
+            .for_each(|(row, contribs)| {
+                self.predict_contributions_row(data, *row, contribs, weights)
+            })
+    }
 
-    pub fn predict_contributions(&self, data: &Matrix<f64>, contribs: &mut [f64], weights: &[f64]) {
-        self.predict_contributions_single_threaded(data, contribs, weights)
+    pub fn predict_contributions(
+        &self,
+        data: &Matrix<f64>,
+        contribs: &mut [f64],
+        weights: &[f64],
+        parallel: bool,
+    ) {
+        if parallel {
+            self.predict_contributions_parallel(data, contribs, weights)
+        } else {
+            self.predict_contributions_single_threaded(data, contribs, weights)
+        }
     }
 
     fn predict_row(&self, data: &Matrix<f64>, row: usize) -> f64 {
@@ -294,7 +312,7 @@ mod tests {
         // Test contributions prediction...
         let weights = tree.distribute_leaf_weights();
         let mut contribs = vec![0.; (data.cols + 1) * data.rows];
-        tree.predict_contributions(&data, &mut contribs, &weights);
+        tree.predict_contributions(&data, &mut contribs, &weights, false);
         let full_preds = tree.predict(&data, true);
         assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
 
@@ -355,7 +373,7 @@ mod tests {
         let weights = tree.distribute_leaf_weights();
 
         let mut contribs = vec![0.; (data.cols + 1) * data.rows];
-        tree.predict_contributions(&data, &mut contribs, &weights);
+        tree.predict_contributions(&data, &mut contribs, &weights, false);
         let full_preds = tree.predict(&data, true);
         assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
         let contribs_preds: Vec<f64> = contribs
