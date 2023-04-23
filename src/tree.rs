@@ -118,15 +118,9 @@ impl Tree {
             }
         }
     }
-    pub fn predict_contributions_row(
-        &self,
-        data: &Matrix<f64>,
-        row: usize,
-        contribs: &mut [f64],
-        weights: &[f64],
-    ) {
+    pub fn predict_contributions_row(&self, row: &[f64], contribs: &mut [f64], weights: &[f64]) {
         // Add the bias term first...
-        contribs[data.cols] += weights[0];
+        contribs[contribs.len() - 1] += weights[0];
         let mut node_idx = 0;
         loop {
             let node = &self.nodes[node_idx];
@@ -134,7 +128,7 @@ impl Tree {
                 break;
             }
             // Get change of weight given child's weight.
-            let child_idx = node.get_child_idx(data.get(row, node.split_feature));
+            let child_idx = node.get_child_idx(&row[node.split_feature]);
             let node_weight = weights[node_idx];
             let child_weight = weights[child_idx];
             let delta = child_weight - node_weight;
@@ -154,9 +148,10 @@ impl Tree {
             .iter()
             .zip(contribs.chunks_mut(data.cols + 1))
             .for_each(|(row, contribs)| {
-                self.predict_contributions_row(data, *row, contribs, weights)
+                self.predict_contributions_row(&data.get_row(*row), contribs, weights)
             })
     }
+
     fn predict_contributions_parallel(
         &self,
         data: &Matrix<f64>,
@@ -168,7 +163,7 @@ impl Tree {
             .par_iter()
             .zip(contribs.par_chunks_mut(data.cols + 1))
             .for_each(|(row, contribs)| {
-                self.predict_contributions_row(data, *row, contribs, weights)
+                self.predict_contributions_row(&data.get_row(*row), contribs, weights)
             })
     }
 
@@ -194,6 +189,18 @@ impl Tree {
                 return node.weight_value as f64;
             } else {
                 node_idx = node.get_child_idx(data.get(row, node.split_feature));
+            }
+        }
+    }
+
+    pub fn predict_row_from_row_slice(&self, row: &[f64]) -> f64 {
+        let mut node_idx = 0;
+        loop {
+            let node = &self.nodes[node_idx];
+            if node.is_leaf {
+                return node.weight_value as f64;
+            } else {
+                node_idx = node.get_child_idx(&row[node.split_feature]);
             }
         }
     }
