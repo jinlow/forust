@@ -84,6 +84,13 @@ model.fit(X, y)
 # Predict on data
 model.predict(X.head())
 # array([-1.94919663,  2.25863229,  0.32963671,  2.48732194, -3.00371813])
+
+# predict contributions
+model.predict_contributions(X.head())
+# array([[-0.63014213,  0.33880048, -0.16520798, -0.07798772, -0.85083578,
+#        -1.07720813],
+#       [ 1.05406709,  0.08825999,  0.21662544, -0.12083538,  0.35209258,
+#        -1.07720813],
 ```
 
 The `fit` method accepts the following arguments.
@@ -96,6 +103,13 @@ The `fit` method accepts the following arguments.
     Defaults to None.
 
 The predict method accepts the following arguments.
+ - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
+ - `parallel` ***(Optional[bool], optional)***: Optionally specify if the predict
+   function should run in parallel on multiple threads. If `None` is
+   passed, the `parallel` attribute of the booster will be used.
+   Defaults to `None`.
+
+The `predict_contributions` method will predict with the fitted booster on new data, returning the feature contribution matrix. The last column is the bias term.
  - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
  - `parallel` ***(Optional[bool], optional)***: Optionally specify if the predict
    function should run in parallel on multiple threads. If `None` is
