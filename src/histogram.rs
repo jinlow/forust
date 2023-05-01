@@ -85,7 +85,13 @@ pub fn create_feature_histogram(
     index: &[usize],
 ) -> Vec<Bin<f32>> {
     let mut histogram: Vec<Bin<f64>> = Vec::with_capacity(cuts.len());
+    // The first value is missing, it seems to not matter that we are using
+    // Missing here, rather than the booster "missing" definition, because
+    // we just always assume the first bin of the histogram is missing.
     histogram.push(Bin::new_f64(f64::NAN));
+    // The last cut value is simply the maximum possible value, so we don't need it.
+    // This value is needed initially for binning, but we don't need to count it as
+    // a histogram bin.
     histogram.extend(cuts[..(cuts.len() - 1)].iter().map(|c| Bin::new_f64(*c)));
     index
         .iter()
@@ -108,7 +114,7 @@ impl HistogramMatrix {
         hess: &[f32],
         index: &[usize],
         parallel: bool,
-        root_node: bool,
+        sort: bool,
     ) -> Self {
         let col_index: Vec<usize> = (0..data.cols).collect();
         // Sort gradients and hessians to reduce cache hits.
@@ -117,13 +123,13 @@ impl HistogramMatrix {
         // Sort gradients and hessians to reduce cache hits.
         // This made a really sizeable difference on larger datasets
         // Bringing training time down from nearly 6 minutes, to 2 minutes.
-        let sorted_grad = if root_node {
+        let sorted_grad = if !sort {
             grad.to_vec()
         } else {
             index.iter().map(|i| grad[*i]).collect::<Vec<f32>>()
         };
 
-        let sorted_hess = if root_node {
+        let sorted_hess = if !sort {
             hess.to_vec()
         } else {
             index.iter().map(|i| hess[*i]).collect::<Vec<f32>>()
@@ -229,7 +235,7 @@ mod tests {
         let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let data = Matrix::new(&data_vec, 891, 5);
         let sample_weight = vec![1.; data.rows];
-        let b = bin_matrix(&data, &sample_weight, 10).unwrap();
+        let b = bin_matrix(&data, &sample_weight, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let yhat = vec![0.5; y.len()];

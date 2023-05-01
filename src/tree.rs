@@ -5,6 +5,8 @@ use crate::partial_dependence::tree_partial_dependence;
 use crate::splitter::Splitter;
 use crate::utils::fast_f64_sum;
 use crate::utils::{gain, weight};
+use rand::rngs::StdRng;
+use rand::Rng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -37,18 +39,45 @@ impl Tree {
         max_leaves: usize,
         max_depth: usize,
         parallel: bool,
+        subsample: f32,
+        rng: &mut StdRng,
     ) {
         // Recreating the index for each tree, ensures that the tree construction is faster
         // for the root node. This also ensures that sorting the records is always fast,
         // because we are starting from a nearly sorted array.
-        let mut index = data.index.to_owned();
+        let (mut index, gradient_sum, hessian_sum, sort) = if subsample == 1. {
+            // We don't need to sort, if we are not sampling. This is because
+            // the data is already sorted.
+            (
+                data.index.to_owned(),
+                fast_f64_sum(grad),
+                fast_f64_sum(hess),
+                false,
+            )
+        } else {
+            // Accumulate using f64 for numeric fidelity.
+            let mut gs: f64 = 0.;
+            let mut hs: f64 = 0.;
+            let mut index = Vec::new();
+            for ((i, g), h) in data
+                .index
+                .iter()
+                .zip(grad)
+                .zip(hess)
+                .filter(|_| rng.gen_range(0.0..1.0) < subsample)
+            {
+                index.push(*i);
+                gs += *g as f64;
+                hs += *h as f64;
+            }
+            (index, gs as f32, hs as f32, true)
+        };
+
         let mut n_nodes = 1;
-        let gradient_sum = fast_f64_sum(grad);
-        let hessian_sum = fast_f64_sum(hess);
         let root_gain = gain(&splitter.get_l2(), gradient_sum, hessian_sum);
         let root_weight = weight(&splitter.get_l2(), gradient_sum, hessian_sum);
         // Calculate the histograms for the root node.
-        let root_hists = HistogramMatrix::new(data, cuts, grad, hess, &index, parallel, true);
+        let root_hists = HistogramMatrix::new(data, cuts, grad, hess, &index, parallel, sort);
         let root_node = SplittableNode::new(
             0,
             root_hists,
@@ -58,7 +87,7 @@ impl Tree {
             hessian_sum,
             0,
             0,
-            data.rows,
+            index.len(),
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
@@ -118,7 +147,13 @@ impl Tree {
             }
         }
     }
-    pub fn predict_contributions_row(&self, row: &[f64], contribs: &mut [f64], weights: &[f64]) {
+    pub fn predict_contributions_row(
+        &self,
+        row: &[f64],
+        contribs: &mut [f64],
+        weights: &[f64],
+        missing: &f64,
+    ) {
         // Add the bias term first...
         contribs[contribs.len() - 1] += weights[0];
         let mut node_idx = 0;
@@ -128,7 +163,7 @@ impl Tree {
                 break;
             }
             // Get change of weight given child's weight.
-            let child_idx = node.get_child_idx(&row[node.split_feature]);
+            let child_idx = node.get_child_idx(&row[node.split_feature], missing);
             let node_weight = weights[node_idx];
             let child_weight = weights[child_idx];
             let delta = child_weight - node_weight;
@@ -142,13 +177,14 @@ impl Tree {
         data: &Matrix<f64>,
         contribs: &mut [f64],
         weights: &[f64],
+        missing: &f64,
     ) {
         // There needs to always be at least 2 trees
         data.index
             .iter()
             .zip(contribs.chunks_mut(data.cols + 1))
             .for_each(|(row, contribs)| {
-                self.predict_contributions_row(&data.get_row(*row), contribs, weights)
+                self.predict_contributions_row(&data.get_row(*row), contribs, weights, missing)
             })
     }
 
@@ -157,13 +193,14 @@ impl Tree {
         data: &Matrix<f64>,
         contribs: &mut [f64],
         weights: &[f64],
+        missing: &f64,
     ) {
         // There needs to always be at least 2 trees
         data.index
             .par_iter()
             .zip(contribs.par_chunks_mut(data.cols + 1))
             .for_each(|(row, contribs)| {
-                self.predict_contributions_row(&data.get_row(*row), contribs, weights)
+                self.predict_contributions_row(&data.get_row(*row), contribs, weights, missing)
             })
     }
 
@@ -173,62 +210,63 @@ impl Tree {
         contribs: &mut [f64],
         weights: &[f64],
         parallel: bool,
+        missing: &f64,
     ) {
         if parallel {
-            self.predict_contributions_parallel(data, contribs, weights)
+            self.predict_contributions_parallel(data, contribs, weights, missing)
         } else {
-            self.predict_contributions_single_threaded(data, contribs, weights)
+            self.predict_contributions_single_threaded(data, contribs, weights, missing)
         }
     }
 
-    fn predict_row(&self, data: &Matrix<f64>, row: usize) -> f64 {
+    fn predict_row(&self, data: &Matrix<f64>, row: usize, missing: &f64) -> f64 {
         let mut node_idx = 0;
         loop {
             let node = &self.nodes[node_idx];
             if node.is_leaf {
                 return node.weight_value as f64;
             } else {
-                node_idx = node.get_child_idx(data.get(row, node.split_feature));
+                node_idx = node.get_child_idx(data.get(row, node.split_feature), missing);
             }
         }
     }
 
-    pub fn predict_row_from_row_slice(&self, row: &[f64]) -> f64 {
+    pub fn predict_row_from_row_slice(&self, row: &[f64], missing: &f64) -> f64 {
         let mut node_idx = 0;
         loop {
             let node = &self.nodes[node_idx];
             if node.is_leaf {
                 return node.weight_value as f64;
             } else {
-                node_idx = node.get_child_idx(&row[node.split_feature]);
+                node_idx = node.get_child_idx(&row[node.split_feature], missing);
             }
         }
     }
 
-    fn predict_single_threaded(&self, data: &Matrix<f64>) -> Vec<f64> {
+    fn predict_single_threaded(&self, data: &Matrix<f64>, missing: &f64) -> Vec<f64> {
         data.index
             .iter()
-            .map(|i| self.predict_row(data, *i))
+            .map(|i| self.predict_row(data, *i, missing))
             .collect()
     }
 
-    fn predict_parallel(&self, data: &Matrix<f64>) -> Vec<f64> {
+    fn predict_parallel(&self, data: &Matrix<f64>, missing: &f64) -> Vec<f64> {
         data.index
             .par_iter()
-            .map(|i| self.predict_row(data, *i))
+            .map(|i| self.predict_row(data, *i, missing))
             .collect()
     }
 
-    pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
+    pub fn predict(&self, data: &Matrix<f64>, parallel: bool, missing: &f64) -> Vec<f64> {
         if parallel {
-            self.predict_parallel(data)
+            self.predict_parallel(data, missing)
         } else {
-            self.predict_single_threaded(data)
+            self.predict_single_threaded(data, missing)
         }
     }
 
-    pub fn value_partial_dependence(&self, feature: usize, value: f64) -> f64 {
-        tree_partial_dependence(self, 0, feature, value, 1.0)
+    pub fn value_partial_dependence(&self, feature: usize, value: f64, missing: &f64) -> f64 {
+        tree_partial_dependence(self, 0, feature, value, 1.0, missing)
     }
     fn distribute_node_leaf_weights(&self, i: usize, weights: &mut [f64]) -> f64 {
         let node = &self.nodes[i];
@@ -282,7 +320,50 @@ mod tests {
     use crate::objective::{LogLoss, ObjectiveFunction};
     use crate::splitter::MissingImputerSplitter;
     use crate::utils::precision_round;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
     use std::fs;
+    #[test]
+    fn test_tree_fit_with_subsample() {
+        let file = fs::read_to_string("resources/contiguous_no_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let yhat = vec![0.5; y.len()];
+        let w = vec![1.; y.len()];
+        let g = LogLoss::calc_grad(&y, &yhat, &w);
+        let h = LogLoss::calc_hess(&y, &yhat, &w);
+
+        let data = Matrix::new(&data_vec, 891, 5);
+        let splitter = MissingImputerSplitter {
+            l2: 1.0,
+            gamma: 3.0,
+            min_leaf_weight: 1.0,
+            learning_rate: 0.3,
+            allow_missing_splits: true,
+            constraints_map: ConstraintMap::new(),
+        };
+        let mut tree = Tree::new();
+
+        let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
+        let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
+        let mut rng = StdRng::seed_from_u64(0);
+        tree.fit(
+            &bdata,
+            &b.cuts,
+            &g,
+            &h,
+            &splitter,
+            usize::MAX,
+            5,
+            true,
+            0.5,
+            &mut rng,
+        );
+    }
+
     #[test]
     fn test_tree_fit() {
         let file = fs::read_to_string("resources/contiguous_no_missing.csv")
@@ -307,10 +388,21 @@ mod tests {
         };
         let mut tree = Tree::new();
 
-        let b = bin_matrix(&data, &w, 300).unwrap();
+        let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-
-        tree.fit(&bdata, &b.cuts, &g, &h, &splitter, usize::MAX, 5, true);
+        let mut rng = StdRng::seed_from_u64(0);
+        tree.fit(
+            &bdata,
+            &b.cuts,
+            &g,
+            &h,
+            &splitter,
+            usize::MAX,
+            5,
+            true,
+            1.,
+            &mut rng,
+        );
 
         // println!("{}", tree);
         // let preds = tree.predict(&data, false);
@@ -319,8 +411,8 @@ mod tests {
         // Test contributions prediction...
         let weights = tree.distribute_leaf_weights();
         let mut contribs = vec![0.; (data.cols + 1) * data.rows];
-        tree.predict_contributions(&data, &mut contribs, &weights, false);
-        let full_preds = tree.predict(&data, true);
+        tree.predict_contributions(&data, &mut contribs, &weights, false, &f64::NAN);
+        let full_preds = tree.predict(&data, true, &f64::NAN);
         assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
 
         let contribs_preds: Vec<f64> = contribs
@@ -348,6 +440,7 @@ mod tests {
         let w = vec![1.; y.len()];
         let g = LogLoss::calc_grad(&y, &yhat, &w);
         let h = LogLoss::calc_hess(&y, &yhat, &w);
+        println!("GRADIENT -- {:?}", h);
 
         let data_ = Matrix::new(&data_vec, 891, 5);
         let data = Matrix::new(data_.get_col(1), 891, 1);
@@ -362,10 +455,22 @@ mod tests {
         };
         let mut tree = Tree::new();
 
-        let b = bin_matrix(&data, &w, 300).unwrap();
+        let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
 
-        tree.fit(&bdata, &b.cuts, &g, &h, &splitter, usize::MAX, 5, true);
+        let mut rng = StdRng::seed_from_u64(0);
+        tree.fit(
+            &bdata,
+            &b.cuts,
+            &g,
+            &h,
+            &splitter,
+            usize::MAX,
+            5,
+            true,
+            1.,
+            &mut rng,
+        );
 
         // println!("{}", tree);
         let mut pred_data_vec = data.get_col(0).to_owned();
@@ -373,15 +478,15 @@ mod tests {
         pred_data_vec.dedup();
         let pred_data = Matrix::new(&pred_data_vec, pred_data_vec.len(), 1);
 
-        let preds = tree.predict(&pred_data, false);
+        let preds = tree.predict(&pred_data, false, &f64::NAN);
         let increasing = preds.windows(2).all(|a| a[0] >= a[1]);
         assert!(increasing);
 
         let weights = tree.distribute_leaf_weights();
 
         let mut contribs = vec![0.; (data.cols + 1) * data.rows];
-        tree.predict_contributions(&data, &mut contribs, &weights, false);
-        let full_preds = tree.predict(&data, true);
+        tree.predict_contributions(&data, &mut contribs, &weights, false, &f64::NAN);
+        let full_preds = tree.predict(&data, true, &f64::NAN);
         assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
         let contribs_preds: Vec<f64> = contribs
             .chunks(data.cols + 1)

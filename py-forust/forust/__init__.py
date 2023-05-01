@@ -88,6 +88,9 @@ class GradientBooster:
         parallel: bool = True,
         allow_missing_splits: bool = True,
         monotone_constraints: Union[dict[Any, int], None] = None,
+        subsample: float = 1.0,
+        seed: int = 0,
+        missing: float = np.nan,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -132,6 +135,12 @@ class GradientBooster:
                 and 0 will enforce no specific relationship at all. Features not included in the
                 mapping will not have any constraint applied. If `None` is passed no constraints
                 will be enforced on any variable.  Defaults to `None`.
+            subsample (float, optional): Percent of records to randomly sample at each iteration when
+                training a tree. Defaults to 1.0, meaning all data is used to training.
+            seed (integer, optional): Integer value used to seed any randomness used in the
+                algorithm. Defaults to 0.
+            missing (float, optional): Value to consider missing, when training and predicting
+                with the booster. Defaults to `np.nan`.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -150,6 +159,9 @@ class GradientBooster:
             parallel=parallel,
             allow_missing_splits=allow_missing_splits,
             monotone_constraints={},
+            subsample=subsample,
+            seed=seed,
+            missing=missing,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -168,6 +180,9 @@ class GradientBooster:
         self.parallel = parallel
         self.allow_missing_splits = (allow_missing_splits,)
         self.monotone_constraints = monotone_constraints_
+        self.subsample = subsample
+        self.seed = seed
+        self.missing = missing
 
     def fit(
         self,

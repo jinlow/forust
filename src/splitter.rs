@@ -589,7 +589,7 @@ impl Splitter for MissingImputerSplitter {
                 hess,
                 &index[node.start_idx..split_idx],
                 parallel,
-                false,
+                true,
             );
             right_histograms =
                 HistogramMatrix::from_parent_child(&node.histograms, &left_histograms);
@@ -601,7 +601,7 @@ impl Splitter for MissingImputerSplitter {
                 hess,
                 &index[split_idx..node.stop_idx],
                 parallel,
-                false,
+                true,
             );
             left_histograms =
                 HistogramMatrix::from_parent_child(&node.histograms, &right_histograms);
@@ -660,10 +660,10 @@ mod tests {
         let grad = LogLoss::calc_grad(&y, &yhat, &w);
         let hess = LogLoss::calc_hess(&y, &yhat, &w);
 
-        let b = bin_matrix(&data, &w, 10).unwrap();
+        let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, true);
         let splitter = MissingImputerSplitter {
             l2: 0.0,
             gamma: 0.0,
@@ -707,10 +707,10 @@ mod tests {
         let grad = LogLoss::calc_grad(&y, &yhat, &w);
         let hess = LogLoss::calc_hess(&y, &yhat, &w);
 
-        let b = bin_matrix(&data, &w, 10).unwrap();
+        let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, true);
         println!("{:?}", hists);
         let splitter = MissingImputerSplitter {
             l2: 0.0,
@@ -774,7 +774,7 @@ mod tests {
         // println!("gain: {}, weight: {}, gain from weight: {}", root_gain, root_weight, gain_given_weight);
         let data = Matrix::new(&data_vec, 891, 5);
 
-        let b = bin_matrix(&data, &w, 10).unwrap();
+        let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
         let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);

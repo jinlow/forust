@@ -4,6 +4,21 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 
+/// Calculate if a value is missing.
+#[inline]
+pub fn is_missing(value: &f64, missing: &f64) -> bool {
+    if missing.is_nan() {
+        value.is_nan()
+    } else if value.is_nan() {
+        panic!(
+            "Missing value is {}, however NAN value found in data.",
+            missing
+        )
+    } else {
+        value == missing
+    }
+}
+
 /// Calculate the constraint weight given bounds
 /// and a constraint.
 #[inline]

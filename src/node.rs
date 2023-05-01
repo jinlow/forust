@@ -1,6 +1,7 @@
 use crate::data::FloatData;
 use crate::histogram::HistogramMatrix;
 use crate::splitter::{MissingInfo, NodeInfo, SplitInfo};
+use crate::utils::is_missing;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 
@@ -54,8 +55,8 @@ impl Node {
         self.right_child = split_node.right_child;
     }
     /// Get the path that should be traveled down, given a value.
-    pub fn get_child_idx(&self, v: &f64) -> usize {
-        if v.is_nan() {
+    pub fn get_child_idx(&self, v: &f64, missing: &f64) -> usize {
+        if is_missing(v, missing) {
             self.missing_node
         } else if v < &self.split_value {
             self.left_child

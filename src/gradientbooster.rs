@@ -5,10 +5,11 @@ use crate::errors::ForustError;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
 use crate::splitter::MissingImputerSplitter;
 use crate::tree::Tree;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fs;
-
 /// Gradient Booster object
 ///
 /// * `objective_type` - The name of objective function used to optimize.
@@ -52,7 +53,18 @@ pub struct GradientBooster {
     pub parallel: bool,
     pub allow_missing_splits: bool,
     pub monotone_constraints: Option<ConstraintMap>,
+    pub subsample: f32,
+    pub seed: u64,
+    #[serde(deserialize_with = "parse_missing")]
+    pub missing: f64,
     pub trees: Vec<Tree>,
+}
+
+fn parse_missing<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Deserialize::deserialize(d).map(|x: Option<_>| x.unwrap_or(f64::NAN))
 }
 
 impl Default for GradientBooster {
@@ -71,6 +83,9 @@ impl Default for GradientBooster {
             true,
             true,
             None,
+            1.,
+            0,
+            f64::NAN,
         )
     }
 }
@@ -102,6 +117,9 @@ impl GradientBooster {
     ///   will be used.
     /// * `monotone_constraints` - Constraints that are used to enforce a specific relationship
     ///   between the training features and the target variable.
+    /// * `subsample` - Percent of records to randomly sample at each iteration when training a tree.
+    /// * `seed` - Integer value used to seed any randomness used in the algorithm.
+    /// * `missing` - Value to consider missing.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         objective_type: ObjectiveType,
@@ -117,6 +135,9 @@ impl GradientBooster {
         parallel: bool,
         allow_missing_splits: bool,
         monotone_constraints: Option<ConstraintMap>,
+        subsample: f32,
+        seed: u64,
+        missing: f64,
     ) -> Self {
         GradientBooster {
             objective_type,
@@ -132,6 +153,9 @@ impl GradientBooster {
             parallel,
             allow_missing_splits,
             monotone_constraints,
+            subsample,
+            seed,
+            missing,
             trees: Vec::new(),
         }
     }
@@ -148,6 +172,7 @@ impl GradientBooster {
         y: &[f64],
         sample_weight: &[f64],
     ) -> Result<(), ForustError> {
+        let mut rng = StdRng::seed_from_u64(self.seed);
         let constraints_map = self
             .monotone_constraints
             .as_ref()
@@ -169,8 +194,8 @@ impl GradientBooster {
         // Generate binned data
         // TODO
         // In scikit-learn, they sample 200_000 records for generating the bins.
-        // we could consier that, especially if this proved to be a large bottleneck...
-        let binned_data = bin_matrix(data, sample_weight, self.nbins)?;
+        // we could consider that, especially if this proved to be a large bottleneck...
+        let binned_data = bin_matrix(data, sample_weight, self.nbins, self.missing)?;
         let bdata = Matrix::new(&binned_data.binned_data, data.rows, data.cols);
 
         for _ in 0..self.iterations {
@@ -184,8 +209,10 @@ impl GradientBooster {
                 self.max_leaves,
                 self.max_depth,
                 self.parallel,
+                self.subsample,
+                &mut rng,
             );
-            let preds = tree.predict(data, self.parallel);
+            let preds = tree.predict(data, self.parallel, &self.missing);
             yhat = yhat.iter().zip(preds).map(|(i, j)| *i + j).collect();
             self.trees.push(tree);
             grad = calc_grad(y, &yhat, sample_weight);
@@ -209,7 +236,10 @@ impl GradientBooster {
     pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
         let mut init_preds = vec![self.base_score; data.rows];
         self.trees.iter().for_each(|tree| {
-            for (p_, val) in init_preds.iter_mut().zip(tree.predict(data, parallel)) {
+            for (p_, val) in init_preds
+                .iter_mut()
+                .zip(tree.predict(data, parallel, &self.missing))
+            {
                 *p_ += val;
             }
         });
@@ -276,7 +306,7 @@ impl GradientBooster {
                 .for_each(|(row, c)| {
                     let r_ = data.get_row(*row);
                     self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
-                        t.predict_contributions_row(&r_, c, w);
+                        t.predict_contributions_row(&r_, c, w, &self.missing);
                     });
                 });
         } else {
@@ -286,7 +316,7 @@ impl GradientBooster {
                 .for_each(|(row, c)| {
                     let r_ = data.get_row(*row);
                     self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
-                        t.predict_contributions_row(&r_, c, w);
+                        t.predict_contributions_row(&r_, c, w, &self.missing);
                     });
                 });
         }
@@ -303,7 +333,7 @@ impl GradientBooster {
         let pd: f64 = self
             .trees
             .iter()
-            .map(|t| t.value_partial_dependence(feature, value))
+            .map(|t| t.value_partial_dependence(feature, value, &self.missing))
             .sum();
         pd + self.base_score
     }
@@ -441,6 +471,27 @@ impl GradientBooster {
         self.monotone_constraints = monotone_constraints;
         self
     }
+
+    /// Set the subsample on the booster.
+    /// * `subsample` - Percent of the data to randomly sample when training each tree.
+    pub fn set_subsample(mut self, subsample: f32) -> Self {
+        self.subsample = subsample;
+        self
+    }
+
+    /// Set the seed on the booster.
+    /// * `seed` - Integer value used to see any randomness used in the algorithm.
+    pub fn set_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Set missing value of the booster
+    /// * `missing` - Float value to consider as missing.
+    pub fn set_missing(mut self, missing: f64) -> Self {
+        self.missing = missing;
+        self
+    }
 }
 
 #[cfg(test)]
@@ -449,7 +500,37 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn test_tree_fit() {
+    fn test_booster_fit_subsample() {
+        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file
+            .lines()
+            .map(|x| x.parse::<f64>().unwrap_or(f64::NAN))
+            .collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+
+        let data = Matrix::new(&data_vec, 891, 5);
+        //let data = Matrix::new(data.get_col(1), 891, 1);
+        let mut booster = GradientBooster::default();
+        booster.iterations = 10;
+        booster.nbins = 300;
+        booster.max_depth = 3;
+        booster.subsample = 0.5;
+        let sample_weight = vec![1.; y.len()];
+        booster.fit(&data, &y, &sample_weight).unwrap();
+        let preds = booster.predict(&data, false);
+        let contribs = booster.predict_contributions(&data, false);
+        assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
+        println!("{}", booster.trees[0]);
+        println!("{}", booster.trees[0].nodes.len());
+        println!("{}", booster.trees.last().unwrap().nodes.len());
+        println!("{:?}", &preds[0..10]);
+    }
+
+    #[test]
+    fn test_booster_fit() {
         let file = fs::read_to_string("resources/contiguous_with_missing.csv")
             .expect("Something went wrong reading the file");
         let data_vec: Vec<f64> = file
@@ -502,5 +583,12 @@ mod tests {
         booster.save_booster("resources/model64.json").unwrap();
         let booster2 = GradientBooster::load_booster("resources/model64.json").unwrap();
         assert_eq!(booster2.predict(&data, true)[0..10], preds[0..10]);
+
+        // Test with non-NAN missing.
+        booster.missing = 0.;
+        booster.save_booster("resources/modelmissing.json").unwrap();
+        let booster3 = GradientBooster::load_booster("resources/modelmissing.json").unwrap();
+        assert_eq!(booster3.missing, 0.);
+        assert_eq!(booster3.missing, booster.missing);
     }
 }

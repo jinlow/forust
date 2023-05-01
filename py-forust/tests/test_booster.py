@@ -73,7 +73,7 @@ def test_booster_to_xgboosts_with_missing(X_y):
         gamma=1,
         objective_type="LogLoss",
         nbins=500,
-        parallel=False,
+        parallel=True,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -109,11 +109,115 @@ def test_booster_to_xgboosts_with_missing_sl(X_y):
         gamma=1,
         objective_type="SquaredLoss",
         nbins=500,
-        parallel=False,
+        parallel=True,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
     assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
+
+
+def test_booster_with_new_missing(X_y):
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+
+    Xm = X.copy().fillna(-9999)
+    fmod2 = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        missing=-9999,
+    )
+    fmod2.fit(Xm, y=y)
+    fmod_preds2 = fmod2.predict(Xm)
+    assert np.allclose(fmod_preds, fmod_preds2, atol=0.00001)
+
+
+def test_booster_with_seed(X_y):
+    X, y = X_y
+    X = X
+    fmod1 = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        subsample=0.5,
+        seed=0,
+    )
+    fmod1.fit(X, y=y)
+    fmod1_preds = fmod1.predict(X)
+
+    fmod2 = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        subsample=0.5,
+        seed=0,
+    )
+    fmod2.fit(X, y=y)
+    fmod2_preds = fmod2.predict(X)
+    assert np.allclose(fmod2_preds, fmod1_preds, atol=0.0000001)
+
+    fmod3 = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        subsample=0.5,
+        seed=1,
+    )
+    fmod3.fit(X, y=y)
+    fmod3_preds = fmod3.predict(X)
+    assert not np.allclose(fmod3_preds, fmod2_preds, atol=0.0000001)
+
+    fmod4 = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+    )
+    fmod4.fit(X, y=y)
+    fmod4_preds = fmod4.predict(X)
+    assert not np.allclose(fmod4_preds, fmod2_preds, atol=0.00001)
 
 
 def test_booster_to_xgboosts_weighted(X_y):
@@ -162,7 +266,7 @@ def test_booster_saving(X_y, tmp_path):
         gamma=1,
         objective_type="SquaredLoss",
         nbins=500,
-        parallel=False,
+        parallel=True,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -183,7 +287,7 @@ def test_booster_saving(X_y, tmp_path):
         gamma=1,
         objective_type="LogLoss",
         nbins=500,
-        parallel=False,
+        parallel=True,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -207,7 +311,7 @@ def test_booster_saving_with_montone_constraints(X_y, tmp_path):
         gamma=1,
         objective_type="SquaredLoss",
         nbins=500,
-        parallel=False,
+        parallel=True,
         monotone_constraints=mono_,
     )
     fmod.fit(X, y=y)
@@ -229,7 +333,7 @@ def test_booster_saving_with_montone_constraints(X_y, tmp_path):
         gamma=1,
         objective_type="LogLoss",
         nbins=500,
-        parallel=False,
+        parallel=True,
         monotone_constraints=mono_,
     )
     fmod.fit(X, y=y)
@@ -252,7 +356,7 @@ def test_monotone_constraints(X_y):
         gamma=1,
         objective_type="SquaredLoss",
         nbins=500,
-        parallel=False,
+        parallel=True,
         monotone_constraints=mono_,
     )
     fmod.fit(X, y=y)
@@ -277,7 +381,7 @@ def test_booster_to_xgboosts_with_contributions(X_y):
         gamma=1,
         objective_type="LogLoss",
         nbins=500,
-        parallel=False,
+        parallel=True,
         base_score=0.5,
     )
     fmod.fit(X, y=y)

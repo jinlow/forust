@@ -1,6 +1,6 @@
 [package]
 name = "forust-ml"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = ["James Inlow <james.d.inlow@gmail.com>"]
 homepage = "https://github.com/jinlow/forust"
@@ -10,16 +10,19 @@ readme = "README.md"
 repository = "https://github.com/jinlow/forust"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.release]
+lto = 'fat'
+codegen-units = 1
 
 [dependencies]
 rayon = "1.7"
 thiserror = "1.0"
-serde_json = {version = "1.0", features = ["float_roundtrip"] }
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 serde = { version = "1.0", features = ["derive"] }
+rand = "0.8.5"
 
 [dev-dependencies]
 criterion = "0.4"
-rand = "0.8.5"
 
 [[bench]]
 name = "forust_benchmarks"

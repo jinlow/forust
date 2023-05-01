@@ -1,6 +1,6 @@
 use crate::data::{FloatData, JaggedMatrix, Matrix};
 use crate::errors::ForustError;
-use crate::utils::{map_bin, percentiles};
+use crate::utils::{is_missing, map_bin, percentiles};
 
 /// If there are fewer unique values than their are
 /// percentiles, just return the unique values of the
@@ -69,15 +69,17 @@ fn bin_matrix_from_cuts<T: std::cmp::PartialOrd>(
 /// * `data` - A numeric matrix, of data to be binned.
 /// * `sample_weight` - Instance weights for each row of the data.
 /// * `nbins` - The number of bins each column should be binned into.
-pub fn bin_matrix<T: FloatData<T>>(
-    data: &Matrix<T>,
-    sample_weight: &[T],
+/// * `missing` - Float value to consider as missing.
+pub fn bin_matrix(
+    data: &Matrix<f64>,
+    sample_weight: &[f64],
     nbins: u16,
-) -> Result<BinnedData<T>, ForustError> {
+    missing: f64,
+) -> Result<BinnedData<f64>, ForustError> {
     let mut pcts = Vec::new();
-    let nbins_ = T::from_u16(nbins);
+    let nbins_ = f64::from_u16(nbins);
     for i in 0..nbins {
-        let v = T::from_u16(i) / nbins_;
+        let v = f64::from_u16(i) / nbins_;
         pcts.push(v);
     }
 
@@ -86,17 +88,19 @@ pub fn bin_matrix<T: FloatData<T>>(
     let mut cuts = JaggedMatrix::new();
     let mut nunique = Vec::new();
     for i in 0..data.cols {
-        let (no_miss, w): (Vec<T>, Vec<T>) = data
+        let (no_miss, w): (Vec<f64>, Vec<f64>) = data
             .get_col(i)
             .iter()
             .zip(sample_weight.iter())
-            .filter(|(v, _)| !v.is_nan())
+            // It is unrecoverable if they have provided missing values in
+            // the data other than the specificized missing.
+            .filter(|(v, _)| !is_missing(v, &missing))
             .unzip();
         assert_eq!(no_miss.len(), w.len());
         let mut col_cuts = percentiles_or_value(&no_miss, &w, &pcts);
-        col_cuts.push(T::MAX);
+        col_cuts.push(f64::MAX);
         col_cuts.dedup();
-        if col_cuts.len() < 3 {
+        if col_cuts.len() < 2 {
             return Err(ForustError::NoVariance(i));
         }
         // There will be one less bins, then there are cuts.
@@ -133,7 +137,7 @@ mod tests {
         let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let data = Matrix::new(&data_vec, 891, 5);
         let sample_weight = vec![1.; data.rows];
-        let b = bin_matrix(&data, &sample_weight, 50).unwrap();
+        let b = bin_matrix(&data, &sample_weight, 50, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         for column in 0..data.cols {
             let mut b_compare = 1;
@@ -150,7 +154,6 @@ mod tests {
                         n_v += 1;
                     }
                 }
-                // println!("Column: {}, Bin: {}, {} {}", column, b_compare, n_v, n_b);
                 assert_eq!(n_v, n_b);
                 b_compare += 1;
             }
