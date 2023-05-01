@@ -71,6 +71,12 @@ class BoosterType:
     def get_params(self) -> dict[str, Any]:
         raise NotImplementedError()
 
+    def insert_metadata(self, key: str, value: str) -> None:
+        raise NotImplementedError()
+
+    def get_metadata(self, key: str) -> str:
+        raise NotImplementedError()
+
 
 class GradientBooster:
     def __init__(
@@ -88,6 +94,9 @@ class GradientBooster:
         parallel: bool = True,
         allow_missing_splits: bool = True,
         monotone_constraints: Union[dict[Any, int], None] = None,
+        subsample: float = 1.0,
+        seed: int = 0,
+        missing: float = np.nan,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -132,6 +141,12 @@ class GradientBooster:
                 and 0 will enforce no specific relationship at all. Features not included in the
                 mapping will not have any constraint applied. If `None` is passed no constraints
                 will be enforced on any variable.  Defaults to `None`.
+            subsample (float, optional): Percent of records to randomly sample at each iteration when
+                training a tree. Defaults to 1.0, meaning all data is used to training.
+            seed (integer, optional): Integer value used to seed any randomness used in the
+                algorithm. Defaults to 0.
+            missing (float, optional): Value to consider missing, when training and predicting
+                with the booster. Defaults to `np.nan`.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -150,6 +165,9 @@ class GradientBooster:
             parallel=parallel,
             allow_missing_splits=allow_missing_splits,
             monotone_constraints={},
+            subsample=subsample,
+            seed=seed,
+            missing=missing,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -168,6 +186,9 @@ class GradientBooster:
         self.parallel = parallel
         self.allow_missing_splits = (allow_missing_splits,)
         self.monotone_constraints = monotone_constraints_
+        self.subsample = subsample
+        self.seed = seed
+        self.missing = missing
 
     def fit(
         self,
@@ -187,11 +208,18 @@ class GradientBooster:
                 training the model. If None is passed, a weight of 1 will be used for every record.
                 Defaults to None.
         """
-        X_ = X.to_numpy() if isinstance(X, pd.DataFrame) else X
+        if isinstance(X, pd.DataFrame):
+            X_ = X.to_numpy()
+            self.feature_names_in_ = X.columns.to_list()
+            self.insert_metadata("feature_names_in_", str(self.feature_names_in_))
+        else:
+            # Assume it's a numpy array.
+            X_ = X
         if not np.issubdtype(X_.dtype, "float64"):
             X_ = X_.astype(dtype="float64", copy=False)
 
         y_ = y.to_numpy() if isinstance(y, pd.Series) else y
+
         if not np.issubdtype(y_.dtype, "float64"):
             y_ = y_.astype(dtype="float64", copy=False)
 
@@ -202,6 +230,7 @@ class GradientBooster:
             if isinstance(sample_weight, pd.Series)
             else sample_weight
         )
+
         if not np.issubdtype(sample_weight_.dtype, "float64"):
             sample_weight_ = sample_weight_.astype("float64", copy=False)
 
@@ -377,3 +406,23 @@ class GradientBooster:
         else:
             feature_map = {f: i for i, f in enumerate(X.columns)}
             return {feature_map[f]: v for f, v in self.monotone_constraints.items()}
+
+    def insert_metadata(self, key: str, value: str):
+        """Insert data into the models metadata, this will be saved on the booster object.
+
+        Args:
+            key (str): Key to give the inserted value in the metadata.
+            value (str): Value to assign the the key.
+        """
+        self.booster.insert_metadata(key=key, value=value)
+
+    def get_metadata(self, key: str) -> str:
+        """Get the value associated with a given key, on the boosters metadata.
+
+        Args:
+            key (str): Key of item in metadata.
+
+        Returns:
+            str: Value associated with the provided key in the boosters metadata.
+        """
+        return self.booster.get_metadata(key=key)

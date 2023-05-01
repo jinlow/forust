@@ -4,7 +4,7 @@ use forust_ml::gradientbooster::GradientBooster as CrateGradientBooster;
 use forust_ml::objective::ObjectiveType;
 use forust_ml::utils::percentiles as crate_percentiles;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
@@ -49,6 +49,9 @@ impl GradientBooster {
         parallel: bool,
         allow_missing_splits: bool,
         monotone_constraints: HashMap<usize, i8>,
+        subsample: f32,
+        seed: u64,
+        missing: f64,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = match objective_type {
@@ -70,6 +73,9 @@ impl GradientBooster {
             parallel,
             allow_missing_splits,
             Some(constraints),
+            subsample,
+            seed,
+            missing,
         );
         Ok(GradientBooster { booster })
     }
@@ -155,6 +161,20 @@ impl GradientBooster {
         }
     }
 
+    pub fn insert_metadata(&mut self, key: String, value: String) -> PyResult<()> {
+        self.booster.insert_metadata(key, value);
+        Ok(())
+    }
+
+    pub fn get_metadata(&self, key: String) -> PyResult<String> {
+        match self.booster.get_metadata(&key) {
+            Some(m) => Ok(m),
+            None => Err(PyKeyError::new_err(
+                format!("No value associated with provided key {}", key).to_string(),
+            )),
+        }
+    }
+
     #[classmethod]
     pub fn load_booster(_: &PyType, path: String) -> PyResult<Self> {
         let booster = match CrateGradientBooster::load_booster(path.as_str()) {
@@ -213,6 +233,9 @@ impl GradientBooster {
                 self.booster.allow_missing_splits.to_object(py),
             ),
             ("monotone_constraints", constraints.to_object(py)),
+            ("subsample", self.booster.subsample.to_object(py)),
+            ("seed", self.booster.seed.to_object(py)),
+            ("missing", self.booster.missing.to_object(py)),
         ];
         let dict = key_vals.into_py_dict(py);
         Ok(dict.to_object(py))

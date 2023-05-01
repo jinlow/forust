@@ -1,4 +1,4 @@
-use crate::tree::Tree;
+use crate::{tree::Tree, utils::is_missing};
 
 /// Partial Dependence Calculator
 // struct PDCalculator {
@@ -18,19 +18,20 @@ pub fn tree_partial_dependence(
     feature: usize,
     value: f64,
     proportion: f32,
+    missing: &f64,
 ) -> f64 {
     let n = &tree.nodes[node_idx];
     if n.is_leaf {
         f64::from(proportion * n.weight_value)
     } else if n.split_feature == feature {
-        let child = if value.is_nan() {
+        let child = if is_missing(&value, missing) {
             n.missing_node
         } else if value < n.split_value {
             n.left_child
         } else {
             n.right_child
         };
-        tree_partial_dependence(tree, child, feature, value, proportion)
+        tree_partial_dependence(tree, child, feature, value, proportion, missing)
     } else {
         let left_cover = get_node_cover(tree, n.left_child);
         let right_cover = get_node_cover(tree, n.right_child);
@@ -41,18 +42,23 @@ pub fn tree_partial_dependence(
             feature,
             value,
             proportion * (left_cover / total_cover),
+            missing,
         ) + tree_partial_dependence(
             tree,
             n.right_child,
             feature,
             value,
             proportion * (right_cover / total_cover),
+            missing,
         )
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
     use super::*;
     use crate::binning::bin_matrix;
     use crate::constraints::ConstraintMap;
@@ -85,13 +91,25 @@ mod tests {
         };
         let mut tree = Tree::new();
 
-        let b = bin_matrix(&data, &w, 300).unwrap();
+        let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
 
-        tree.fit(&bdata, &b.cuts, &g, &h, &splitter, usize::MAX, 5, true);
-        let pdp1 = tree_partial_dependence(&tree, 0, 0, 1.0, 1.0);
-        let pdp2 = tree_partial_dependence(&tree, 0, 0, 2.0, 1.0);
-        let pdp3 = tree_partial_dependence(&tree, 0, 0, 3.0, 1.0);
+        let mut rng = StdRng::seed_from_u64(0);
+        tree.fit(
+            &bdata,
+            &b.cuts,
+            &g,
+            &h,
+            &splitter,
+            usize::MAX,
+            5,
+            true,
+            1.,
+            &mut rng,
+        );
+        let pdp1 = tree_partial_dependence(&tree, 0, 0, 1.0, 1.0, &f64::NAN);
+        let pdp2 = tree_partial_dependence(&tree, 0, 0, 2.0, 1.0, &f64::NAN);
+        let pdp3 = tree_partial_dependence(&tree, 0, 0, 3.0, 1.0, &f64::NAN);
         println!("{}, {}, {}", pdp1, pdp2, pdp3);
     }
 }

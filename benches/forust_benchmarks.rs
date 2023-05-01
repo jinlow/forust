@@ -7,6 +7,8 @@ use forust_ml::objective::{LogLoss, ObjectiveFunction};
 use forust_ml::splitter::MissingImputerSplitter;
 use forust_ml::tree::Tree;
 use forust_ml::utils::{fast_f64_sum, fast_sum, naive_sum};
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use std::fs;
 use std::time::Duration;
 
@@ -46,9 +48,9 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     };
     let mut tree = Tree::new();
 
-    let bindata = bin_matrix(&data, &w, 300).unwrap();
+    let bindata = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
     let bdata = Matrix::new(&bindata.binned_data, data.rows, data.cols);
-
+    let mut rng = StdRng::seed_from_u64(0);
     tree.fit(
         &bdata,
         &bindata.cuts,
@@ -58,6 +60,8 @@ pub fn tree_benchmarks(c: &mut Criterion) {
         usize::MAX,
         5,
         true,
+        1.,
+        &mut rng,
     );
     println!("{}", tree.nodes.len());
     c.bench_function("Train Tree", |b| {
@@ -72,14 +76,16 @@ pub fn tree_benchmarks(c: &mut Criterion) {
                 black_box(usize::MAX),
                 black_box(10),
                 black_box(false),
+                black_box(1.0),
+                black_box(&mut rng),
             );
         })
     });
     c.bench_function("Tree Predict (Single Threaded)", |b| {
-        b.iter(|| tree.predict(black_box(&data), black_box(false)))
+        b.iter(|| tree.predict(black_box(&data), black_box(false), black_box(&f64::NAN)))
     });
     c.bench_function("Tree Predict (Multi Threaded)", |b| {
-        b.iter(|| tree.predict(black_box(&data), black_box(true)))
+        b.iter(|| tree.predict(black_box(&data), black_box(true), black_box(&f64::NAN)))
     });
 
     // Gradient Booster
