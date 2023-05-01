@@ -9,6 +9,7 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::HashMap;
 use std::fs;
 /// Gradient Booster object
 ///
@@ -58,6 +59,7 @@ pub struct GradientBooster {
     #[serde(deserialize_with = "parse_missing")]
     pub missing: f64,
     pub trees: Vec<Tree>,
+    metadata: HashMap<String, String>,
 }
 
 fn parse_missing<'de, D>(d: D) -> Result<f64, D::Error>
@@ -157,6 +159,7 @@ impl GradientBooster {
             seed,
             missing,
             trees: Vec::new(),
+            metadata: HashMap::new(),
         }
     }
 
@@ -491,6 +494,19 @@ impl GradientBooster {
     pub fn set_missing(mut self, missing: f64) -> Self {
         self.missing = missing;
         self
+    }
+
+    /// Insert metadata
+    /// * `key` - String value for the metadata key.
+    /// * `value` - value to assign to the metadata key.
+    pub fn insert_metadata(&mut self, key: String, value: String) {
+        self.metadata.insert(key, value);
+    }
+
+    /// Get Metadata
+    /// * `key` - Get the associated value for the metadata key.
+    pub fn get_metadata(&self, key: &String) -> Option<String> {
+        self.metadata.get(key).cloned()
     }
 }
 

@@ -4,7 +4,7 @@ use forust_ml::gradientbooster::GradientBooster as CrateGradientBooster;
 use forust_ml::objective::ObjectiveType;
 use forust_ml::utils::percentiles as crate_percentiles;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
@@ -158,6 +158,20 @@ impl GradientBooster {
         match self.booster.json_dump() {
             Ok(m) => Ok(m),
             Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }
+    }
+
+    pub fn insert_metadata(&mut self, key: String, value: String) -> PyResult<()> {
+        self.booster.insert_metadata(key, value);
+        Ok(())
+    }
+
+    pub fn get_metadata(&self, key: String) -> PyResult<String> {
+        match self.booster.get_metadata(&key) {
+            Some(m) => Ok(m),
+            None => Err(PyKeyError::new_err(
+                format!("No value associated with provided key {}", key).to_string(),
+            )),
         }
     }
 

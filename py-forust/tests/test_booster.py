@@ -413,3 +413,32 @@ def test_booster_to_xgboosts_with_contributions(X_y):
         xgb.DMatrix(X), approx_contribs=True, pred_contribs=True
     )
     assert np.allclose(fmod_contribs, xmod_contribs, atol=0.000001)
+
+
+def test_booster_metadata(X_y, tmp_path):
+    f64_model_path = tmp_path / "modelf64_sl.json"
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="SquaredLoss",
+        nbins=500,
+        parallel=True,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    fmod.save_booster(f64_model_path)
+    fmod.insert_metadata("test-info", "some-info")
+    assert fmod.get_metadata("test-info") == "some-info"
+    fmod.save_booster(f64_model_path)
+
+    loaded = GradientBooster.load_booster(f64_model_path)
+    assert loaded.get_metadata("test-info") == "some-info"
+
+    with pytest.raises(KeyError):
+        loaded.get_metadata("No-key")
