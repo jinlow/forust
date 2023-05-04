@@ -20,6 +20,7 @@ pub struct NodeInfo {
     pub grad: f32,
     pub gain: f32,
     pub cover: f32,
+    pub records: f32,
     pub weight: f32,
     pub bounds: (f32, f32),
 }
@@ -96,16 +97,18 @@ pub trait Splitter {
             let left_records = cuml_records;
             let right_gradient = node.gradient_sum - cuml_grad - missing.gradient_sum;
             let right_hessian = node.hessian_sum - cuml_hess - missing.hessian_sum;
-            let right_records = node.records_sum - cuml_records - missing.records_sum;
-            
+            let right_records = node.records - cuml_records - missing.records;
 
             let (mut left_node_info, mut right_node_info, missing_info) = match self.evaluate_split(
                 left_gradient,
                 left_hessian,
+                left_records,
                 right_gradient,
                 right_hessian,
+                right_records,
                 missing.gradient_sum,
                 missing.hessian_sum,
+                missing.records,
                 node.lower_bound,
                 node.upper_bound,
                 constraint,
@@ -205,7 +208,16 @@ pub trait Splitter {
     ) -> Vec<SplittableNode> {
         match self.best_split(node) {
             Some(split_info) => self.handle_split_info(
-                split_info, n_nodes, node, index, data, cuts, grad, hess, sample_weight, parallel,
+                split_info,
+                n_nodes,
+                node,
+                index,
+                data,
+                cuts,
+                grad,
+                hess,
+                sample_weight,
+                parallel,
             ),
             None => Vec::new(),
         }
@@ -243,10 +255,13 @@ impl Splitter for MissingBranchSplitter {
         &self,
         left_gradient: f32,
         left_hessian: f32,
+        let_records: f32,
         right_gradient: f32,
         right_hessian: f32,
+        right_records: f32,
         missing_gradient: f32,
         missing_hessian: f32,
+        missing_records: f32,
         lower_bound: f32,
         upper_bound: f32,
         constraint: Option<&Constraint>,

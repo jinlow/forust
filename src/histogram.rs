@@ -52,8 +52,7 @@ impl Bin<f32> {
                 - (first_child_bin.gradient_sum + second_child_bin.gradient_sum),
             hessian_sum: root_bin.hessian_sum
                 - (first_child_bin.hessian_sum + second_child_bin.hessian_sum),
-            records: root_bin.records
-                - (first_child_bin.records + second_child_bin.records),
+            records: root_bin.records - (first_child_bin.records + second_child_bin.records),
             cut_value: root_bin.cut_value,
         }
     }
@@ -74,7 +73,7 @@ impl Bin<f64> {
             gradient_sum: self.gradient_sum as f32,
             hessian_sum: self.hessian_sum as f32,
             records: self.records as f32,
-            
+
             cut_value: self.cut_value,
         }
     }
@@ -144,7 +143,7 @@ impl HistogramMatrix {
             let mut n_grad = Vec::new();
             let mut n_hess = Vec::new();
             let mut n_sample_weight = Vec::new();
-            
+
             for i in index {
                 let i_ = *i;
                 n_grad.push(grad[i_]);
@@ -263,8 +262,14 @@ mod tests {
         let w = vec![1.; y.len()];
         let g = LogLoss::calc_grad(&y, &yhat, &w);
         let h = LogLoss::calc_hess(&y, &yhat, &w);
-        let hist =
-            create_feature_histogram(&bdata.get_col(1), &b.cuts.get_col(1), &g, &h, &w, &bdata.index);
+        let hist = create_feature_histogram(
+            &bdata.get_col(1),
+            &b.cuts.get_col(1),
+            &g,
+            &h,
+            &w,
+            &bdata.index,
+        );
         // println!("{:?}", hist);
         let mut f = bdata.get_col(1).to_owned();
         println!("{:?}", hist);
