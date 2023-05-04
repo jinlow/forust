@@ -100,6 +100,7 @@ mod tests {
             &b.cuts,
             &g,
             &h,
+            &w,
             &splitter,
             usize::MAX,
             5,

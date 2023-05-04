@@ -208,6 +208,7 @@ impl GradientBooster {
                 &binned_data.cuts,
                 &grad,
                 &hess,
+                sample_weight,
                 &splitter,
                 self.max_leaves,
                 self.max_depth,

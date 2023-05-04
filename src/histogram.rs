@@ -9,6 +9,10 @@ pub struct Bin<T> {
     pub gradient_sum: T,
     /// The sum of the hession values for this bin.
     pub hessian_sum: T,
+    /// Number of records in this bin, as determined by
+    /// summing the sample weight for all records in this
+    /// bin.
+    pub records: T,
     /// The value used to split at, this is for deciding
     /// the split value for non-binned values.
     /// This value will be missing for the missing bin.
@@ -20,6 +24,7 @@ impl Bin<f32> {
         Bin {
             gradient_sum: f32::ZERO,
             hessian_sum: f32::ZERO,
+            records: f32::ZERO,
             cut_value,
         }
     }
@@ -30,6 +35,7 @@ impl Bin<f32> {
         Bin {
             gradient_sum: root_bin.gradient_sum - child_bin.gradient_sum,
             hessian_sum: root_bin.hessian_sum - child_bin.hessian_sum,
+            records: root_bin.records - child_bin.records,
             cut_value: root_bin.cut_value,
         }
     }
@@ -46,6 +52,8 @@ impl Bin<f32> {
                 - (first_child_bin.gradient_sum + second_child_bin.gradient_sum),
             hessian_sum: root_bin.hessian_sum
                 - (first_child_bin.hessian_sum + second_child_bin.hessian_sum),
+            records: root_bin.records
+                - (first_child_bin.records + second_child_bin.records),
             cut_value: root_bin.cut_value,
         }
     }
@@ -56,6 +64,7 @@ impl Bin<f64> {
         Bin {
             gradient_sum: f64::ZERO,
             hessian_sum: f64::ZERO,
+            records: f64::ZERO,
             cut_value,
         }
     }
@@ -64,6 +73,8 @@ impl Bin<f64> {
         Bin {
             gradient_sum: self.gradient_sum as f32,
             hessian_sum: self.hessian_sum as f32,
+            records: self.records as f32,
+            
             cut_value: self.cut_value,
         }
     }
@@ -82,6 +93,7 @@ pub fn create_feature_histogram(
     cuts: &[f64],
     sorted_grad: &[f32],
     sorted_hess: &[f32],
+    sorted_sample_weight: &[f64],
     index: &[usize],
 ) -> Vec<Bin<f32>> {
     let mut histogram: Vec<Bin<f64>> = Vec::with_capacity(cuts.len());
@@ -97,10 +109,12 @@ pub fn create_feature_histogram(
         .iter()
         .zip(sorted_grad)
         .zip(sorted_hess)
-        .for_each(|((i, g), h)| {
+        .zip(sorted_sample_weight)
+        .for_each(|(((i, g), h), w)| {
             if let Some(v) = histogram.get_mut(feature[*i] as usize) {
                 v.gradient_sum += f64::from(*g);
                 v.hessian_sum += f64::from(*h);
+                v.records += *w;
             }
         });
     histogram.iter().map(|b| b.as_f32_bin()).collect()
@@ -112,6 +126,7 @@ impl HistogramMatrix {
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
+        sample_weight: &[f64],
         index: &[usize],
         parallel: bool,
         sort: bool,
@@ -123,16 +138,20 @@ impl HistogramMatrix {
         // Sort gradients and hessians to reduce cache hits.
         // This made a really sizeable difference on larger datasets
         // Bringing training time down from nearly 6 minutes, to 2 minutes.
-        let sorted_grad = if !sort {
-            grad.to_vec()
+        let (sorted_grad, sorted_hess, sorted_sample_weight) = if !sort {
+            (grad.to_vec(), hess.to_vec(), sample_weight.to_vec())
         } else {
-            index.iter().map(|i| grad[*i]).collect::<Vec<f32>>()
-        };
-
-        let sorted_hess = if !sort {
-            hess.to_vec()
-        } else {
-            index.iter().map(|i| hess[*i]).collect::<Vec<f32>>()
+            let mut n_grad = Vec::new();
+            let mut n_hess = Vec::new();
+            let mut n_sample_weight = Vec::new();
+            
+            for i in index {
+                let i_ = *i;
+                n_grad.push(grad[i_]);
+                n_hess.push(hess[i_]);
+                n_sample_weight.push(sample_weight[i_]);
+            }
+            (n_grad, n_hess, n_sample_weight)
         };
 
         let histograms = if parallel {
@@ -144,6 +163,7 @@ impl HistogramMatrix {
                         cuts.get_col(*col),
                         &sorted_grad,
                         &sorted_hess,
+                        &sorted_sample_weight,
                         index,
                     )
                 })
@@ -157,6 +177,7 @@ impl HistogramMatrix {
                         cuts.get_col(*col),
                         &sorted_grad,
                         &sorted_hess,
+                        &sorted_sample_weight,
                         index,
                     )
                 })
@@ -243,7 +264,7 @@ mod tests {
         let g = LogLoss::calc_grad(&y, &yhat, &w);
         let h = LogLoss::calc_hess(&y, &yhat, &w);
         let hist =
-            create_feature_histogram(&bdata.get_col(1), &b.cuts.get_col(1), &g, &h, &bdata.index);
+            create_feature_histogram(&bdata.get_col(1), &b.cuts.get_col(1), &g, &h, &w, &bdata.index);
         // println!("{:?}", hist);
         let mut f = bdata.get_col(1).to_owned();
         println!("{:?}", hist);

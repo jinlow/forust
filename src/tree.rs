@@ -35,6 +35,7 @@ impl Tree {
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
+        sample_weight: &[f64],
         splitter: &T,
         max_leaves: usize,
         max_depth: usize,
@@ -77,7 +78,7 @@ impl Tree {
         let root_gain = gain(&splitter.get_l2(), gradient_sum, hessian_sum);
         let root_weight = weight(&splitter.get_l2(), gradient_sum, hessian_sum);
         // Calculate the histograms for the root node.
-        let root_hists = HistogramMatrix::new(data, cuts, grad, hess, &index, parallel, sort);
+        let root_hists = HistogramMatrix::new(data, cuts, grad, hess, sample_weight, &index, parallel, sort);
         let root_node = SplittableNode::new(
             0,
             root_hists,
@@ -130,7 +131,7 @@ impl Tree {
             n_leaves -= 1;
 
             let new_nodes = splitter.split_node(
-                &n_nodes, &mut node, &mut index, data, cuts, grad, hess, parallel,
+                &n_nodes, &mut node, &mut index, data, cuts, grad, hess, sample_weight, parallel,
             );
 
             let n_new_nodes = new_nodes.len();
@@ -355,6 +356,7 @@ mod tests {
             &b.cuts,
             &g,
             &h,
+            &w,
             &splitter,
             usize::MAX,
             5,
@@ -396,6 +398,7 @@ mod tests {
             &b.cuts,
             &g,
             &h,
+            &w,
             &splitter,
             usize::MAX,
             5,
@@ -464,6 +467,7 @@ mod tests {
             &b.cuts,
             &g,
             &h,
+            &w,
             &splitter,
             usize::MAX,
             5,

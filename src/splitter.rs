@@ -84,6 +84,7 @@ pub trait Splitter {
         let missing = &histogram[0];
         let mut cuml_grad = 0.0; // first_bin.gradient_sum;
         let mut cuml_hess = 0.0; // first_bin.hessian_sum;
+        let mut cuml_records = 0.0;
         let constraint = self.get_constraint(&feature);
 
         let elements = histogram.len();
@@ -92,8 +93,11 @@ pub trait Splitter {
         for (i, bin) in histogram[1..].iter().enumerate() {
             let left_gradient = cuml_grad;
             let left_hessian = cuml_hess;
+            let left_records = cuml_records;
             let right_gradient = node.gradient_sum - cuml_grad - missing.gradient_sum;
             let right_hessian = node.hessian_sum - cuml_hess - missing.hessian_sum;
+            let right_records = node.records_sum - cuml_records - missing.records_sum;
+            
 
             let (mut left_node_info, mut right_node_info, missing_info) = match self.evaluate_split(
                 left_gradient,
@@ -182,6 +186,7 @@ pub trait Splitter {
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
+        sample_weight: &[f64],
         parallel: bool,
     ) -> Vec<SplittableNode>;
 
@@ -195,11 +200,12 @@ pub trait Splitter {
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
+        sample_weight: &[f64],
         parallel: bool,
     ) -> Vec<SplittableNode> {
         match self.best_split(node) {
             Some(split_info) => self.handle_split_info(
-                split_info, n_nodes, node, index, data, cuts, grad, hess, parallel,
+                split_info, n_nodes, node, index, data, cuts, grad, hess, sample_weight, parallel,
             ),
             None => Vec::new(),
         }
@@ -339,6 +345,7 @@ impl Splitter for MissingBranchSplitter {
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
+        sample_weight: &[f64],
         parallel: bool,
     ) -> Vec<SplittableNode> {
         todo!()
@@ -544,6 +551,7 @@ impl Splitter for MissingImputerSplitter {
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
+        sample_weight: &[f64],
         parallel: bool,
     ) -> Vec<SplittableNode> {
         let left_idx = *n_nodes;
@@ -587,6 +595,7 @@ impl Splitter for MissingImputerSplitter {
                 cuts,
                 grad,
                 hess,
+                sample_weight,
                 &index[node.start_idx..split_idx],
                 parallel,
                 true,
@@ -599,6 +608,7 @@ impl Splitter for MissingImputerSplitter {
                 cuts,
                 grad,
                 hess,
+                sample_weight,
                 &index[split_idx..node.stop_idx],
                 parallel,
                 true,
@@ -663,7 +673,7 @@ mod tests {
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, true);
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &w, &index, true, true);
         let splitter = MissingImputerSplitter {
             l2: 0.0,
             gamma: 0.0,
@@ -710,7 +720,7 @@ mod tests {
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, true);
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &w, &index, true, true);
         println!("{:?}", hists);
         let splitter = MissingImputerSplitter {
             l2: 0.0,
@@ -777,7 +787,7 @@ mod tests {
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &w, &index, true, false);
 
         let mut n = SplittableNode::new(
             0,
