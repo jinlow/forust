@@ -6,6 +6,14 @@ use crate::utils::{
     constrained_weight, cull_gain, gain_given_weight, pivot_on_split,
     pivot_on_split_exclude_missing, weight,
 };
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize, Serialize)]
+pub enum MissingHandler {
+    Impute,
+    Branch,
+    Leaf,
+}
 
 #[derive(Debug)]
 pub struct SplitInfo {

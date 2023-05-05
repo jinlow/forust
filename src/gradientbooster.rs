@@ -3,7 +3,7 @@ use crate::constraints::ConstraintMap;
 use crate::data::Matrix;
 use crate::errors::ForustError;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
-use crate::splitter::MissingImputerSplitter;
+use crate::splitter::{MissingHandler, MissingImputerSplitter};
 use crate::tree::Tree;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -58,6 +58,7 @@ pub struct GradientBooster {
     pub seed: u64,
     #[serde(deserialize_with = "parse_missing")]
     pub missing: f64,
+    pub missing_handler: MissingHandler,
     pub trees: Vec<Tree>,
     metadata: HashMap<String, String>,
 }
@@ -88,6 +89,7 @@ impl Default for GradientBooster {
             1.,
             0,
             f64::NAN,
+            MissingHandler::Impute,
         )
     }
 }
@@ -140,6 +142,7 @@ impl GradientBooster {
         subsample: f32,
         seed: u64,
         missing: f64,
+        missing_handler: MissingHandler,
     ) -> Self {
         GradientBooster {
             objective_type,
@@ -158,6 +161,7 @@ impl GradientBooster {
             subsample,
             seed,
             missing,
+            missing_handler,
             trees: Vec::new(),
             metadata: HashMap::new(),
         }
