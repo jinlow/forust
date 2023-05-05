@@ -123,7 +123,6 @@ impl HistogramMatrix {
         // Sort gradients and hessians to reduce cache hits.
         // This made a really sizeable difference on larger datasets
         // Bringing training time down from nearly 6 minutes, to 2 minutes.
-
         let (sorted_grad, sorted_hess) = if !sort {
             (grad.to_vec(), hess.to_vec())
         } else {

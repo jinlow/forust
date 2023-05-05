@@ -142,7 +142,9 @@ impl Tree {
                 n_nodes += n_new_nodes;
                 for n in new_nodes {
                     self.nodes.push(n.as_node());
-                    growable.push_front(n)
+                    if !n.is_missing_leaf {
+                        growable.push_front(n)
+                    }
                 }
             }
         }

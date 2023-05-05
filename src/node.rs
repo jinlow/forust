@@ -25,6 +25,7 @@ pub struct SplittableNode {
     pub lower_bound: f32,
     pub upper_bound: f32,
     pub is_leaf: bool,
+    pub is_missing_leaf: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -67,14 +68,6 @@ impl Node {
     }
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct LeafNode {
-    pub num: usize,
-    pub weight_value: f32,
-    pub hessian_sum: f32,
-    pub depth: usize,
-}
-
 impl SplittableNode {
     pub fn from_node_info(
         num: usize,
@@ -103,6 +96,7 @@ impl SplittableNode {
             lower_bound: node_info.bounds.0,
             upper_bound: node_info.bounds.1,
             is_leaf: true,
+            is_missing_leaf: false,
         }
     }
 
@@ -141,11 +135,13 @@ impl SplittableNode {
             lower_bound,
             upper_bound,
             is_leaf: true,
+            is_missing_leaf: false,
         }
     }
 
     pub fn update_children(
         &mut self,
+        missing_child: usize,
         left_child: usize,
         right_child: usize,
         split_info: &SplitInfo,
@@ -153,14 +149,15 @@ impl SplittableNode {
         self.left_child = left_child;
         self.right_child = right_child;
         self.split_feature = split_info.split_feature;
-        self.split_gain = split_info.left_node.gain + split_info.right_node.gain - self.gain_value;
-        self.split_value = split_info.split_value;
-        self.missing_node = match split_info.missing_node {
-            MissingInfo::Left => left_child,
-            MissingInfo::Right => right_child,
-            MissingInfo::Branch(_) => todo!(),
-            MissingInfo::EmptyBranch => todo!(),
+        let missing_split_gain = match &split_info.missing_node {
+            MissingInfo::Branch(ni) => ni.gain,
+            _ => 0.,
         };
+        self.split_gain =
+            split_info.left_node.gain + split_info.right_node.gain + missing_split_gain
+                - self.gain_value;
+        self.split_value = split_info.split_value;
+        self.missing_node = missing_child;
         self.is_leaf = false;
     }
     pub fn as_node(&self) -> Node {
