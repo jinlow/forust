@@ -123,16 +123,18 @@ impl HistogramMatrix {
         // Sort gradients and hessians to reduce cache hits.
         // This made a really sizeable difference on larger datasets
         // Bringing training time down from nearly 6 minutes, to 2 minutes.
-        let sorted_grad = if !sort {
-            grad.to_vec()
-        } else {
-            index.iter().map(|i| grad[*i]).collect::<Vec<f32>>()
-        };
 
-        let sorted_hess = if !sort {
-            hess.to_vec()
+        let (sorted_grad, sorted_hess) = if !sort {
+            (grad.to_vec(), hess.to_vec())
         } else {
-            index.iter().map(|i| hess[*i]).collect::<Vec<f32>>()
+            let mut n_grad = Vec::new();
+            let mut n_hess = Vec::new();
+            for i in index {
+                let i_ = *i;
+                n_grad.push(grad[i_]);
+                n_hess.push(hess[i_]);
+            }
+            (n_grad, n_hess)
         };
 
         let histograms = if parallel {
