@@ -6,14 +6,6 @@ use crate::utils::{
     constrained_weight, cull_gain, gain_given_weight, pivot_on_split,
     pivot_on_split_exclude_missing, weight,
 };
-use serde::{Deserialize, Serialize};
-
-#[derive(Deserialize, Serialize)]
-pub enum MissingHandler {
-    Impute,
-    Branch,
-    Leaf,
-}
 
 #[derive(Debug)]
 pub struct SplitInfo {
@@ -407,19 +399,38 @@ impl Splitter for MissingBranchSplitter {
         let missing_histograms: HistogramMatrix;
         // There has to be a better way to structure this...
         // This is not very dry.
-        match max_ {
+        if max_ == 0 {
             // Max is missing, calculate the other two
             // levels histograms.
-            0 => {
-                left_histograms = HistogramMatrix::new(
-                    data,
-                    cuts,
-                    grad,
-                    hess,
-                    &index[missing_split_idx..split_idx],
-                    parallel,
-                    true,
-                );
+            left_histograms = HistogramMatrix::new(
+                data,
+                cuts,
+                grad,
+                hess,
+                &index[missing_split_idx..split_idx],
+                parallel,
+                true,
+            );
+            right_histograms = HistogramMatrix::new(
+                data,
+                cuts,
+                grad,
+                hess,
+                &index[split_idx..node.stop_idx],
+                parallel,
+                true,
+            );
+            missing_histograms = HistogramMatrix::from_parent_two_children(
+                &node.histograms,
+                &left_histograms,
+                &right_histograms,
+            )
+        }
+        // Left is the largest
+        else if max_ == 1 {
+            // If there are no missing...
+            if n_missing == 0 {
+                missing_histograms = HistogramMatrix::empty();
                 right_histograms = HistogramMatrix::new(
                     data,
                     cuts,
@@ -429,14 +440,9 @@ impl Splitter for MissingBranchSplitter {
                     parallel,
                     true,
                 );
-                missing_histograms = HistogramMatrix::from_parent_two_children(
-                    &node.histograms,
-                    &left_histograms,
-                    &right_histograms,
-                )
-            }
-            // Left is the largest
-            1 => {
+                left_histograms =
+                    HistogramMatrix::from_parent_child(&node.histograms, &right_histograms)
+            } else {
                 missing_histograms = HistogramMatrix::new(
                     data,
                     cuts,
@@ -461,7 +467,23 @@ impl Splitter for MissingBranchSplitter {
                     &right_histograms,
                 )
             }
-            _ => {
+        } else {
+            // right is the largest
+            // If there are no missing...
+            if n_missing == 0 {
+                missing_histograms = HistogramMatrix::empty();
+                left_histograms = HistogramMatrix::new(
+                    data,
+                    cuts,
+                    grad,
+                    hess,
+                    &index[missing_split_idx..split_idx],
+                    parallel,
+                    true,
+                );
+                right_histograms =
+                    HistogramMatrix::from_parent_child(&node.histograms, &left_histograms)
+            } else {
                 missing_histograms = HistogramMatrix::new(
                     data,
                     cuts,
@@ -506,7 +528,7 @@ impl Splitter for MissingBranchSplitter {
             left_child,
             left_histograms,
             node.depth + 1,
-            node.start_idx,
+            missing_split_idx,
             split_idx,
             split_info.left_node,
         );

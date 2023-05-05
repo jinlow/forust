@@ -97,6 +97,7 @@ class GradientBooster:
         subsample: float = 1.0,
         seed: int = 0,
         missing: float = np.nan,
+        create_missing_branch: bool = False,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -168,6 +169,7 @@ class GradientBooster:
             subsample=subsample,
             seed=seed,
             missing=missing,
+            create_missing_branch=create_missing_branch,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -189,6 +191,7 @@ class GradientBooster:
         self.subsample = subsample
         self.seed = seed
         self.missing = missing
+        self.create_missing_branch = create_missing_branch
 
     def fit(
         self,

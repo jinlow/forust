@@ -107,6 +107,15 @@ pub fn create_feature_histogram(
 }
 
 impl HistogramMatrix {
+    /// Create an empty histogram matrix.
+    pub fn empty() -> Self {
+        HistogramMatrix(JaggedMatrix {
+            data: Vec::new(),
+            ends: Vec::new(),
+            cols: 0,
+            n_records: 0,
+        })
+    }
     pub fn new(
         data: &Matrix<u16>,
         cuts: &JaggedMatrix<f64>,
