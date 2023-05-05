@@ -787,7 +787,7 @@ impl Splitter for MissingImputerSplitter {
         } else {
             left_child
         };
-        node.update_children(left_child, right_child, missing_child, &split_info);
+        node.update_children(missing_child, left_child, right_child, &split_info);
 
         let left_node = SplittableNode::from_node_info(
             left_child,
