@@ -3,7 +3,7 @@ use crate::constraints::ConstraintMap;
 use crate::data::Matrix;
 use crate::errors::ForustError;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
-use crate::splitter::MissingImputerSplitter;
+use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -58,6 +58,7 @@ pub struct GradientBooster {
     pub seed: u64,
     #[serde(deserialize_with = "parse_missing")]
     pub missing: f64,
+    pub create_missing_branch: bool,
     pub trees: Vec<Tree>,
     metadata: HashMap<String, String>,
 }
@@ -88,6 +89,7 @@ impl Default for GradientBooster {
             1.,
             0,
             f64::NAN,
+            false,
         )
     }
 }
@@ -117,11 +119,16 @@ impl GradientBooster {
     ///   a smaller number, will result in faster training time, while potentially sacrificing
     ///   accuracy. If there are more bins, than unique values in a column, all unique values
     ///   will be used.
+    /// * `parallel` - Should the algorithm be run in parallel?
+    /// * `allow_missing_splits` - Should the algorithm allow splits that completed seperate out missing
+    /// and non-missing values, in the case where `create_missing_branch` is false. When `create_missing_branch`
+    /// is true, setting this to true will result in the missin branch being further split.
     /// * `monotone_constraints` - Constraints that are used to enforce a specific relationship
     ///   between the training features and the target variable.
     /// * `subsample` - Percent of records to randomly sample at each iteration when training a tree.
     /// * `seed` - Integer value used to seed any randomness used in the algorithm.
     /// * `missing` - Value to consider missing.
+    /// * `create_missing_branch` - Should missing be split out it's own separate branch?
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         objective_type: ObjectiveType,
@@ -140,6 +147,7 @@ impl GradientBooster {
         subsample: f32,
         seed: u64,
         missing: f64,
+        create_missing_branch: bool,
     ) -> Self {
         GradientBooster {
             objective_type,
@@ -158,6 +166,7 @@ impl GradientBooster {
             subsample,
             seed,
             missing,
+            create_missing_branch,
             trees: Vec::new(),
             metadata: HashMap::new(),
         }
@@ -175,20 +184,44 @@ impl GradientBooster {
         y: &[f64],
         sample_weight: &[f64],
     ) -> Result<(), ForustError> {
-        let mut rng = StdRng::seed_from_u64(self.seed);
         let constraints_map = self
             .monotone_constraints
             .as_ref()
             .unwrap_or(&ConstraintMap::new())
             .to_owned();
-        let splitter = MissingImputerSplitter {
-            l2: self.l2,
-            gamma: self.gamma,
-            min_leaf_weight: self.min_leaf_weight,
-            learning_rate: self.learning_rate,
-            allow_missing_splits: self.allow_missing_splits,
-            constraints_map,
+        if self.create_missing_branch {
+            let splitter = MissingBranchSplitter {
+                l2: self.l2,
+                gamma: self.gamma,
+                min_leaf_weight: self.min_leaf_weight,
+                learning_rate: self.learning_rate,
+                allow_missing_splits: self.allow_missing_splits,
+                constraints_map,
+            };
+            self.fit_trees(y, sample_weight, data, &splitter)?;
+        } else {
+            let splitter = MissingImputerSplitter {
+                l2: self.l2,
+                gamma: self.gamma,
+                min_leaf_weight: self.min_leaf_weight,
+                learning_rate: self.learning_rate,
+                allow_missing_splits: self.allow_missing_splits,
+                constraints_map,
+            };
+            self.fit_trees(y, sample_weight, data, &splitter)?;
         };
+
+        Ok(())
+    }
+
+    fn fit_trees<T: Splitter>(
+        &mut self,
+        y: &[f64],
+        sample_weight: &[f64],
+        data: &Matrix<f64>,
+        splitter: &T,
+    ) -> Result<(), ForustError> {
+        let mut rng = StdRng::seed_from_u64(self.seed);
         let mut yhat = vec![self.base_score; y.len()];
         let (calc_grad, calc_hess) = gradient_hessian_callables(&self.objective_type);
         let mut grad = calc_grad(y, &yhat, sample_weight);
@@ -208,7 +241,7 @@ impl GradientBooster {
                 &binned_data.cuts,
                 &grad,
                 &hess,
-                &splitter,
+                splitter,
                 self.max_leaves,
                 self.max_depth,
                 self.parallel,

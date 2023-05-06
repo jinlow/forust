@@ -52,6 +52,7 @@ impl GradientBooster {
         subsample: f32,
         seed: u64,
         missing: f64,
+        create_missing_branch: bool,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = match objective_type {
@@ -76,6 +77,7 @@ impl GradientBooster {
             subsample,
             seed,
             missing,
+            create_missing_branch,
         );
         Ok(GradientBooster { booster })
     }
@@ -236,6 +238,10 @@ impl GradientBooster {
             ("subsample", self.booster.subsample.to_object(py)),
             ("seed", self.booster.seed.to_object(py)),
             ("missing", self.booster.missing.to_object(py)),
+            (
+                "create_missing_branch",
+                self.booster.create_missing_branch.to_object(py),
+            ),
         ];
         let dict = key_vals.into_py_dict(py);
         Ok(dict.to_object(py))

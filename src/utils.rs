@@ -284,6 +284,9 @@ pub fn pivot_on_split(
 /// values greater than or equal to the split value are above.
 /// Missing values, will be pushed to the bottom, a value of
 /// zero is missing in this case.
+/// Returns a tuple, the first is the first non-missing value
+/// index, the second is the first value that is greater than
+/// our provided split value.
 ///
 /// WARNING!!! Currently, this function fails, if all the values are
 /// missing...
@@ -347,7 +350,7 @@ pub fn pivot_on_split_exclude_missing(
             index.swap(high, low);
         }
     }
-    (low, missing)
+    (missing, low)
 }
 
 /// Function to compare a value to our split value.
@@ -652,19 +655,19 @@ mod tests {
             split_i: &(usize, usize),
         ) {
             // Check they are lower than..
-            for i in 0..split_i.0 {
+            for i in 0..split_i.1 {
                 assert!(f[idx[i]] < split_value);
             }
             // Check missing got moved
-            for i in 0..split_i.1 {
+            for i in 0..split_i.0 {
                 assert!(f[idx[i]] == 0);
             }
             // Check none are less than...
-            for i in split_i.0..(idx.len()) {
+            for i in split_i.1..(idx.len()) {
                 assert!(!(f[idx[i]] < split_value));
             }
             // Check none other are missing...
-            for i in split_i.1..(idx.len()) {
+            for i in split_i.0..(idx.len()) {
                 assert!(f[idx[i]] != 0);
             }
         }
@@ -708,6 +711,14 @@ mod tests {
         // let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
         // println!("{:?}, {:?}, {:?}", split_i, idx, map_);
         pivot_missing_assert(2, &idx, &f, &split_i);
+
+        // Ensure it works on all missing...
+        // let mut idx = vec![0, 1, 2, 3, 4, 5];
+        // let f: Vec<u16> = vec![3; idx.len()];
+        // let split_i = pivot_on_split_exclude_missing(&mut idx, &f, 2);
+        // // let map_ = idx.iter().map(|i| f[*i]).collect::<Vec<u16>>();
+        // // println!("{:?}, {:?}, {:?}", split_i, idx, map_);
+        // pivot_missing_assert(2, &idx, &f, &split_i);
 
         // Check if none missing...
         // TODO: Add more tests for this...

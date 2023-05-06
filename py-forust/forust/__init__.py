@@ -97,6 +97,7 @@ class GradientBooster:
         subsample: float = 1.0,
         seed: int = 0,
         missing: float = np.nan,
+        create_missing_branch: bool = False,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -130,7 +131,10 @@ class GradientBooster:
             allow_missing_splits (bool, optional): Allow for splits to be made such that all missing values go
                 down one branch, and all non-missing values go down the other, if this results
                 in the greatest reduction of loss. If this is false, splits will only be made on non
-                missing values. Defaults to `True`.
+                missing values. If `create_missing_branch` is set to `True` having this parameter be
+                set to `True` will result in the missing branch further split, if this parameter
+                is `False` then in that case the missing branch will always be a terminal node.
+                Defaults to `True`.
             monotone_constraints (dict[Any, int], optional): Constraints that are used to enforce a
                 specific relationship between the training features and the target variable. A dictionary
                 should be provided where the keys are the feature index value if the model will be fit on
@@ -147,6 +151,10 @@ class GradientBooster:
                 algorithm. Defaults to 0.
             missing (float, optional): Value to consider missing, when training and predicting
                 with the booster. Defaults to `np.nan`.
+            create_missing_branch (bool, optional): An experimental parameter, that if `True`, will
+                create a separate branch for missing, creating a ternary tree, the missing node will be given the same
+                weight value as the parent node. If this parameter is `False`, missing will be sent
+                down either the left or right branch, creating a binary tree. Defaults to `False`.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -168,6 +176,7 @@ class GradientBooster:
             subsample=subsample,
             seed=seed,
             missing=missing,
+            create_missing_branch=create_missing_branch,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -184,11 +193,12 @@ class GradientBooster:
         self.base_score = base_score
         self.nbins = nbins
         self.parallel = parallel
-        self.allow_missing_splits = (allow_missing_splits,)
+        self.allow_missing_splits = allow_missing_splits
         self.monotone_constraints = monotone_constraints_
         self.subsample = subsample
         self.seed = seed
         self.missing = missing
+        self.create_missing_branch = create_missing_branch
 
     def fit(
         self,

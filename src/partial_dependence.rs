@@ -35,7 +35,24 @@ pub fn tree_partial_dependence(
     } else {
         let left_cover = get_node_cover(tree, n.left_child);
         let right_cover = get_node_cover(tree, n.right_child);
-        let total_cover = left_cover + right_cover;
+        let missing_cover = if n.has_missing_branch() {
+            get_node_cover(tree, n.missing_node)
+        } else {
+            0.0
+        };
+        let total_cover = left_cover + right_cover + missing_cover;
+        let missing_pd = if n.has_missing_branch() {
+            tree_partial_dependence(
+                tree,
+                n.missing_node,
+                feature,
+                value,
+                proportion * (missing_cover / total_cover),
+                missing,
+            )
+        } else {
+            0.
+        };
         tree_partial_dependence(
             tree,
             n.left_child,
@@ -50,7 +67,7 @@ pub fn tree_partial_dependence(
             value,
             proportion * (right_cover / total_cover),
             missing,
-        )
+        ) + missing_pd
     }
 }
 
