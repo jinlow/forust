@@ -120,8 +120,17 @@ pub trait Splitter {
                 Some(v) => v,
             };
 
-            let split_gain =
-                (left_node_info.gain + right_node_info.gain - node.gain_value) - self.get_gamma();
+            // TODO!
+            // Should we be doing this?
+            // or should missing gain not factor in at
+            // all to the split gain?
+            let missing_gain = match &missing_info {
+                MissingInfo::Branch(v) | MissingInfo::Leaf(v) => v.gain,
+                _ => 0.0,
+            };
+            let split_gain = (left_node_info.gain + right_node_info.gain + missing_gain
+                - node.gain_value)
+                - self.get_gamma();
 
             // Check monotonicity holds
             let split_gain = cull_gain(
@@ -292,12 +301,17 @@ impl Splitter for MissingBranchSplitter {
             return None;
         }
 
-        // We have no considered missing at all up until this point, we could if we wanted
+        // We have not considered missing at all up until this point, we could if we wanted
         // to give more predictive power probably to missing.
         // If we don't want to allow the missing branch to be split further,
         // we will default to creating an empty branch.
 
-        let missing_weight = weight(&self.get_l2(), missing_gradient, missing_hessian);
+        // Set weight to the parent weight...
+        let missing_weight = weight(
+            &self.get_l2(),
+            missing_gradient + left_gradient + right_gradient,
+            missing_hessian + left_hessian + right_hessian,
+        ); // weight(&self.get_l2(), missing_gradient, missing_hessian);
         let missing_gain = gain_given_weight(
             &self.get_l2(),
             missing_gradient,
@@ -312,12 +326,12 @@ impl Splitter for MissingBranchSplitter {
             bounds: (f32::NEG_INFINITY, f32::INFINITY),
         };
         let missing_node = // Check Missing direction
-        if ((missing_gradient != 0.0) || (missing_hessian != 0.0)) || !self.allow_missing_splits {
-            MissingInfo::Leaf(
+        if ((missing_gradient != 0.0) || (missing_hessian != 0.0)) && self.allow_missing_splits {
+            MissingInfo::Branch(
                 missing_info
             )
         } else {
-            MissingInfo::Branch(
+            MissingInfo::Leaf(
                 missing_info
             )
         };
@@ -360,6 +374,13 @@ impl Splitter for MissingBranchSplitter {
         let missing_child = *n_nodes;
         let left_child = missing_child + 1;
         let right_child = missing_child + 2;
+        node.update_children(missing_child, left_child, right_child, &split_info);
+
+        let (missing_is_leaf, missing_info) = match split_info.missing_node {
+            MissingInfo::Branch(i) => (false, i),
+            MissingInfo::Leaf(i) => (true, i),
+            _ => unreachable!(),
+        };
 
         // We need to move all of the index's above and below our
         // split value.
@@ -397,9 +418,35 @@ impl Splitter for MissingBranchSplitter {
         let left_histograms: HistogramMatrix;
         let right_histograms: HistogramMatrix;
         let missing_histograms: HistogramMatrix;
-        // There has to be a better way to structure this...
-        // This is not very dry.
-        if max_ == 0 {
+        if n_missing == 0 {
+            if max_ == 1 {
+                missing_histograms = HistogramMatrix::empty();
+                right_histograms = HistogramMatrix::new(
+                    data,
+                    cuts,
+                    grad,
+                    hess,
+                    &index[split_idx..node.stop_idx],
+                    parallel,
+                    true,
+                );
+                left_histograms =
+                    HistogramMatrix::from_parent_child(&node.histograms, &right_histograms);
+            } else {
+                missing_histograms = HistogramMatrix::empty();
+                left_histograms = HistogramMatrix::new(
+                    data,
+                    cuts,
+                    grad,
+                    hess,
+                    &index[missing_split_idx..split_idx],
+                    parallel,
+                    true,
+                );
+                right_histograms =
+                    HistogramMatrix::from_parent_child(&node.histograms, &left_histograms);
+            }
+        } else if max_ == 0 {
             // Max is missing, calculate the other two
             // levels histograms.
             left_histograms = HistogramMatrix::new(
@@ -425,96 +472,58 @@ impl Splitter for MissingBranchSplitter {
                 &left_histograms,
                 &right_histograms,
             )
-        }
-        // Left is the largest
-        else if max_ == 1 {
-            // If there are no missing...
-            if n_missing == 0 {
-                missing_histograms = HistogramMatrix::empty();
-                right_histograms = HistogramMatrix::new(
-                    data,
-                    cuts,
-                    grad,
-                    hess,
-                    &index[split_idx..node.stop_idx],
-                    parallel,
-                    true,
-                );
-                left_histograms =
-                    HistogramMatrix::from_parent_child(&node.histograms, &right_histograms)
-            } else {
-                missing_histograms = HistogramMatrix::new(
-                    data,
-                    cuts,
-                    grad,
-                    hess,
-                    &index[node.start_idx..missing_split_idx],
-                    parallel,
-                    true,
-                );
-                right_histograms = HistogramMatrix::new(
-                    data,
-                    cuts,
-                    grad,
-                    hess,
-                    &index[split_idx..node.stop_idx],
-                    parallel,
-                    true,
-                );
-                left_histograms = HistogramMatrix::from_parent_two_children(
-                    &node.histograms,
-                    &missing_histograms,
-                    &right_histograms,
-                )
-            }
+        } else if max_ == 1 {
+            missing_histograms = HistogramMatrix::new(
+                data,
+                cuts,
+                grad,
+                hess,
+                &index[node.start_idx..missing_split_idx],
+                parallel,
+                true,
+            );
+            right_histograms = HistogramMatrix::new(
+                data,
+                cuts,
+                grad,
+                hess,
+                &index[split_idx..node.stop_idx],
+                parallel,
+                true,
+            );
+            left_histograms = HistogramMatrix::from_parent_two_children(
+                &node.histograms,
+                &missing_histograms,
+                &right_histograms,
+            )
         } else {
             // right is the largest
-            // If there are no missing...
-            if n_missing == 0 {
-                missing_histograms = HistogramMatrix::empty();
-                left_histograms = HistogramMatrix::new(
-                    data,
-                    cuts,
-                    grad,
-                    hess,
-                    &index[missing_split_idx..split_idx],
-                    parallel,
-                    true,
-                );
-                right_histograms =
-                    HistogramMatrix::from_parent_child(&node.histograms, &left_histograms)
-            } else {
-                missing_histograms = HistogramMatrix::new(
-                    data,
-                    cuts,
-                    grad,
-                    hess,
-                    &index[node.start_idx..missing_split_idx],
-                    parallel,
-                    true,
-                );
-                left_histograms = HistogramMatrix::new(
-                    data,
-                    cuts,
-                    grad,
-                    hess,
-                    &index[missing_split_idx..split_idx],
-                    parallel,
-                    true,
-                );
-                right_histograms = HistogramMatrix::from_parent_two_children(
-                    &node.histograms,
-                    &missing_histograms,
-                    &left_histograms,
-                )
-            }
+
+            missing_histograms = HistogramMatrix::new(
+                data,
+                cuts,
+                grad,
+                hess,
+                &index[node.start_idx..missing_split_idx],
+                parallel,
+                true,
+            );
+            left_histograms = HistogramMatrix::new(
+                data,
+                cuts,
+                grad,
+                hess,
+                &index[missing_split_idx..split_idx],
+                parallel,
+                true,
+            );
+            right_histograms = HistogramMatrix::from_parent_two_children(
+                &node.histograms,
+                &missing_histograms,
+                &left_histograms,
+            )
         }
-        node.update_children(missing_child, left_child, right_child, &split_info);
-        let (missing_is_leaf, missing_info) = match split_info.missing_node {
-            MissingInfo::Branch(i) => (false, i),
-            MissingInfo::Leaf(i) => (true, i),
-            _ => unreachable!(),
-        };
+
         let mut missing_node = SplittableNode::from_node_info(
             missing_child,
             missing_histograms,

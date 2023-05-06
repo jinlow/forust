@@ -276,11 +276,17 @@ impl Tree {
         if !node.is_leaf {
             let left_node = &self.nodes[node.left_child];
             let right_node = &self.nodes[node.right_child];
-            w = ((left_node.hessian_sum as f64
-                * self.distribute_node_leaf_weights(node.left_child, weights))
-                + (right_node.hessian_sum as f64
-                    * self.distribute_node_leaf_weights(node.right_child, weights)))
-                / (node.hessian_sum as f64);
+            w = left_node.hessian_sum as f64
+                * self.distribute_node_leaf_weights(node.left_child, weights);
+            w += right_node.hessian_sum as f64
+                * self.distribute_node_leaf_weights(node.right_child, weights);
+            // If this a tree with a missing branch.
+            if node.has_missing_branch() {
+                let missing_node = &self.nodes[node.missing_node];
+                w += missing_node.hessian_sum as f64
+                    * self.distribute_node_leaf_weights(node.missing_node, weights);
+            }
+            w /= node.hessian_sum as f64;
         }
         weights[i] = w;
         w
@@ -308,6 +314,9 @@ impl Display for Tree {
                 r += format!("{}{}\n", "      ".repeat(node.depth).as_str(), node).as_str();
                 print_buffer.push(node.right_child);
                 print_buffer.push(node.left_child);
+                if node.has_missing_branch() {
+                    print_buffer.push(node.missing_node);
+                }
             }
         }
         write!(f, "{}", r)

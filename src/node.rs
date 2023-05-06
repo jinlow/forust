@@ -66,6 +66,10 @@ impl Node {
             self.right_child
         }
     }
+
+    pub fn has_missing_branch(&self) -> bool {
+        (self.missing_node != self.right_child) && (self.missing_node != self.left_child)
+    }
 }
 
 impl SplittableNode {
