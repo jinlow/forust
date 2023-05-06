@@ -415,6 +415,49 @@ def test_booster_to_xgboosts_with_contributions(X_y):
     assert np.allclose(fmod_contribs, xmod_contribs, atol=0.000001)
 
 
+def test_missing_branch_with_contributions(X_y):
+    X, y = X_y
+    X = X
+    fmod_miss_leaf = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        base_score=0.5,
+        allow_missing_splits=False,
+        create_missing_branch=True,
+    )
+    fmod_miss_leaf.fit(X, y)
+    fmod_miss_leaf_preds = fmod_miss_leaf.predict(X)
+    fmod_miss_leaf_conts = fmod_miss_leaf.predict_contributions(X)
+    assert np.allclose(fmod_miss_leaf_conts.sum(1), fmod_miss_leaf_preds)
+
+    fmod_miss_branch = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        base_score=0.5,
+        allow_missing_splits=True,
+        create_missing_branch=True,
+    )
+    fmod_miss_branch.fit(X, y)
+    fmod_miss_branch_preds = fmod_miss_branch.predict(X)
+    fmod_miss_branch_conts = fmod_miss_branch.predict_contributions(X)
+    assert np.allclose(fmod_miss_branch_conts.sum(1), fmod_miss_branch_preds)
+    assert not np.allclose(fmod_miss_branch_preds, fmod_miss_leaf_preds)
+
+
 def test_booster_metadata(X_y, tmp_path):
     f64_model_path = tmp_path / "modelf64_sl.json"
     X, y = X_y
