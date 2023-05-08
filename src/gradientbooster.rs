@@ -11,6 +11,12 @@ use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fs;
+
+pub enum ContributionsMethod {
+    Weight,
+    Average,
+}
+
 /// Gradient Booster object
 ///
 /// * `objective_type` - The name of objective function used to optimize.
@@ -306,10 +312,63 @@ impl GradientBooster {
     //     init_preds
     // }
 
+    pub fn predict_contributions(
+        &self,
+        data: &Matrix<f64>,
+        method: ContributionsMethod,
+        parallel: bool,
+    ) -> Vec<f64> {
+        match method {
+            ContributionsMethod::Average => self.predict_contributions_average(data, parallel),
+            ContributionsMethod::Weight => self.predict_contributions_weight(data, parallel),
+        }
+    }
+
+    fn predict_contributions_weight(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
+        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
+
+        // Add the bias term to every bias value...
+        let bias_idx = data.cols + 1;
+        contribs
+            .iter_mut()
+            .skip(bias_idx - 1)
+            .step_by(bias_idx)
+            .for_each(|v| *v += self.base_score);
+
+        // Clean this up..
+        // materializing a row, and then passing that to all of the
+        // trees seems to be the fastest approach (5X faster), we should test
+        // something like this for normal predictions.
+        if parallel {
+            data.index
+                .par_iter()
+                .zip(contribs.par_chunks_mut(data.cols + 1))
+                .for_each(|(row, c)| {
+                    let r_ = data.get_row(*row);
+                    self.trees.iter().for_each(|t| {
+                        t.predict_contributions_row_weight(&r_, c, &self.missing);
+                    });
+                });
+        } else {
+            data.index
+                .iter()
+                .zip(contribs.chunks_mut(data.cols + 1))
+                .for_each(|(row, c)| {
+                    let r_ = data.get_row(*row);
+                    self.trees.iter().for_each(|t| {
+                        t.predict_contributions_row_weight(&r_, c, &self.missing);
+                    });
+                });
+        }
+
+        contribs
+    }
+
     /// Generate predictions on data using the gradient booster.
+    /// This is equivalent to the XGBoost predict contributions with approx_contribs
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
-    pub fn predict_contributions(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
+    fn predict_contributions_average(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
         let weights: Vec<Vec<f64>> = if parallel {
             self.trees
                 .par_iter()
@@ -342,7 +401,7 @@ impl GradientBooster {
                 .for_each(|(row, c)| {
                     let r_ = data.get_row(*row);
                     self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
-                        t.predict_contributions_row(&r_, c, w, &self.missing);
+                        t.predict_contributions_row_average(&r_, c, w, &self.missing);
                     });
                 });
         } else {
@@ -352,7 +411,7 @@ impl GradientBooster {
                 .for_each(|(row, c)| {
                     let r_ = data.get_row(*row);
                     self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
-                        t.predict_contributions_row(&r_, c, w, &self.missing);
+                        t.predict_contributions_row_average(&r_, c, w, &self.missing);
                     });
                 });
         }
@@ -570,7 +629,7 @@ mod tests {
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight).unwrap();
         let preds = booster.predict(&data, false);
-        let contribs = booster.predict_contributions(&data, false);
+        let contribs = booster.predict_contributions(&data, ContributionsMethod::Average, false);
         assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
         println!("{}", booster.trees[0]);
         println!("{}", booster.trees[0].nodes.len());
@@ -599,7 +658,7 @@ mod tests {
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight).unwrap();
         let preds = booster.predict(&data, false);
-        let contribs = booster.predict_contributions(&data, false);
+        let contribs = booster.predict_contributions(&data, ContributionsMethod::Average, false);
         assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
         println!("{}", booster.trees[0]);
         println!("{}", booster.trees[0].nodes.len());
