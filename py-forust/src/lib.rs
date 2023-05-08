@@ -1,6 +1,6 @@
 use forust_ml::constraints::{Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
-use forust_ml::gradientbooster::GradientBooster as CrateGradientBooster;
+use forust_ml::gradientbooster::{ContributionsMethod, GradientBooster as CrateGradientBooster};
 use forust_ml::objective::ObjectiveType;
 use forust_ml::utils::percentiles as crate_percentiles;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
@@ -126,14 +126,20 @@ impl GradientBooster {
         flat_data: PyReadonlyArray1<f64>,
         rows: usize,
         cols: usize,
+        method: &str,
         parallel: Option<bool>,
     ) -> PyResult<&'py PyArray1<f64>> {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let parallel = parallel.unwrap_or(true);
+        let method_ = match method {
+            "weight" => Ok(ContributionsMethod::Weight),
+            "average" => Ok(ContributionsMethod::Average),
+            _ => Err(PyValueError::new_err(format!("Not a valid contributions method passed, expected one of 'weight', 'average', but '{}' was provided.", method))),
+        }?;
         Ok(self
             .booster
-            .predict_contributions(&data, parallel)
+            .predict_contributions(&data, method_, parallel)
             .into_pyarray(py))
     }
 

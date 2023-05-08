@@ -149,7 +149,77 @@ impl Tree {
             }
         }
     }
-    pub fn predict_contributions_row(
+
+    pub fn predict_contributions_row_weight(
+        &self,
+        row: &[f64],
+        contribs: &mut [f64],
+        missing: &f64,
+    ) {
+        // Add the bias term first...
+        contribs[contribs.len() - 1] += self.nodes[0].weight_value as f64;
+        let mut node_idx = 0;
+        loop {
+            let node = &self.nodes[node_idx];
+            if node.is_leaf {
+                break;
+            }
+            // Get change of weight given child's weight.
+            let child_idx = node.get_child_idx(&row[node.split_feature], missing);
+            let node_weight = self.nodes[node_idx].weight_value as f64;
+            let child_weight = self.nodes[child_idx].weight_value as f64;
+            let delta = child_weight - node_weight;
+            contribs[node.split_feature] += delta;
+            node_idx = child_idx
+        }
+    }
+
+    fn predict_contributions_single_threaded_weight(
+        &self,
+        data: &Matrix<f64>,
+        contribs: &mut [f64],
+        missing: &f64,
+    ) {
+        // There needs to always be at least 2 trees
+        data.index
+            .iter()
+            .zip(contribs.chunks_mut(data.cols + 1))
+            .for_each(|(row, contribs)| {
+                self.predict_contributions_row_weight(&data.get_row(*row), contribs, missing)
+            })
+    }
+
+    fn predict_contributions_parallel_weight(
+        &self,
+        data: &Matrix<f64>,
+        contribs: &mut [f64],
+        missing: &f64,
+    ) {
+        // There needs to always be at least 2 trees
+        data.index
+            .par_iter()
+            .zip(contribs.par_chunks_mut(data.cols + 1))
+            .for_each(|(row, contribs)| {
+                self.predict_contributions_row_weight(&data.get_row(*row), contribs, missing)
+            })
+    }
+
+    pub fn predict_contributions_weight(
+        &self,
+        data: &Matrix<f64>,
+        contribs: &mut [f64],
+        parallel: bool,
+        missing: &f64,
+    ) {
+        if parallel {
+            self.predict_contributions_parallel_weight(data, contribs, missing)
+        } else {
+            self.predict_contributions_single_threaded_weight(data, contribs, missing)
+        }
+    }
+
+    /// This is the method that XGBoost uses.
+    pub fn predict_contributions_row_average(
         &self,
         row: &[f64],
         contribs: &mut [f64],
@@ -174,7 +244,7 @@ impl Tree {
         }
     }
 
-    fn predict_contributions_single_threaded(
+    fn predict_contributions_single_threaded_average(
         &self,
         data: &Matrix<f64>,
         contribs: &mut [f64],
@@ -186,11 +256,16 @@ impl Tree {
             .iter()
             .zip(contribs.chunks_mut(data.cols + 1))
             .for_each(|(row, contribs)| {
-                self.predict_contributions_row(&data.get_row(*row), contribs, weights, missing)
+                self.predict_contributions_row_average(
+                    &data.get_row(*row),
+                    contribs,
+                    weights,
+                    missing,
+                )
             })
     }
 
-    fn predict_contributions_parallel(
+    fn predict_contributions_parallel_average(
         &self,
         data: &Matrix<f64>,
         contribs: &mut [f64],
@@ -202,11 +277,16 @@ impl Tree {
             .par_iter()
             .zip(contribs.par_chunks_mut(data.cols + 1))
             .for_each(|(row, contribs)| {
-                self.predict_contributions_row(&data.get_row(*row), contribs, weights, missing)
+                self.predict_contributions_row_average(
+                    &data.get_row(*row),
+                    contribs,
+                    weights,
+                    missing,
+                )
             })
     }
 
-    pub fn predict_contributions(
+    pub fn predict_contributions_average(
         &self,
         data: &Matrix<f64>,
         contribs: &mut [f64],
@@ -215,9 +295,9 @@ impl Tree {
         missing: &f64,
     ) {
         if parallel {
-            self.predict_contributions_parallel(data, contribs, weights, missing)
+            self.predict_contributions_parallel_average(data, contribs, weights, missing)
         } else {
-            self.predict_contributions_single_threaded(data, contribs, weights, missing)
+            self.predict_contributions_single_threaded_average(data, contribs, weights, missing)
         }
     }
 
@@ -422,7 +502,25 @@ mod tests {
         // Test contributions prediction...
         let weights = tree.distribute_leaf_weights();
         let mut contribs = vec![0.; (data.cols + 1) * data.rows];
-        tree.predict_contributions(&data, &mut contribs, &weights, false, &f64::NAN);
+        tree.predict_contributions_average(&data, &mut contribs, &weights, false, &f64::NAN);
+        let full_preds = tree.predict(&data, true, &f64::NAN);
+        assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
+
+        let contribs_preds: Vec<f64> = contribs
+            .chunks(data.cols + 1)
+            .map(|i| i.iter().sum())
+            .collect();
+        println!("{:?}", &contribs[0..10]);
+        println!("{:?}", &contribs_preds[0..10]);
+
+        assert_eq!(contribs_preds.len(), full_preds.len());
+        for (i, j) in full_preds.iter().zip(contribs_preds) {
+            assert_eq!(precision_round(*i, 7), precision_round(j, 7));
+        }
+
+        // Weight contributions
+        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
+        tree.predict_contributions_weight(&data, &mut contribs, false, &f64::NAN);
         let full_preds = tree.predict(&data, true, &f64::NAN);
         assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
 
@@ -495,8 +593,23 @@ mod tests {
 
         let weights = tree.distribute_leaf_weights();
 
+        // Average contributions
         let mut contribs = vec![0.; (data.cols + 1) * data.rows];
-        tree.predict_contributions(&data, &mut contribs, &weights, false, &f64::NAN);
+        tree.predict_contributions_average(&data, &mut contribs, &weights, false, &f64::NAN);
+        let full_preds = tree.predict(&data, true, &f64::NAN);
+        assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
+        let contribs_preds: Vec<f64> = contribs
+            .chunks(data.cols + 1)
+            .map(|i| i.iter().sum())
+            .collect();
+        assert_eq!(contribs_preds.len(), full_preds.len());
+        for (i, j) in full_preds.iter().zip(contribs_preds) {
+            assert_eq!(precision_round(*i, 7), precision_round(j, 7));
+        }
+
+        // Weight contributions
+        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
+        tree.predict_contributions_weight(&data, &mut contribs, false, &f64::NAN);
         let full_preds = tree.predict(&data, true, &f64::NAN);
         assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
         let contribs_preds: Vec<f64> = contribs

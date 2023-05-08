@@ -40,6 +40,7 @@ class BoosterType:
         flat_data: np.ndarray,
         rows: int,
         cols: int,
+        method: str,
         parallel: bool = True,
     ) -> np.ndarray:
         raise NotImplementedError
@@ -200,6 +201,27 @@ class GradientBooster:
         self.missing = missing
         self.create_missing_branch = create_missing_branch
 
+    def _convert_input_frame(
+        self, X: FrameLike
+    ) -> tuple[list[str], int, int, np.ndarray]:
+        """Convert data to format needed by booster.
+
+        Returns:
+            tuple[list[str], int, int, np.ndarray]: Return column names, number of rows, and number of columns, and flat data.
+        """
+        if isinstance(X, pd.DataFrame):
+            X_ = X.to_numpy()
+            features_ = X.columns.to_list()
+        else:
+            # Assume it's a numpy array.
+            X_ = X
+            features_ = []
+        if not np.issubdtype(X_.dtype, "float64"):
+            X_ = X_.astype(dtype="float64", copy=False)
+        flat_data = X_.ravel(order="F")
+        rows, cols = X_.shape
+        return features_, rows, cols, flat_data
+
     def fit(
         self,
         X: FrameLike,
@@ -218,15 +240,11 @@ class GradientBooster:
                 training the model. If None is passed, a weight of 1 will be used for every record.
                 Defaults to None.
         """
-        if isinstance(X, pd.DataFrame):
-            X_ = X.to_numpy()
-            self.feature_names_in_ = X.columns.to_list()
+
+        features_, rows, cols, flat_data = self._convert_input_frame(X)
+        if len(features_) > 0:
+            self.feature_names_in_ = features_
             self.insert_metadata("feature_names_in_", str(self.feature_names_in_))
-        else:
-            # Assume it's a numpy array.
-            X_ = X
-        if not np.issubdtype(X_.dtype, "float64"):
-            X_ = X_.astype(dtype="float64", copy=False)
 
         y_ = y.to_numpy() if isinstance(y, pd.Series) else y
 
@@ -249,8 +267,6 @@ class GradientBooster:
         monotone_constraints_ = self._standardize_monotonicity_map(X)
         self.booster.monotone_constraints = monotone_constraints_
 
-        flat_data = X_.ravel(order="F")
-        rows, cols = X_.shape
         self.booster.fit(
             flat_data=flat_data,
             rows=rows,
@@ -272,13 +288,8 @@ class GradientBooster:
         Returns:
             np.ndarray: Returns a numpy array of the predictions.
         """
-        X_ = X.to_numpy() if isinstance(X, pd.DataFrame) else X
-        if not np.issubdtype(X_.dtype, "float64"):
-            X_ = X_.astype(dtype="float64", copy=False)
-
+        features_, rows, cols, flat_data = self._convert_input_frame(X)
         parallel_ = self.parallel if parallel is None else parallel
-        flat_data = X_.ravel(order="F")
-        rows, cols = X_.shape
         return self.booster.predict(
             flat_data=flat_data,
             rows=rows,
@@ -287,13 +298,18 @@ class GradientBooster:
         )
 
     def predict_contributions(
-        self, X: FrameLike, parallel: Union[bool, None] = None
+        self, X: FrameLike, method: str = "average", parallel: Union[bool, None] = None
     ) -> np.ndarray:
         """Predict with the fitted booster on new data, returning the feature
         contribution matrix. The last column is the bias term.
 
         Args:
             X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
+            method (str, optional): Method to calculate the contributions, if "average"
+                is specified, the average internal node values are calculated, this is
+                equivalent to the `approx_contribs` parameter in XGBoost. The other supported
+                method is "weight", this will use the internal leaf weights, to calculate the
+                contributions. This is the same as what is described by Saabas [here](https://blog.datadive.net/interpreting-random-forests/).
             parallel (Union[bool, None], optional): Optionally specify if the predict
                 function should run in parallel on multiple threads. If `None` is
                 passed, the `parallel` attribute of the booster will be used.
@@ -302,20 +318,17 @@ class GradientBooster:
         Returns:
             np.ndarray: Returns a numpy array of the predictions.
         """
-        X_ = X.to_numpy() if isinstance(X, pd.DataFrame) else X
-        if not np.issubdtype(X_.dtype, "float64"):
-            X_ = X_.astype(dtype="float64", copy=False)
-
+        features_, rows, cols, flat_data = self._convert_input_frame(X)
         parallel_ = self.parallel if parallel is None else parallel
-        flat_data = X_.ravel(order="F")
-        rows, cols = X_.shape
+
         contributions = self.booster.predict_contributions(
             flat_data=flat_data,
             rows=rows,
             cols=cols,
+            method=method,
             parallel=parallel_,
         )
-        return np.reshape(contributions, (X_.shape[0], X_.shape[1] + 1))
+        return np.reshape(contributions, (rows, cols + 1))
 
     def partial_dependence(self, X: FrameLike, feature: Union[str, int]) -> np.ndarray:
         """Calculate the partial dependence values of a feature. For each unique

@@ -376,11 +376,16 @@ impl Splitter for MissingBranchSplitter {
         let right_child = missing_child + 2;
         node.update_children(missing_child, left_child, right_child, &split_info);
 
-        let (missing_is_leaf, missing_info) = match split_info.missing_node {
+        let (missing_is_leaf, mut missing_info) = match split_info.missing_node {
             MissingInfo::Branch(i) => (false, i),
             MissingInfo::Leaf(i) => (true, i),
             _ => unreachable!(),
         };
+        // Set missing weight to parent weight value...
+        // This essentially neutralizes missing.
+        // Manually calculating it, was leading to some small numeric
+        // rounding differences...
+        missing_info.weight = node.weight_value;
 
         // We need to move all of the index's above and below our
         // split value.
@@ -870,7 +875,6 @@ mod tests {
         let w = vec![1.; y.len()];
         let grad = LogLoss::calc_grad(&y, &yhat, &w);
         let hess = LogLoss::calc_hess(&y, &yhat, &w);
-
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();

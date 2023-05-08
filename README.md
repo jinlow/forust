@@ -102,25 +102,17 @@ model.predict_contributions(X.head())
 The `fit` method accepts the following arguments.
  - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
  - `y` ***(ArrayLike)***: Either a pandas Series, or a 1 dimensional numpy array. If "LogLoss" was
-   the objective type specified, then this should only contain 1 or 0 values, where 1 is the positive class being predicted. If "SquaredLoss" is the objective type, then any continuous variable can be
-   provided.
- - `sample_weight` ***(Optional[ArrayLike], optional)***: Instance weights to use when
-    training the model. If None is passed, a weight of 1 will be used for every record.
-    Defaults to None.
+   the objective type specified, then this should only contain 1 or 0 values, where 1 is the positive class being predicted. If "SquaredLoss" is the objective type, then any continuous variable can be provided.
+ - `sample_weight` ***(Optional[ArrayLike], optional)***: Instance weights to use when training the model. If None is passed, a weight of 1 will be used for every record. Defaults to None.
 
 The predict method accepts the following arguments.
  - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
- - `parallel` ***(Optional[bool], optional)***: Optionally specify if the predict
-   function should run in parallel on multiple threads. If `None` is
-   passed, the `parallel` attribute of the booster will be used.
-   Defaults to `None`.
+ - `parallel` ***(Optional[bool], optional)***: Optionally specify if the predict function should run in parallel on multiple threads. If `None` is passed, the `parallel` attribute of the booster will be used. Defaults to `None`.
 
 The `predict_contributions` method will predict with the fitted booster on new data, returning the feature contribution matrix. The last column is the bias term.
  - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
- - `parallel` ***(Optional[bool], optional)***: Optionally specify if the predict
-   function should run in parallel on multiple threads. If `None` is
-   passed, the `parallel` attribute of the booster will be used.
-   Defaults to `None`.
+ - `method` ***(str, optional)***: Method to calculate the contributions, if "average" is specified, the average internal node values are calculated, this is equivalent to the `approx_contribs` parameter in XGBoost. The other supported method is "weight", this will use the internal leaf weights, to calculate the contributions. This is the same as what is described by Saabas [here](https://blog.datadive.net/interpreting-random-forests/).
+ - `parallel` ***(Optional[bool], optional)***: Optionally specify if the predict function should run in parallel on multiple threads. If `None` is passed, the `parallel` attribute of the booster will be used. Defaults to `None`.
 
 ### Inspecting the Model
 
@@ -142,12 +134,8 @@ To see an estimate for how a given feature is used in the model, the `partial_de
 
 The `partial_dependence` method takes the following parameters...
 
- - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array.
-      This should be the same data passed into the models fit, or predict,
-      with the columns in the same order.
- - `feature` ***(Union[str, int])***: The feature for which to calculate the partial
-      dependence values. This can be the name of a column, if the provided
-      X is a pandas DataFrame, or the index of the feature.
+ - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array. This should be the same data passed into the models fit, or predict, with the columns in the same order.
+ - `feature` ***(Union[str, int])***: The feature for which to calculate the partial dependence values. This can be the name of a column, if the provided X is a pandas DataFrame, or the index of the feature.
 
 This method returns a 2 dimensional numpy array, where the first column is the sorted unique values of the feature, and then the second column is the partial dependence values for each feature value.
 
