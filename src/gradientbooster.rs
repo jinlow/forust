@@ -425,11 +425,17 @@ impl GradientBooster {
     /// * `feature` - The index of the feature.
     /// * `value` - The value for which to calculate the partial dependence.
     pub fn value_partial_dependence(&self, feature: usize, value: f64) -> f64 {
-        let pd: f64 = self
-            .trees
-            .iter()
-            .map(|t| t.value_partial_dependence(feature, value, &self.missing))
-            .sum();
+        let pd: f64 = if self.parallel {
+            self.trees
+                .par_iter()
+                .map(|t| t.value_partial_dependence(feature, value, &self.missing))
+                .sum()
+        } else {
+            self.trees
+                .iter()
+                .map(|t| t.value_partial_dependence(feature, value, &self.missing))
+                .sum()
+        };
         pd + self.base_score
     }
 
