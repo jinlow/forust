@@ -26,7 +26,7 @@ pip install forust
 
 To use in a rust project add the following to your Cargo.toml file.
 ```toml
-forust-ml = "0.2.5"
+forust-ml = "0.2.6"
 ```
 
 ## Usage
@@ -136,7 +136,9 @@ The `partial_dependence` method takes the following parameters...
 
  - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array. This should be the same data passed into the models fit, or predict, with the columns in the same order.
  - `feature` ***(Union[str, int])***: The feature for which to calculate the partial dependence values. This can be the name of a column, if the provided X is a pandas DataFrame, or the index of the feature.
-
+ - `samples` ***(int | None, optional)***: Number of evenly spaced samples to select. If None is passed all unique values will be used. Defaults to 100.
+ - `exclude_missing` ***(bool, optional)***: Should missing excluded from the features? Defaults to True.
+ - `percentile_bounds` ***(tuple[float, float], optional)***: Upper and lower percentiles to start at  when calculating the samples. Defaults to (0.2, 0.98) to cap the samples selected  at the 5th and 95th percentiles respectively.
 This method returns a 2 dimensional numpy array, where the first column is the sorted unique values of the feature, and then the second column is the partial dependence values for each feature value.
 
 This information can be plotted to visualize how a feature is used in the model, like so.
@@ -145,7 +147,7 @@ This information can be plotted to visualize how a feature is used in the model,
 from seaborn import lineplot
 import matplotlib.pyplot as plt
 
-pd_values = model.partial_dependence(X=X, feature="age")
+pd_values = model.partial_dependence(X=X, feature="age", samples=None)
 
 fig = lineplot(x=pd_values[:,0], y=pd_values[:,1],)
 plt.title("Partial Dependence Plot")

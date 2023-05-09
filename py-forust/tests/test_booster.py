@@ -293,6 +293,8 @@ def test_booster_saving(X_y, tmp_path):
     fmod_preds = fmod.predict(X)
     fmod.save_booster(f64_model_path)
     fmod_loaded = GradientBooster.load_booster(f64_model_path)
+    assert fmod_loaded.feature_names_in_ == fmod.feature_names_in_
+    assert fmod_loaded.feature_names_in_ == X.columns.to_list()
     assert all(fmod_preds == fmod_loaded.predict(X))
 
 
@@ -318,6 +320,8 @@ def test_booster_saving_with_montone_constraints(X_y, tmp_path):
     fmod_preds = fmod.predict(X)
     fmod.save_booster(f64_model_path)
     fmod_loaded = GradientBooster.load_booster(f64_model_path)
+    assert fmod_loaded.feature_names_in_ == fmod.feature_names_in_
+    assert fmod_loaded.feature_names_in_ == X.columns.to_list()
     assert all(fmod_preds == fmod_loaded.predict(X))
 
     # LogLoss

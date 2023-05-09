@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import warnings
+from ast import literal_eval
 from typing import Any, Union, cast
 
 import numpy as np
@@ -80,6 +82,13 @@ class BoosterType:
 
 
 class GradientBooster:
+    # Define the metadata parameters
+    # that are present on all instances of this class
+    # this is useful for parameters that should be
+    # attempted to be loaded in and set
+    # as attributes on the booster after it is loaded.
+    meta_data_attributes = ["feature_names_in_"]
+
     def __init__(
         self,
         objective_type: str = "LogLoss",
@@ -244,7 +253,7 @@ class GradientBooster:
         features_, rows, cols, flat_data = self._convert_input_frame(X)
         if len(features_) > 0:
             self.feature_names_in_ = features_
-            self.insert_metadata("feature_names_in_", str(self.feature_names_in_))
+            self.insert_metadata("feature_names_in_", self.feature_names_in_)
 
         y_ = y.to_numpy() if isinstance(y, pd.Series) else y
 
@@ -330,7 +339,14 @@ class GradientBooster:
         )
         return np.reshape(contributions, (rows, cols + 1))
 
-    def partial_dependence(self, X: FrameLike, feature: Union[str, int]) -> np.ndarray:
+    def partial_dependence(
+        self,
+        X: FrameLike,
+        feature: Union[str, int],
+        samples: int | None = 100,
+        exclude_missing: bool = True,
+        percentile_bounds: tuple[float, float] = (0.2, 0.98),
+    ) -> np.ndarray:
         """Calculate the partial dependence values of a feature. For each unique
         value of the feature, this gives the estimate of the predicted value for that
         feature, with the effects of all features averaged out. This information gives
@@ -343,6 +359,12 @@ class GradientBooster:
             feature (Union[str, int]): The feature for which to calculate the partial
                 dependence values. This can be the name of a column, if the provided
                 X is a pandas DataFrame, or the index of the feature.
+            samples (int | None, optional): Number of evenly spaced samples to select. If None
+                is passed all unique values will be used. Defaults to 100.
+            exclude_missing (bool, optional): Should missing excluded from the features? Defaults to True.
+            percentile_bounds (tuple[float, float], optional): Upper and lower percentiles to start at
+                when calculating the samples. Defaults to (0.2, 0.98) to cap the samples selected
+                at the 5th and 95th percentiles respectively.
 
         Raises:
             ValueError: An error will be raised if the provided X parameter is not a
@@ -359,20 +381,43 @@ class GradientBooster:
                 raise ValueError(
                     "If `feature` is a string, then the object passed as `X` must be a pandas DataFrame."
                 )
-            values = np.sort(X.loc[:, feature].unique())
-            feature_idx = next(i for i, v in enumerate(X.columns) if v == feature)
-        elif isinstance(feature, int):
-            if is_dataframe:
-                values = np.sort(X.iloc[:, feature].unique())
+            values = X.loc[:, feature].to_numpy()
+            if hasattr(self, "feature_names_in_"):
+                [feature_idx] = [
+                    i for i, v in enumerate(self.feature_names_in_) if v == feature
+                ]
             else:
-                values = np.sort(np.unique(X[:, feature]))
+                w_msg = (
+                    "No feature names were provided at fit, but feature was a string, attempting to "
+                    + "determine feature index from DataFrame Column, "
+                    + "ensure columns are the same order as data passed when fit."
+                )
+                warnings.warn(w_msg)
+                [feature_idx] = [i for i, v in enumerate(X.columns) if v == feature]
+        elif isinstance(feature, int):
             feature_idx = feature
+            if is_dataframe:
+                values = X.iloc[:, feature].unique()
+            else:
+                values = X[:, feature]
         else:
             raise ValueError(
                 f"The parameter `feature` must be a string, or an int, however an object of type {type(feature)} was passed."
             )
+        min_p, max_p = percentile_bounds
+        values = values[~(np.isnan(values) | (values == self.missing))]
+        if samples is None:
+            search_values = np.sort(np.unique(values))
+        else:
+            # Exclude missing from this calculation.
+            search_values = np.quantile(values, np.linspace(min_p, max_p, num=samples))
+
+        # Add missing back, if they wanted it...
+        if not exclude_missing:
+            search_values = np.append([self.missing], search_values)
+
         res = []
-        for v in values:
+        for v in search_values:
             res.append(
                 (v, self.booster.value_partial_dependence(feature=feature_idx, value=v))
             )
@@ -410,6 +455,12 @@ class GradientBooster:
         params = booster.get_params()
         c = cls(**params)
         c.booster = booster
+        for m in c.meta_data_attributes:
+            try:
+                m_ = c.get_metadata(m)
+                setattr(c, m, m_)
+            except KeyError:
+                pass
         return c
 
     def save_booster(self, path: str):
@@ -430,16 +481,20 @@ class GradientBooster:
             feature_map = {f: i for i, f in enumerate(X.columns)}
             return {feature_map[f]: v for f, v in self.monotone_constraints.items()}
 
-    def insert_metadata(self, key: str, value: str):
+    def insert_metadata(self, key: str, value: Any):
         """Insert data into the models metadata, this will be saved on the booster object.
 
         Args:
             key (str): Key to give the inserted value in the metadata.
             value (str): Value to assign the the key.
         """
-        self.booster.insert_metadata(key=key, value=value)
+        if isinstance(value, str):
+            value_ = f"'{value}'"
+        else:
+            value_ = str(value)
+        self.booster.insert_metadata(key=key, value=value_)
 
-    def get_metadata(self, key: str) -> str:
+    def get_metadata(self, key: Any) -> Any:
         """Get the value associated with a given key, on the boosters metadata.
 
         Args:
@@ -448,4 +503,6 @@ class GradientBooster:
         Returns:
             str: Value associated with the provided key in the boosters metadata.
         """
-        return self.booster.get_metadata(key=key)
+        # We use json to serialize/deserialize so that we can
+        v = self.booster.get_metadata(key=key)
+        return literal_eval(v)
