@@ -2,6 +2,7 @@ mod errors;
 mod histogram;
 mod node;
 mod partial_dependence;
+mod sampler;
 
 // Modules
 pub mod binning;
