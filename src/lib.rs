@@ -1,13 +1,14 @@
-pub mod binning;
 mod errors;
 mod histogram;
 mod node;
 mod partial_dependence;
 
 // Modules
+pub mod binning;
 pub mod constraints;
 pub mod data;
 pub mod gradientbooster;
+pub mod metric;
 pub mod objective;
 pub mod splitter;
 pub mod tree;
