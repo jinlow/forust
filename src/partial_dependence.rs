@@ -73,14 +73,12 @@ pub fn tree_partial_dependence(
 
 #[cfg(test)]
 mod tests {
-    use rand::rngs::StdRng;
-    use rand::SeedableRng;
-
     use super::*;
     use crate::binning::bin_matrix;
     use crate::constraints::ConstraintMap;
     use crate::data::Matrix;
     use crate::objective::{LogLoss, ObjectiveFunction};
+    use crate::sampler::SampleMethod;
     use crate::splitter::MissingImputerSplitter;
     use crate::tree::Tree;
     use std::fs;
@@ -111,9 +109,9 @@ mod tests {
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
 
-        let mut rng = StdRng::seed_from_u64(0);
         tree.fit(
             &bdata,
+            data.index.to_owned(),
             &b.cuts,
             &g,
             &h,
@@ -121,8 +119,7 @@ mod tests {
             usize::MAX,
             5,
             true,
-            1.,
-            &mut rng,
+            &SampleMethod::None,
         );
         let pdp1 = tree_partial_dependence(&tree, 0, 0, 1.0, 1.0, &f64::NAN);
         let pdp2 = tree_partial_dependence(&tree, 0, 0, 2.0, 1.0, &f64::NAN);

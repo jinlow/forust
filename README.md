@@ -68,6 +68,7 @@ It can be initialized with the following arguments.
       algorithm. Defaults to 0.
  - `missing` ***(float, optional)***: Value to consider missing, when training and predicting with the booster. Defaults to `np.nan`.
  - `create_missing_branch` ***(bool, optional)***: An experimental parameter, that if `True`, will create a separate branch for missing, creating a ternary tree, the missing node will be given the same weight value as the parent node. If this parameter is `False`, missing will be sent down either the left or right branch, creating a binary tree. Defaults to `False`.
+ - `sample_method` ***(str | None, optional)***: Optional string value to use to determine the method to use to sample the data while traning. If this is None, no sample method will be used. If the `subsample` parameter is less than 1 and no sample_method is provided this `sample_method` will be automatically set to "random". Valid options are "goss" and "random". Defaults to `None`.
 
 ### Training and Predicting
 

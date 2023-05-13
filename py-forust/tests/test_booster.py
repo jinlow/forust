@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 from xgboost import XGBClassifier, XGBRegressor
 
+import forust
 from forust import GradientBooster
 
 
@@ -489,3 +490,18 @@ def test_booster_metadata(X_y, tmp_path):
 
     with pytest.raises(KeyError):
         loaded.get_metadata("No-key")
+
+    loaded_dict = loaded.__dict__
+    fmod_dict = fmod.__dict__
+    assert sorted(loaded_dict.keys()) == sorted(fmod_dict.keys())
+    for k, v in loaded_dict.items():
+        c_v = fmod_dict[k]
+        if isinstance(v, float):
+            if np.isnan(v):
+                assert np.isnan(c_v)
+            else:
+                assert np.allclose(v, c_v)
+        elif isinstance(v, forust.CrateGradientBooster):
+            assert isinstance(c_v, forust.CrateGradientBooster)
+        else:
+            assert v == c_v

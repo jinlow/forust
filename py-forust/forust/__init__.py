@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import warnings
 from ast import literal_eval
-from typing import Any, Union, cast
+from typing import Any, Protocol, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -14,7 +14,7 @@ ArrayLike = Union[pd.Series, np.ndarray]
 FrameLike = Union[pd.DataFrame, np.ndarray]
 
 
-class BoosterType:
+class BoosterType(Protocol):
     monotone_constraints: dict[int, int]
 
     def fit(
@@ -26,7 +26,7 @@ class BoosterType:
         sample_weight: np.ndarray,
         parallel: bool = True,
     ):
-        raise NotImplementedError()
+        ...
 
     def predict(
         self,
@@ -35,7 +35,7 @@ class BoosterType:
         cols: int,
         parallel: bool = True,
     ) -> np.ndarray:
-        raise NotImplementedError()
+        ...
 
     def predict_contributions(
         self,
@@ -45,40 +45,40 @@ class BoosterType:
         method: str,
         parallel: bool = True,
     ) -> np.ndarray:
-        raise NotImplementedError
+        ...
 
     def value_partial_dependence(
         self,
         feature: int,
         value: float,
     ) -> float:
-        raise NotImplementedError()
+        ...
 
     def text_dump(self) -> list[str]:
-        raise NotImplementedError()
+        ...
 
     @classmethod
     def load_booster(cls, path: str) -> BoosterType:
-        raise NotImplementedError()
+        ...
 
     def save_booster(self, path: str):
-        raise NotImplementedError()
+        ...
 
     @classmethod
     def from_json(cls, json_str: str) -> BoosterType:
-        raise NotImplementedError()
+        ...
 
     def json_dump(self) -> str:
-        raise NotImplementedError()
+        ...
 
     def get_params(self) -> dict[str, Any]:
-        raise NotImplementedError()
+        ...
 
     def insert_metadata(self, key: str, value: str) -> None:
-        raise NotImplementedError()
+        ...
 
     def get_metadata(self, key: str) -> str:
-        raise NotImplementedError()
+        ...
 
 
 class GradientBooster:
@@ -108,6 +108,7 @@ class GradientBooster:
         seed: int = 0,
         missing: float = np.nan,
         create_missing_branch: bool = False,
+        sample_method: str | None = None,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -165,10 +166,18 @@ class GradientBooster:
                 create a separate branch for missing, creating a ternary tree, the missing node will be given the same
                 weight value as the parent node. If this parameter is `False`, missing will be sent
                 down either the left or right branch, creating a binary tree. Defaults to `False`.
+            sample_method (str | None, optional): Optional string value to use to determine the method to
+                use to sample the data while traning. If this is None, no sample method will be used.
+                If the `subsample` parameter is less than 1 and no sample_method is provided this `sample_method`
+                will be automatically set to "random". Valid options are "goss" and "random".
+                Defaults to `None`.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
         """
+        sample_method = (
+            "random" if (subsample < 1) and (sample_method is None) else sample_method
+        )
         booster = CrateGradientBooster(
             objective_type=objective_type,
             iterations=iterations,
@@ -187,6 +196,7 @@ class GradientBooster:
             seed=seed,
             missing=missing,
             create_missing_branch=create_missing_branch,
+            sample_method=sample_method,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -209,6 +219,7 @@ class GradientBooster:
         self.seed = seed
         self.missing = missing
         self.create_missing_branch = create_missing_branch
+        self.sample_method = sample_method
 
     def _convert_input_frame(
         self, X: FrameLike
@@ -503,6 +514,5 @@ class GradientBooster:
         Returns:
             str: Value associated with the provided key in the boosters metadata.
         """
-        # We use json to serialize/deserialize so that we can
         v = self.booster.get_metadata(key=key)
-        return literal_eval(v)
+        return literal_eval(node_or_string=v)

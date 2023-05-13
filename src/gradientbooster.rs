@@ -3,6 +3,7 @@ use crate::constraints::ConstraintMap;
 use crate::data::Matrix;
 use crate::errors::ForustError;
 use crate::objective::{gradient_hessian_callables, ObjectiveType};
+use crate::sampler::{RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
 use rand::rngs::StdRng;
@@ -65,8 +66,14 @@ pub struct GradientBooster {
     #[serde(deserialize_with = "parse_missing")]
     pub missing: f64,
     pub create_missing_branch: bool,
+    #[serde(default = "default_sample_method")]
+    pub sample_method: SampleMethod,
     pub trees: Vec<Tree>,
     metadata: HashMap<String, String>,
+}
+
+fn default_sample_method() -> SampleMethod {
+    SampleMethod::None
 }
 
 fn parse_missing<'de, D>(d: D) -> Result<f64, D::Error>
@@ -96,6 +103,7 @@ impl Default for GradientBooster {
             0,
             f64::NAN,
             false,
+            SampleMethod::None,
         )
     }
 }
@@ -154,6 +162,7 @@ impl GradientBooster {
         seed: u64,
         missing: f64,
         create_missing_branch: bool,
+        sample_method: SampleMethod,
     ) -> Self {
         GradientBooster {
             objective_type,
@@ -173,6 +182,7 @@ impl GradientBooster {
             seed,
             missing,
             create_missing_branch,
+            sample_method,
             trees: Vec::new(),
             metadata: HashMap::new(),
         }
@@ -220,6 +230,14 @@ impl GradientBooster {
         Ok(())
     }
 
+    fn sample_index(&self, rng: &mut StdRng, index: &[usize]) -> (Vec<usize>, Vec<usize>) {
+        match self.sample_method {
+            SampleMethod::None => (index.to_owned(), Vec::new()),
+            SampleMethod::Random => RandomSampler::new(self.subsample).sample(rng, index),
+            SampleMethod::Goss => todo!(),
+        }
+    }
+
     fn fit_trees<T: Splitter>(
         &mut self,
         y: &[f64],
@@ -241,9 +259,12 @@ impl GradientBooster {
         let bdata = Matrix::new(&binned_data.binned_data, data.rows, data.cols);
 
         for _ in 0..self.iterations {
+            // We will eventually use the excluded index.
+            let (chosen_index, _excluded_index) = self.sample_index(&mut rng, &data.index);
             let mut tree = Tree::new();
             tree.fit(
                 &bdata,
+                chosen_index,
                 &binned_data.cuts,
                 &grad,
                 &hess,
@@ -251,8 +272,7 @@ impl GradientBooster {
                 self.max_leaves,
                 self.max_depth,
                 self.parallel,
-                self.subsample,
-                &mut rng,
+                &self.sample_method,
             );
             let preds = tree.predict(data, self.parallel, &self.missing);
             yhat = yhat.iter().zip(preds).map(|(i, j)| *i + j).collect();

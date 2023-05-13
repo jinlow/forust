@@ -2,11 +2,10 @@ use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
 use crate::node::{Node, SplittableNode};
 use crate::partial_dependence::tree_partial_dependence;
+use crate::sampler::SampleMethod;
 use crate::splitter::Splitter;
 use crate::utils::fast_f64_sum;
 use crate::utils::{gain, weight};
-use rand::rngs::StdRng;
-use rand::Rng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -32,6 +31,7 @@ impl Tree {
     pub fn fit<T: Splitter>(
         &mut self,
         data: &Matrix<u16>,
+        mut index: Vec<usize>,
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
@@ -39,38 +39,26 @@ impl Tree {
         max_leaves: usize,
         max_depth: usize,
         parallel: bool,
-        subsample: f32,
-        rng: &mut StdRng,
+        sample_method: &SampleMethod,
     ) {
         // Recreating the index for each tree, ensures that the tree construction is faster
         // for the root node. This also ensures that sorting the records is always fast,
         // because we are starting from a nearly sorted array.
-        let (mut index, gradient_sum, hessian_sum, sort) = if subsample == 1. {
+        let (gradient_sum, hessian_sum, sort) = match sample_method {
             // We don't need to sort, if we are not sampling. This is because
             // the data is already sorted.
-            (
-                data.index.to_owned(),
-                fast_f64_sum(grad),
-                fast_f64_sum(hess),
-                false,
-            )
-        } else {
-            // Accumulate using f64 for numeric fidelity.
-            let mut gs: f64 = 0.;
-            let mut hs: f64 = 0.;
-            let mut index = Vec::new();
-            for ((i, g), h) in data
-                .index
-                .iter()
-                .zip(grad)
-                .zip(hess)
-                .filter(|_| rng.gen_range(0.0..1.0) < subsample)
-            {
-                index.push(*i);
-                gs += *g as f64;
-                hs += *h as f64;
+            SampleMethod::None => (fast_f64_sum(grad), fast_f64_sum(hess), false),
+            _ => {
+                // Accumulate using f64 for numeric fidelity.
+                let mut gs: f64 = 0.;
+                let mut hs: f64 = 0.;
+                for i in index.iter() {
+                    let i_ = *i;
+                    gs += grad[i_] as f64;
+                    hs += hess[i_] as f64;
+                }
+                (gs as f32, hs as f32, true)
             }
-            (index, gs as f32, hs as f32, true)
         };
 
         let mut n_nodes = 1;
@@ -409,6 +397,7 @@ mod tests {
     use crate::binning::bin_matrix;
     use crate::constraints::{Constraint, ConstraintMap};
     use crate::objective::{LogLoss, ObjectiveFunction};
+    use crate::sampler::{RandomSampler, Sampler};
     use crate::splitter::MissingImputerSplitter;
     use crate::utils::precision_round;
     use rand::rngs::StdRng;
@@ -441,8 +430,11 @@ mod tests {
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let mut rng = StdRng::seed_from_u64(0);
+        let (index, excluded) = RandomSampler::new(0.5).sample(&mut rng, &data.index);
+        assert!(excluded.len() > 0);
         tree.fit(
             &bdata,
+            index,
             &b.cuts,
             &g,
             &h,
@@ -450,8 +442,7 @@ mod tests {
             usize::MAX,
             5,
             true,
-            0.5,
-            &mut rng,
+            &SampleMethod::Random,
         );
     }
 
@@ -481,9 +472,9 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-        let mut rng = StdRng::seed_from_u64(0);
         tree.fit(
             &bdata,
+            data.index.to_owned(),
             &b.cuts,
             &g,
             &h,
@@ -491,8 +482,7 @@ mod tests {
             usize::MAX,
             5,
             true,
-            1.,
-            &mut rng,
+            &SampleMethod::None,
         );
 
         // println!("{}", tree);
@@ -567,9 +557,9 @@ mod tests {
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
 
-        let mut rng = StdRng::seed_from_u64(0);
         tree.fit(
             &bdata,
+            data.index.to_owned(),
             &b.cuts,
             &g,
             &h,
@@ -577,8 +567,7 @@ mod tests {
             usize::MAX,
             5,
             true,
-            1.,
-            &mut rng,
+            &SampleMethod::None,
         );
 
         // println!("{}", tree);

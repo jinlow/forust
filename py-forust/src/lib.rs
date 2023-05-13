@@ -2,6 +2,7 @@ use forust_ml::constraints::{Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::{ContributionsMethod, GradientBooster as CrateGradientBooster};
 use forust_ml::objective::ObjectiveType;
+use forust_ml::sampler::SampleMethod;
 use forust_ml::utils::percentiles as crate_percentiles;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::exceptions::{PyKeyError, PyValueError};
@@ -53,6 +54,7 @@ impl GradientBooster {
         seed: u64,
         missing: f64,
         create_missing_branch: bool,
+        sample_method: Option<&str>,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = match objective_type {
@@ -60,6 +62,16 @@ impl GradientBooster {
             "SquaredLoss" => Ok(ObjectiveType::SquaredLoss),
             _ => Err(PyValueError::new_err(format!("Not a valid objective type passed, expected one of 'LogLoss', 'SquaredLoss', but '{}' was provided.", objective_type))),
         }?;
+        let sample_method = match sample_method {
+            Some(s) => {
+                match s {
+                    "random" => SampleMethod::Random,
+                    "goss" => SampleMethod::Goss,
+                    _ => Err(PyValueError::new_err(format!("Not a valid sample_method type passed, expected one of 'random', 'goss' or 'none', but '{}' was provided.", s)))?,
+                }
+            },
+            None => SampleMethod::None,
+        };
         let booster = CrateGradientBooster::new(
             objective_,
             iterations,
@@ -78,6 +90,7 @@ impl GradientBooster {
             seed,
             missing,
             create_missing_branch,
+            sample_method,
         );
         Ok(GradientBooster { booster })
     }
@@ -206,6 +219,11 @@ impl GradientBooster {
             ObjectiveType::LogLoss => "LogLoss",
             ObjectiveType::SquaredLoss => "SquaredLoss",
         };
+        let sample_method_: Option<&str> = match self.booster.sample_method {
+            SampleMethod::Random => Some("random"),
+            SampleMethod::Goss => Some("goss"),
+            SampleMethod::None => None,
+        };
         let constraints: HashMap<usize, i8> = self
             .booster
             .monotone_constraints
@@ -248,6 +266,7 @@ impl GradientBooster {
                 "create_missing_branch",
                 self.booster.create_missing_branch.to_object(py),
             ),
+            ("sample_method", sample_method_.to_object(py)),
         ];
         let dict = key_vals.into_py_dict(py);
         Ok(dict.to_object(py))

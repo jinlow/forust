@@ -2,7 +2,6 @@ mod errors;
 mod histogram;
 mod node;
 mod partial_dependence;
-mod sampler;
 
 // Modules
 pub mod binning;
@@ -11,6 +10,7 @@ pub mod data;
 pub mod gradientbooster;
 pub mod metric;
 pub mod objective;
+pub mod sampler;
 pub mod splitter;
 pub mod tree;
 pub mod utils;
