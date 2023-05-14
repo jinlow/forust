@@ -1,8 +1,11 @@
 use crate::binning::bin_matrix;
 use crate::constraints::ConstraintMap;
-use crate::data::Matrix;
+use crate::data::{Matrix, RowMajorMatrix};
 use crate::errors::ForustError;
-use crate::objective::{gradient_hessian_callables, ObjectiveType};
+use crate::metric::{metric_callables, Metric, MetricFn};
+use crate::objective::{
+    gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType, SquaredLoss,
+};
 use crate::sampler::{RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
@@ -12,6 +15,9 @@ use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fs;
+
+pub type EvaluationData<'a> = (Matrix<'a, f64>, &'a [f64], &'a [f64]);
+pub type TrainingEvaluationData<'a> = (&'a Matrix<'a, f64>, &'a [f64], &'a [f64], Vec<f64>);
 
 pub enum ContributionsMethod {
     Weight,
@@ -68,12 +74,24 @@ pub struct GradientBooster {
     pub create_missing_branch: bool,
     #[serde(default = "default_sample_method")]
     pub sample_method: SampleMethod,
+    #[serde(default = "default_evaluation_metric")]
+    pub evaluation_metric: Option<Metric>,
+    #[serde(default = "default_evaluation_history")]
+    pub evaluation_history: Option<RowMajorMatrix<f64>>,
+    // Members internal to the booster object, and not parameters set by the user.
+    // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
     metadata: HashMap<String, String>,
 }
 
 fn default_sample_method() -> SampleMethod {
     SampleMethod::None
+}
+fn default_evaluation_metric() -> Option<Metric> {
+    None
+}
+fn default_evaluation_history() -> Option<RowMajorMatrix<f64>> {
+    None
 }
 
 fn parse_missing<'de, D>(d: D) -> Result<f64, D::Error>
@@ -104,6 +122,7 @@ impl Default for GradientBooster {
             f64::NAN,
             false,
             SampleMethod::None,
+            None,
         )
     }
 }
@@ -163,6 +182,7 @@ impl GradientBooster {
         missing: f64,
         create_missing_branch: bool,
         sample_method: SampleMethod,
+        evaluation_metric: Option<Metric>,
     ) -> Self {
         GradientBooster {
             objective_type,
@@ -183,6 +203,8 @@ impl GradientBooster {
             missing,
             create_missing_branch,
             sample_method,
+            evaluation_metric,
+            evaluation_history: None,
             trees: Vec::new(),
             metadata: HashMap::new(),
         }
@@ -199,6 +221,7 @@ impl GradientBooster {
         data: &Matrix<f64>,
         y: &[f64],
         sample_weight: &[f64],
+        evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
         let constraints_map = self
             .monotone_constraints
@@ -214,7 +237,7 @@ impl GradientBooster {
                 allow_missing_splits: self.allow_missing_splits,
                 constraints_map,
             };
-            self.fit_trees(y, sample_weight, data, &splitter)?;
+            self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
         } else {
             let splitter = MissingImputerSplitter {
                 l2: self.l2,
@@ -224,7 +247,7 @@ impl GradientBooster {
                 allow_missing_splits: self.allow_missing_splits,
                 constraints_map,
             };
-            self.fit_trees(y, sample_weight, data, &splitter)?;
+            self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
         };
 
         Ok(())
@@ -238,12 +261,24 @@ impl GradientBooster {
         }
     }
 
+    fn get_metric_fn(&self) -> MetricFn {
+        let metric = match &self.evaluation_metric {
+            None => match self.objective_type {
+                ObjectiveType::LogLoss => LogLoss::default_metric(),
+                ObjectiveType::SquaredLoss => SquaredLoss::default_metric(),
+            },
+            Some(v) => *v,
+        };
+        metric_callables(&metric)
+    }
+
     fn fit_trees<T: Splitter>(
         &mut self,
         y: &[f64],
         sample_weight: &[f64],
         data: &Matrix<f64>,
         splitter: &T,
+        evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
         let mut rng = StdRng::seed_from_u64(self.seed);
         let mut yhat = vec![self.base_score; y.len()];
@@ -257,6 +292,15 @@ impl GradientBooster {
         // we could consider that, especially if this proved to be a large bottleneck...
         let binned_data = bin_matrix(data, sample_weight, self.nbins, self.missing)?;
         let bdata = Matrix::new(&binned_data.binned_data, data.rows, data.cols);
+
+        // Create the predictions, saving them with the evaluation data.
+        let mut evaluation_sets: Option<Vec<TrainingEvaluationData>> =
+            evaluation_data.as_ref().map(|evals| {
+                evals
+                    .iter()
+                    .map(|(d, y, w)| (d, *y, *w, vec![self.base_score; y.len()]))
+                    .collect()
+            });
 
         for _ in 0..self.iterations {
             // We will eventually use the excluded index.
@@ -274,8 +318,24 @@ impl GradientBooster {
                 self.parallel,
                 &self.sample_method,
             );
-            let preds = tree.predict(data, self.parallel, &self.missing);
-            yhat = yhat.iter().zip(preds).map(|(i, j)| *i + j).collect();
+            self.update_predictions_inplace(&mut yhat, &tree, data);
+
+            // Update Evaluation data, if it's needed.
+            if let Some(eval_sets) = &mut evaluation_sets {
+                if self.evaluation_history.is_none() {
+                    self.evaluation_history =
+                        Some(RowMajorMatrix::new(Vec::new(), 0, eval_sets.len()));
+                }
+                let mut metrics: Vec<f64> = Vec::new();
+                for (data, y, w, yhat) in eval_sets {
+                    self.update_predictions_inplace(yhat, &tree, data);
+                    let m = self.get_metric_fn()(y, yhat, w);
+                    metrics.push(m);
+                }
+                if let Some(history) = &mut self.evaluation_history {
+                    history.append_row(metrics);
+                }
+            }
             self.trees.push(tree);
             grad = calc_grad(y, &yhat, sample_weight);
             hess = calc_hess(y, &yhat, sample_weight);
@@ -283,13 +343,23 @@ impl GradientBooster {
         Ok(())
     }
 
+    fn update_predictions_inplace(&self, yhat: &mut [f64], tree: &Tree, data: &Matrix<f64>) {
+        let preds = tree.predict(data, self.parallel, &self.missing);
+        yhat.iter_mut().zip(preds).for_each(|(i, j)| *i += j);
+    }
+
     /// Fit the gradient booster on a provided dataset without any weights.
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
     /// * `y` - Either a pandas Series, or a 1 dimensional numpy array.
-    pub fn fit_unweighted(&mut self, data: &Matrix<f64>, y: &[f64]) -> Result<(), ForustError> {
-        let w = vec![1.0; data.rows];
-        self.fit(data, y, &w)
+    pub fn fit_unweighted(
+        &mut self,
+        data: &Matrix<f64>,
+        y: &[f64],
+        evaluation_data: Option<Vec<EvaluationData>>,
+    ) -> Result<(), ForustError> {
+        let sample_weight = vec![1.0; data.rows];
+        self.fit(data, y, &sample_weight, evaluation_data)
     }
 
     /// Generate predictions on data using the gradient booster.
@@ -309,7 +379,7 @@ impl GradientBooster {
     }
 
     // pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
-    //     // After we disconvered it's faster materializing the row once, and then
+    //     // After we discovered it's faster materializing the row once, and then
     //     // Passing that to each tree, let's see if we can do the same with the booster
     //     // prediction...
     //     // Clean this up..
@@ -653,7 +723,7 @@ mod tests {
         booster.max_depth = 3;
         booster.subsample = 0.5;
         let sample_weight = vec![1.; y.len()];
-        booster.fit(&data, &y, &sample_weight).unwrap();
+        booster.fit(&data, &y, &sample_weight, None).unwrap();
         let preds = booster.predict(&data, false);
         let contribs = booster.predict_contributions(&data, ContributionsMethod::Average, false);
         assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
@@ -682,7 +752,7 @@ mod tests {
         booster.nbins = 300;
         booster.max_depth = 3;
         let sample_weight = vec![1.; y.len()];
-        booster.fit(&data, &y, &sample_weight).unwrap();
+        booster.fit(&data, &y, &sample_weight, None).unwrap();
         let preds = booster.predict(&data, false);
         let contribs = booster.predict_contributions(&data, ContributionsMethod::Average, false);
         assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
@@ -711,7 +781,7 @@ mod tests {
         booster.nbins = 300;
         booster.max_depth = 3;
         let sample_weight = vec![1.; y.len()];
-        booster.fit(&data, &y, &sample_weight).unwrap();
+        booster.fit(&data, &y, &sample_weight, None).unwrap();
         let preds = booster.predict(&data, true);
 
         booster.save_booster("resources/model64.json").unwrap();

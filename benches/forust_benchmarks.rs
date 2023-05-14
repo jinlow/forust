@@ -96,12 +96,17 @@ pub fn tree_benchmarks(c: &mut Criterion) {
         b.iter(|| {
             let mut booster = GradientBooster::default().set_parallel(false);
             booster
-                .fit(black_box(&data), black_box(&y), black_box(&w))
+                .fit(
+                    black_box(&data),
+                    black_box(&y),
+                    black_box(&w),
+                    black_box(None),
+                )
                 .unwrap();
         })
     });
     let mut booster = GradientBooster::default();
-    booster.fit(&data, &y, &w).unwrap();
+    booster.fit(&data, &y, &w, None).unwrap();
     booster_train.bench_function("Predict Booster", |b| {
         b.iter(|| booster.predict(black_box(&data), false))
     });

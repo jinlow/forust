@@ -159,16 +159,53 @@ where
 /// A lightweight row major matrix, this is primarily
 /// for returning data to the user, it is especially
 /// suited for appending rows to, such as when building
-/// up a matrix of contributions to return to the
+/// up a matrix of data to return to the
 /// user, the added benefit is it will be even
 /// faster to return to numpy.
-// pub struct RowMajorMatrix<T> {
-//     pub data: Vec<T>,
-//     pub rows: usize,
-//     pub cols: usize,
-//     stride1: usize,
-//     stride2: usize,
-// }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RowMajorMatrix<T> {
+    pub data: Vec<T>,
+    pub rows: usize,
+    pub cols: usize,
+    stride1: usize,
+    stride2: usize,
+}
+
+impl<T> RowMajorMatrix<T> {
+    // Defaults to column major
+    pub fn new(data: Vec<T>, rows: usize, cols: usize) -> Self {
+        RowMajorMatrix {
+            data,
+            rows,
+            cols,
+            stride1: 1,
+            stride2: cols,
+        }
+    }
+
+    /// Get a single reference to an item in the matrix.
+    ///
+    /// * `i` - The ith row of the data to get.
+    /// * `j` - the jth column of the data to get.
+    pub fn get(&self, i: usize, j: usize) -> &T {
+        &self.data[self.item_index(i, j)]
+    }
+
+    fn item_index(&self, i: usize, j: usize) -> usize {
+        let mut idx = self.stride2 * i;
+        idx += j * self.stride1;
+        idx
+    }
+
+    /// Add a rows to the matrix, this can be multiple
+    /// rows, if they are in sequential order in the items.
+    pub fn append_row(&mut self, items: Vec<T>) {
+        assert!(items.len() % self.cols == 0);
+        let new_rows = items.len() / self.cols;
+        self.rows += new_rows;
+        self.data.extend(items);
+    }
+}
 
 impl<'a, T> fmt::Display for Matrix<'a, T>
 where
@@ -277,6 +314,26 @@ impl<T> Default for JaggedMatrix<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_rowmatrix_get() {
+        let v = vec![1, 2, 3, 5, 6, 7];
+        let m = RowMajorMatrix::new(v, 2, 3);
+        println!("{:?}", m);
+        assert_eq!(m.get(0, 0), &1);
+        assert_eq!(m.get(1, 0), &5);
+        assert_eq!(m.get(0, 2), &3);
+        assert_eq!(m.get(1, 1), &6);
+    }
+
+    #[test]
+    fn test_rowmatrix_append() {
+        let v = vec![1, 2, 3, 5, 6, 7];
+        let mut m = RowMajorMatrix::new(v, 2, 3);
+        m.append_row(vec![-1, -2, -3]);
+        assert_eq!(m.get(2, 1), &-2);
+    }
+
     #[test]
     fn test_matrix_get() {
         let v = vec![1, 2, 3, 5, 6, 7];

@@ -1,17 +1,46 @@
 use crate::data::FloatData;
+use crate::errors::ForustError;
+use crate::utils::items_to_strings;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
-type MetricFn = fn(&[f64], &[f64], &[f64]) -> f64;
+pub type MetricFn = fn(&[f64], &[f64], &[f64]) -> f64;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub enum Metric {
+    AUC,
     LogLoss,
     RootMeanSquaredLogError,
     RootMeanSquaredError,
 }
 
+impl FromStr for Metric {
+    type Err = ForustError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "AUC" => Ok(Metric::AUC),
+            "LogLoss" => Ok(Metric::LogLoss),
+            "RootMeanSquaredLogError" => Ok(Metric::RootMeanSquaredLogError),
+            "RootMeanSquaredError" => Ok(Metric::RootMeanSquaredError),
+
+            _ => Err(ForustError::ParseString(
+                s.to_string(),
+                "Metric".to_string(),
+                items_to_strings(vec![
+                    "AUC",
+                    "LogLoss",
+                    "RootMeanSquaredLogError",
+                    "RootMeanSquaredError",
+                ]),
+            )),
+        }
+    }
+}
+
 pub fn metric_callables(metric_type: &Metric) -> MetricFn {
     match metric_type {
+        Metric::AUC => roc_auc_score,
         Metric::LogLoss => log_loss,
         Metric::RootMeanSquaredLogError => root_mean_squared_log_error,
         Metric::RootMeanSquaredError => root_mean_squared_error,
@@ -61,7 +90,7 @@ fn trapezoid_area(x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
     (x0 - x1).abs() * (y0 + y1) * 0.5
 }
 
-pub fn auc(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> f64 {
+pub fn roc_auc_score(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> f64 {
     let mut indices = (0..y.len()).collect::<Vec<_>>();
     indices.sort_unstable_by(|&a, &b| yhat[b].total_cmp(&yhat[a]));
     let mut auc: f64 = 0.0;
@@ -130,7 +159,7 @@ mod tests {
         let y = vec![1., 0., 1., 0., 0., 0., 0.];
         let yhat = vec![0.5, 0.01, -0., 1.05, 0., -4., 0.];
         let sample_weight = vec![1., 1., 1., 1., 1., 2., 2.];
-        let res = auc(&y, &yhat, &sample_weight);
+        let res = roc_auc_score(&y, &yhat, &sample_weight);
         assert_eq!(precision_round(res, 5), 0.67857);
     }
 
@@ -140,37 +169,37 @@ mod tests {
 
         let y: Vec<f64> = vec![0., 1.];
         let yhat: Vec<f64> = vec![0., 1.];
-        let auc_score = auc(&y, &yhat, &sample_weight);
+        let auc_score = roc_auc_score(&y, &yhat, &sample_weight);
         assert_eq!(auc_score, 1.);
 
         let y: Vec<f64> = vec![0., 1.];
         let yhat: Vec<f64> = vec![1., 0.];
-        let auc_score = auc(&y, &yhat, &sample_weight);
+        let auc_score = roc_auc_score(&y, &yhat, &sample_weight);
         assert_eq!(auc_score, 0.);
 
         let y: Vec<f64> = vec![1., 0.];
         let yhat: Vec<f64> = vec![1., 1.];
-        let auc_score = auc(&y, &yhat, &sample_weight);
+        let auc_score = roc_auc_score(&y, &yhat, &sample_weight);
         assert_eq!(auc_score, 0.5);
 
         let y: Vec<f64> = vec![1., 0.];
         let yhat: Vec<f64> = vec![1., 0.];
-        let auc_score = auc(&y, &yhat, &sample_weight);
+        let auc_score = roc_auc_score(&y, &yhat, &sample_weight);
         assert_eq!(auc_score, 1.0);
 
         let y: Vec<f64> = vec![1., 0.];
         let yhat: Vec<f64> = vec![0.5, 0.5];
-        let auc_score = auc(&y, &yhat, &sample_weight);
+        let auc_score = roc_auc_score(&y, &yhat, &sample_weight);
         assert_eq!(auc_score, 0.5);
 
         let y: Vec<f64> = vec![0., 0.];
         let yhat: Vec<f64> = vec![0.25, 0.75];
-        let auc_score = auc(&y, &yhat, &sample_weight);
+        let auc_score = roc_auc_score(&y, &yhat, &sample_weight);
         assert!(auc_score.is_nan());
 
         let y: Vec<f64> = vec![1., 1.];
         let yhat: Vec<f64> = vec![0.25, 0.75];
-        let auc_score = auc(&y, &yhat, &sample_weight);
+        let auc_score = roc_auc_score(&y, &yhat, &sample_weight);
         assert!(auc_score.is_nan());
     }
 }
