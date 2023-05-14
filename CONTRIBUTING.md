@@ -49,6 +49,17 @@ specific benchmarks can be targeted by referring to them by name.
 cargo bench "fast sum"
 ```
 
+## Pre-commit
+The [`pre-commit`](https://pre-commit.com/) framework should be installed and used to ensure all commits meet the required formatting, and linting checks prior to a commit being made to the repository.
+```sh
+# Install pre-commit, either right in your default python install
+# or using a tool such as pipx (https://pypa.github.io/pipx/)
+python -m pip install pre-commit
+
+# In the root of the repository
+pre-commit install
+```
+
 ## Serialization
 The saving and loading of the model is all handled by the [`serde`](https://docs.rs/serde/1.0.163/serde/) and [`serde_json`](https://docs.rs/serde_json/latest/serde_json/) crates.
 
