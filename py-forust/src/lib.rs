@@ -1,6 +1,7 @@
 use forust_ml::constraints::{Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
 use forust_ml::errors::ForustError;
+use forust_ml::gradientbooster::EvaluationData;
 use forust_ml::gradientbooster::{ContributionsMethod, GradientBooster as CrateGradientBooster};
 use forust_ml::metric::Metric;
 use forust_ml::objective::ObjectiveType;
@@ -13,6 +14,14 @@ use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
 use std::collections::HashMap;
 use std::str::FromStr;
+
+type PyEvaluationData<'a> = (
+    PyReadonlyArray1<'a, f64>,
+    usize,
+    usize,
+    PyReadonlyArray1<'a, f64>,
+    PyReadonlyArray1<'a, f64>,
+);
 
 fn int_map_to_constraint_map(int_map: HashMap<usize, i8>) -> PyResult<ConstraintMap> {
     let mut constraints: ConstraintMap = HashMap::new();
@@ -113,39 +122,27 @@ impl GradientBooster {
         cols: usize,
         y: PyReadonlyArray1<f64>,
         sample_weight: PyReadonlyArray1<f64>,
-        evaluation_data: Option<
-            Vec<(
-                PyReadonlyArray1<f64>,
-                usize,
-                usize,
-                PyReadonlyArray1<f64>,
-                PyReadonlyArray1<f64>,
-            )>,
-        >,
+        evaluation_data: Option<Vec<PyEvaluationData>>,
     ) -> PyResult<()> {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let y = y.as_slice()?;
         let sample_weight = sample_weight.as_slice()?;
-        // let mut eval_matricies = Vec::new();
-        // for (a, r, c, _, _) in evaluation_data.unwrap().iter() {
 
-        // }
-        let evaluation_data_: Option<Vec<(Matrix<f64>, &[f64], &[f64])>> =
-            match evaluation_data.as_ref() {
-                None => None,
-                Some(values) => {
-                    let mut eval_data = Vec::new();
-                    for (a, r, c, y_, w_) in values.into_iter() {
-                        eval_data.push((
-                            Matrix::new(a.as_slice()?, *r, *c),
-                            y_.as_slice()?,
-                            w_.as_slice()?,
-                        ));
-                    }
-                    Some(eval_data)
+        let evaluation_data_: Option<Vec<EvaluationData>> = match evaluation_data.as_ref() {
+            None => None,
+            Some(values) => {
+                let mut eval_data = Vec::new();
+                for (a, r, c, y_, w_) in values.iter() {
+                    eval_data.push((
+                        Matrix::new(a.as_slice()?, *r, *c),
+                        y_.as_slice()?,
+                        w_.as_slice()?,
+                    ));
                 }
-            };
+                Some(eval_data)
+            }
+        };
         match self.booster.fit(&data, y, sample_weight, evaluation_data_) {
             Ok(m) => Ok(m),
             Err(e) => Err(PyValueError::new_err(e.to_string())),
@@ -222,9 +219,10 @@ impl GradientBooster {
     pub fn get_metadata(&self, key: String) -> PyResult<String> {
         match self.booster.get_metadata(&key) {
             Some(m) => Ok(m),
-            None => Err(PyKeyError::new_err(
-                format!("No value associated with provided key {}", key).to_string(),
-            )),
+            None => Err(PyKeyError::new_err(format!(
+                "No value associated with provided key {}",
+                key
+            ))),
         }
     }
 
