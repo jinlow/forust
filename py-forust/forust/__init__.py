@@ -145,6 +145,7 @@ class GradientBooster:
         create_missing_branch: bool = False,
         sample_method: str | None = None,
         evaluation_metric: str | None = None,
+        early_stopping_rounds: int | None = None,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -234,6 +235,7 @@ class GradientBooster:
             create_missing_branch=create_missing_branch,
             sample_method=sample_method,
             evaluation_metric=evaluation_metric,
+            early_stopping_rounds=early_stopping_rounds,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -258,6 +260,7 @@ class GradientBooster:
         self.create_missing_branch = create_missing_branch
         self.sample_method = sample_method
         self.evaluation_metric = evaluation_metric
+        self.early_stopping_rounds = early_stopping_rounds
 
     def fit(
         self,

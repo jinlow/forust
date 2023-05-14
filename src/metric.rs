@@ -6,6 +6,31 @@ use std::str::FromStr;
 
 pub type MetricFn = fn(&[f64], &[f64], &[f64]) -> f64;
 
+/// Compare to metric values, determining if b is better.
+/// If one of them is NaN favor the non NaN value.
+/// If both are NaN, consider the first value to be better.
+pub fn is_comparison_better(value: f64, comparison: f64, maximize: bool) -> bool {
+    match (value.is_nan(), comparison.is_nan()) {
+        // Both nan, comparison is not better,
+        // Or comparison is nan, also not better
+        (true, true) | (false, true) => false,
+        // comparison is not Nan, it's better
+        (true, false) => true,
+        // Perform numerical comparison.
+        (false, false) => {
+            // If we are maximizing is the comparison
+            // greater, than the current value
+            if maximize {
+                value < comparison
+            // If we are minimizing is the comparison
+            // less than the current value.
+            } else {
+                value > comparison
+            }
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub enum Metric {
     AUC,
@@ -38,12 +63,63 @@ impl FromStr for Metric {
     }
 }
 
-pub fn metric_callables(metric_type: &Metric) -> MetricFn {
+pub fn metric_callables(metric_type: &Metric) -> (MetricFn, bool) {
     match metric_type {
-        Metric::AUC => roc_auc_score,
-        Metric::LogLoss => log_loss,
-        Metric::RootMeanSquaredLogError => root_mean_squared_log_error,
-        Metric::RootMeanSquaredError => root_mean_squared_error,
+        Metric::AUC => (AUCMetric::calculate_metric, AUCMetric::maximize()),
+        Metric::LogLoss => (LogLossMetric::calculate_metric, LogLossMetric::maximize()),
+        Metric::RootMeanSquaredLogError => (
+            RootMeanSquaredLogErrorMetric::calculate_metric,
+            RootMeanSquaredLogErrorMetric::maximize(),
+        ),
+        Metric::RootMeanSquaredError => (
+            RootMeanSquaredErrorMetric::calculate_metric,
+            RootMeanSquaredErrorMetric::maximize(),
+        ),
+    }
+}
+
+pub trait EvaluationMetric {
+    fn calculate_metric(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> f64;
+    fn maximize() -> bool;
+}
+
+pub struct LogLossMetric {}
+impl EvaluationMetric for LogLossMetric {
+    fn calculate_metric(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> f64 {
+        log_loss(y, yhat, sample_weight)
+    }
+    fn maximize() -> bool {
+        false
+    }
+}
+
+pub struct AUCMetric {}
+impl EvaluationMetric for AUCMetric {
+    fn calculate_metric(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> f64 {
+        roc_auc_score(y, yhat, sample_weight)
+    }
+    fn maximize() -> bool {
+        true
+    }
+}
+
+pub struct RootMeanSquaredLogErrorMetric {}
+impl EvaluationMetric for RootMeanSquaredLogErrorMetric {
+    fn calculate_metric(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> f64 {
+        root_mean_squared_log_error(y, yhat, sample_weight)
+    }
+    fn maximize() -> bool {
+        false
+    }
+}
+
+pub struct RootMeanSquaredErrorMetric {}
+impl EvaluationMetric for RootMeanSquaredErrorMetric {
+    fn calculate_metric(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> f64 {
+        root_mean_squared_error(y, yhat, sample_weight)
+    }
+    fn maximize() -> bool {
+        false
     }
 }
 

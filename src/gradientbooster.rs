@@ -2,7 +2,7 @@ use crate::binning::bin_matrix;
 use crate::constraints::ConstraintMap;
 use crate::data::{Matrix, RowMajorMatrix};
 use crate::errors::ForustError;
-use crate::metric::{metric_callables, Metric, MetricFn};
+use crate::metric::{is_comparison_better, metric_callables, Metric, MetricFn};
 use crate::objective::{
     gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType, SquaredLoss,
 };
@@ -76,8 +76,12 @@ pub struct GradientBooster {
     pub sample_method: SampleMethod,
     #[serde(default = "default_evaluation_metric")]
     pub evaluation_metric: Option<Metric>,
+    #[serde(default = "default_early_stopping_rounds")]
+    pub early_stopping_rounds: Option<usize>,
     #[serde(default = "default_evaluation_history")]
     pub evaluation_history: Option<RowMajorMatrix<f64>>,
+    #[serde(default = "default_best_iteration")]
+    pub best_iteration: Option<usize>,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -90,7 +94,14 @@ fn default_sample_method() -> SampleMethod {
 fn default_evaluation_metric() -> Option<Metric> {
     None
 }
+fn default_early_stopping_rounds() -> Option<usize> {
+    None
+}
 fn default_evaluation_history() -> Option<RowMajorMatrix<f64>> {
+    None
+}
+
+fn default_best_iteration() -> Option<usize> {
     None
 }
 
@@ -122,6 +133,7 @@ impl Default for GradientBooster {
             f64::NAN,
             false,
             SampleMethod::None,
+            None,
             None,
         )
     }
@@ -183,6 +195,7 @@ impl GradientBooster {
         create_missing_branch: bool,
         sample_method: SampleMethod,
         evaluation_metric: Option<Metric>,
+        early_stopping_rounds: Option<usize>,
     ) -> Self {
         GradientBooster {
             objective_type,
@@ -204,7 +217,9 @@ impl GradientBooster {
             create_missing_branch,
             sample_method,
             evaluation_metric,
+            early_stopping_rounds,
             evaluation_history: None,
+            best_iteration: None,
             trees: Vec::new(),
             metadata: HashMap::new(),
         }
@@ -261,7 +276,7 @@ impl GradientBooster {
         }
     }
 
-    fn get_metric_fn(&self) -> MetricFn {
+    fn get_metric_fn(&self) -> (MetricFn, bool) {
         let metric = match &self.evaluation_metric {
             None => match self.objective_type {
                 ObjectiveType::LogLoss => LogLoss::default_metric(),
@@ -271,6 +286,13 @@ impl GradientBooster {
         };
         metric_callables(&metric)
     }
+
+    // fn rounds_since_last_best(&mut self, m: f64) -> usize {
+    //     let best_ = match self.best_iteration {
+    //         None => 0,
+
+    //     }
+    // }
 
     fn fit_trees<T: Splitter>(
         &mut self,
@@ -302,7 +324,9 @@ impl GradientBooster {
                     .collect()
             });
 
-        for _ in 0..self.iterations {
+        let mut best_metric: Option<f64> = None;
+
+        for i in 0..self.iterations {
             // We will eventually use the excluded index.
             let (chosen_index, _excluded_index) = self.sample_index(&mut rng, &data.index);
             let mut tree = Tree::new();
@@ -327,9 +351,42 @@ impl GradientBooster {
                         Some(RowMajorMatrix::new(Vec::new(), 0, eval_sets.len()));
                 }
                 let mut metrics: Vec<f64> = Vec::new();
-                for (data, y, w, yhat) in eval_sets {
+                for (eval_i, (data, y, w, yhat)) in eval_sets.iter_mut().enumerate() {
                     self.update_predictions_inplace(yhat, &tree, data);
-                    let m = self.get_metric_fn()(y, yhat, w);
+                    let (metric_fn, maximize) = self.get_metric_fn();
+                    let m = metric_fn(y, yhat, w);
+                    // If early stopping rounds are defined, and this is the first
+                    // eval dataset, check if we want to stop
+                    // or keep training.
+                    if eval_i == 0 {
+                        if let Some(early_stopping_rounds) = self.early_stopping_rounds {
+                            // If best metric is undefined, this must be the first
+                            // iteration...
+                            best_metric = match best_metric {
+                                None => {
+                                    self.best_iteration = Some(i);
+                                    Some(m)
+                                }
+                                // Otherwise the best could be farther back.
+                                Some(v) => {
+                                    // We have reached a new best value...
+                                    if is_comparison_better(v, m, maximize) {
+                                        self.best_iteration = Some(i);
+                                        Some(m)
+                                    } else {
+                                        // Previous value was better.
+                                        if let Some(best_iteration) = self.best_iteration {
+                                            if i - best_iteration >= early_stopping_rounds {
+                                                break;
+                                            }
+                                        }
+                                        Some(v)
+                                    }
+                                }
+                            };
+                        }
+                    }
+
                     metrics.push(m);
                 }
                 if let Some(history) = &mut self.evaluation_history {

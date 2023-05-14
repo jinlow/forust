@@ -73,6 +73,7 @@ impl GradientBooster {
         create_missing_branch: bool,
         sample_method: Option<&str>,
         evaluation_metric: Option<&str>,
+        early_stopping_rounds: Option<usize>,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = to_value_error(ObjectiveType::from_str(objective_type))?;
@@ -104,6 +105,7 @@ impl GradientBooster {
             create_missing_branch,
             sample_method_,
             evaluation_metric_,
+            early_stopping_rounds,
         );
         Ok(GradientBooster { booster })
     }
@@ -305,6 +307,10 @@ impl GradientBooster {
             ),
             ("sample_method", sample_method_.to_object(py)),
             ("evaluation_metric", evaluation_metric_.to_object(py)),
+            (
+                "early_stopping_rounds",
+                self.booster.early_stopping_rounds.to_object(py),
+            ),
         ];
         let dict = key_vals.into_py_dict(py);
         Ok(dict.to_object(py))
