@@ -26,7 +26,7 @@ pip install forust
 
 To use in a rust project add the following to your Cargo.toml file.
 ```toml
-forust-ml = "0.2.6"
+forust-ml = "0.2.7"
 ```
 
 ## Usage
@@ -68,7 +68,9 @@ It can be initialized with the following arguments.
       algorithm. Defaults to 0.
  - `missing` ***(float, optional)***: Value to consider missing, when training and predicting with the booster. Defaults to `np.nan`.
  - `create_missing_branch` ***(bool, optional)***: An experimental parameter, that if `True`, will create a separate branch for missing, creating a ternary tree, the missing node will be given the same weight value as the parent node. If this parameter is `False`, missing will be sent down either the left or right branch, creating a binary tree. Defaults to `False`.
- - `sample_method` ***(str | None, optional)***: Optional string value to use to determine the method to use to sample the data while traning. If this is None, no sample method will be used. If the `subsample` parameter is less than 1 and no sample_method is provided this `sample_method` will be automatically set to "random". Valid options are "goss" and "random". Defaults to `None`.
+ - `sample_method` ***(str | None, optional)***: Optional string value to use to determine the method to use to sample the data while training. If this is None, no sample method will be used. If the `subsample` parameter is less than 1 and no sample_method is provided this `sample_method` will be automatically set to "random". Valid options are "goss" and "random". Defaults to `None`.
+ - `evaluation_metric` ***(str | None, optional)***: Optional string value used to define an evaluation metric that will be calculated at each iteration if a `evaluation_dataset` is provided at fit time. The metric can be one of "AUC", "LogLoss", "RootMeanSquaredLogError", or "RootMeanSquaredError". If no `evaluation_metric` is passed, but an `evaluation_dataset` is passed, then "LogLoss", will be used with the "LogLoss" objective function, and "RootMeanSquaredLogError" will be used with "SquaredLoss".
+ - `early_stopping_rounds` ***(int | None, optional)***: If this is specified, and an `evaluation_dataset` is passed during fit, then an improvement in the `evaluation_metric` must be seen after at least this many iterations of training, otherwise training will be cut short.
 
 ### Training and Predicting
 
@@ -105,6 +107,7 @@ The `fit` method accepts the following arguments.
  - `y` ***(ArrayLike)***: Either a pandas Series, or a 1 dimensional numpy array. If "LogLoss" was
    the objective type specified, then this should only contain 1 or 0 values, where 1 is the positive class being predicted. If "SquaredLoss" is the objective type, then any continuous variable can be provided.
  - `sample_weight` ***(Optional[ArrayLike], optional)***: Instance weights to use when training the model. If None is passed, a weight of 1 will be used for every record. Defaults to None.
+ - `evaluation_data` ***(tuple[FrameLike, ArrayLike, ArrayLike] | tuple[FrameLike, ArrayLike], optional)***: An optional list of tuples, where each tuple should contain a dataset, and equal length target array, and optional an equal length sample weight array. If this is provided metric values will be calculated at each iteration of training. If `early_stopping_rounds` is supplied, the first entry of this list will be used to determine if performance has improved over the last set of iterations, for which if no improvement is not seen in `early_stopping_rounds` training will be cut short.
 
 The predict method accepts the following arguments.
  - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
@@ -114,6 +117,22 @@ The `predict_contributions` method will predict with the fitted booster on new d
  - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
  - `method` ***(str, optional)***: Method to calculate the contributions, if "average" is specified, the average internal node values are calculated, this is equivalent to the `approx_contribs` parameter in XGBoost. The other supported method is "weight", this will use the internal leaf weights, to calculate the contributions. This is the same as what is described by Saabas [here](https://blog.datadive.net/interpreting-random-forests/).
  - `parallel` ***(Optional[bool], optional)***: Optionally specify if the predict function should run in parallel on multiple threads. If `None` is passed, the `parallel` attribute of the booster will be used. Defaults to `None`.
+
+When predicting with the data, the maximum iteration that will be used when predicting can be set using the `set_prediction_iteration` method. If `early_stopping_rounds` has been set, this will default to the best iteration, otherwise all of the trees will be used. It accepts a single value.
+ - `iteration` (int): Iteration number to use, this will use all trees, up to and including this index.
+
+If early stopping was used, the evaluation history can be retrieved with the `get_evaluation_history` method.
+
+```python
+model = GradientBooster(objective_type="LogLoss")
+model.fit(X, y, evaluation_data=[(X, y)])
+
+model.get_evaluation_history()[0:3]
+
+# array([[588.9158873 ],
+#        [532.01055803],
+#        [496.76933646]])
+```
 
 ### Inspecting the Model
 

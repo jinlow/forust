@@ -3,6 +3,7 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier, XGBRegressor
 
 import forust
@@ -505,3 +506,32 @@ def test_booster_metadata(X_y, tmp_path):
             assert isinstance(c_v, forust.CrateGradientBooster)
         else:
             assert v == c_v
+
+
+def test_early_stopping_rounds(X_y):
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=200,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        base_score=0.5,
+        early_stopping_rounds=2,
+        evaluation_metric="AUC",
+    )
+    fmod.fit(X, y, evaluation_data=[(X, y)])
+    preds = fmod.predict(X)
+    history = fmod.get_evaluation_history()
+    assert history is not None
+    assert np.isclose(roc_auc_score(y, preds), history.max())
+    best_iteration = fmod.get_best_iteration()
+    assert best_iteration is not None
+    assert best_iteration < history.shape[0]
+    fmod.set_prediction_iteration(4)
+    assert not np.allclose(fmod.predict(X), preds)

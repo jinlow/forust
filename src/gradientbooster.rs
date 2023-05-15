@@ -89,12 +89,12 @@ pub struct GradientBooster {
     pub early_stopping_rounds: Option<usize>,
     #[serde(default = "default_evaluation_history")]
     pub evaluation_history: Option<RowMajorMatrix<f64>>,
-    #[serde(default = "default_prediction_iterations")]
+    #[serde(default = "default_prediction_iteration")]
     pub best_iteration: Option<usize>,
     /// number of trees to use when predicting,
     /// defaults to best_iteration if this is defined.
     #[serde(default = "default_best_iteration")]
-    pub prediction_iterations: Option<usize>,
+    pub prediction_iteration: Option<usize>,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -118,7 +118,7 @@ fn default_best_iteration() -> Option<usize> {
     None
 }
 
-fn default_prediction_iterations() -> Option<usize> {
+fn default_prediction_iteration() -> Option<usize> {
     None
 }
 
@@ -240,7 +240,7 @@ impl GradientBooster {
             early_stopping_rounds,
             evaluation_history: None,
             best_iteration: None,
-            prediction_iterations: None,
+            prediction_iteration: None,
             trees: Vec::new(),
             metadata: HashMap::new(),
         }
@@ -423,7 +423,7 @@ impl GradientBooster {
 
     fn update_best_iteration(&mut self, i: usize) {
         self.best_iteration = Some(i);
-        self.prediction_iterations = Some(i);
+        self.prediction_iteration = Some(i + 1);
     }
 
     fn update_predictions_inplace(&self, yhat: &mut [f64], tree: &Tree, data: &Matrix<f64>) {
@@ -516,7 +516,7 @@ impl GradientBooster {
     /// Get the a reference to the trees for predicting, ensureing that the right number of
     /// trees are used.
     fn get_prediction_trees(&self) -> &[Tree] {
-        let n_iterations = self.prediction_iterations.unwrap_or(self.trees.len());
+        let n_iterations = self.prediction_iteration.unwrap_or(self.trees.len());
         &self.trees[..n_iterations]
     }
 
@@ -787,8 +787,8 @@ impl GradientBooster {
 
     /// Set prediction iterations.
     /// * `early_stopping_rounds` - Early stoppings rounds.
-    pub fn set_prediction_iterations(mut self, prediction_iterations: Option<usize>) -> Self {
-        self.prediction_iterations = prediction_iterations;
+    pub fn set_prediction_iteration(mut self, prediction_iteration: Option<usize>) -> Self {
+        self.prediction_iteration = prediction_iteration.map(|i| i + 1);
         self
     }
 

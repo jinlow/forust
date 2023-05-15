@@ -117,6 +117,17 @@ impl GradientBooster {
         Ok(())
     }
 
+    #[setter]
+    fn set_prediction_iteration(&mut self, value: Option<usize>) -> PyResult<()> {
+        self.booster.prediction_iteration = value;
+        Ok(())
+    }
+
+    #[getter]
+    fn best_iteration(&self) -> PyResult<Option<usize>> {
+        Ok(self.booster.best_iteration)
+    }
+
     pub fn fit(
         &mut self,
         flat_data: PyReadonlyArray1<f64>,

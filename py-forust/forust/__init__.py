@@ -16,6 +16,8 @@ FrameLike = Union[pd.DataFrame, np.ndarray]
 
 class BoosterType(Protocol):
     monotone_constraints: dict[int, int]
+    prediction_iteration: None | int
+    best_iteration: None | int
 
     def fit(
         self,
@@ -204,10 +206,19 @@ class GradientBooster:
                 weight value as the parent node. If this parameter is `False`, missing will be sent
                 down either the left or right branch, creating a binary tree. Defaults to `False`.
             sample_method (str | None, optional): Optional string value to use to determine the method to
-                use to sample the data while traning. If this is None, no sample method will be used.
+                use to sample the data while training. If this is None, no sample method will be used.
                 If the `subsample` parameter is less than 1 and no sample_method is provided this `sample_method`
                 will be automatically set to "random". Valid options are "goss" and "random".
                 Defaults to `None`.
+            evaluation_metric (str | None, optional): Optional string value used to define an evaluation metric
+                that will be calculated at each iteration if a `evaluation_dataset` is provided at fit time.
+                The metric can be one of "AUC", "LogLoss", "RootMeanSquaredLogError", or "RootMeanSquaredError".
+                If no `evaluation_metric` is passed, but an `evaluation_dataset` is passed, then "LogLoss", will
+                be used with the "LogLoss" objective function, and "RootMeanSquaredLogError" will be used with
+                "SquaredLoss".
+            early_stopping_rounds (int | None, optional): If this is specified, and an `evaluation_dataset` is passed
+                during fit, then an improvement in the `evaluation_metric` must be seen after at least this many
+                iterations of training, otherwise training will be cut short.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -283,6 +294,13 @@ class GradientBooster:
             sample_weight (Union[ArrayLike, None], optional): Instance weights to use when
                 training the model. If None is passed, a weight of 1 will be used for every record.
                 Defaults to None.
+            evaluation_data (tuple[FrameLike, ArrayLike, ArrayLike] | tuple[FrameLike, ArrayLike], optional):
+                An optional list of tuples, where each tuple should contain a dataset, and equal length
+                target array, and optional an equal length sample weight array. If this is provided
+                metric values will be calculated at each iteration of training. If `early_stopping_rounds` is
+                supplied, the first entry of this list will be used to determine if performance
+                has improved over the last set of iterations, for which if no improvement is not seen
+                in `early_stopping_rounds` training will be cut short.
         """
 
         features_, flat_data, rows, cols = _convert_input_frame(X)
@@ -350,6 +368,17 @@ class GradientBooster:
                 raise ValueError(
                     "Columns mismatch between data passed, and data used at fit."
                 )
+
+    def set_prediction_iteration(self, iteration: int):
+        """Set the iteration that should be used when predicting. If `early_stopping_rounds`
+        has been set, this will default to the best iteration, otherwise all of the trees
+        will be used.
+
+        Args:
+            iteration (int): Iteration number to use, this will use all trees, up to this
+                index.
+        """
+        self.booster.prediction_iteration = iteration
 
     def predict(self, X: FrameLike, parallel: Union[bool, None] = None) -> np.ndarray:
         """Predict with the fitted booster on new data.
@@ -576,5 +605,21 @@ class GradientBooster:
         return literal_eval(node_or_string=v)
 
     def get_evaluation_history(self) -> np.ndarray | None:
+        """Get the results of the `evaluation_metric` calculated
+        on the `evaluation_dataset` passed to fit, at each iteration.
+        If no `evaluation_dataset` was passed, this will return None.
+
+        Returns:
+            np.ndarray | None: A numpy array equal to the shape of the number
+            of evaluation datasets passed, and the number of trees in the model.
+        """
         r, v, d = self.booster.get_evaluation_history()
         return d.reshape((r, v))
+
+    def get_best_iteration(self) -> int | None:
+        """Get the best iteration if `early_stopping_rounds` was used when fitting.
+
+        Returns:
+            int | None: The best iteration, or None if `early_stopping_rounds` wasn't used.
+        """
+        return self.booster.best_iteration
