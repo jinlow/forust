@@ -4,6 +4,16 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 
+/// Create a string of all available items.
+pub fn items_to_strings(items: Vec<&str>) -> String {
+    let mut s = String::new();
+    for i in items {
+        s.push_str(i);
+        s.push_str(&String::from(", "));
+    }
+    s
+}
+
 /// Calculate if a value is missing.
 #[inline]
 pub fn is_missing(value: &f64, missing: &f64) -> bool {

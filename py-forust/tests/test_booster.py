@@ -3,8 +3,10 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier, XGBRegressor
 
+import forust
 from forust import GradientBooster
 
 
@@ -489,3 +491,55 @@ def test_booster_metadata(X_y, tmp_path):
 
     with pytest.raises(KeyError):
         loaded.get_metadata("No-key")
+
+    loaded_dict = loaded.__dict__
+    fmod_dict = fmod.__dict__
+    assert sorted(loaded_dict.keys()) == sorted(fmod_dict.keys())
+    for k, v in loaded_dict.items():
+        c_v = fmod_dict[k]
+        if isinstance(v, float):
+            if np.isnan(v):
+                assert np.isnan(c_v)
+            else:
+                assert np.allclose(v, c_v)
+        elif isinstance(v, forust.CrateGradientBooster):
+            assert isinstance(c_v, forust.CrateGradientBooster)
+        else:
+            assert v == c_v
+
+
+def test_early_stopping_rounds(X_y, tmp_path):
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=200,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        base_score=0.5,
+        early_stopping_rounds=2,
+        evaluation_metric="AUC",
+    )
+    fmod.fit(X, y, evaluation_data=[(X, y)])
+    preds = fmod.predict(X)
+    mod_path = tmp_path / "early_stopping_model.json"
+    fmod.save_booster(mod_path)
+    loaded = GradientBooster.load_booster(mod_path)
+    assert np.allclose(loaded.predict(X), preds)
+    history = fmod.get_evaluation_history()
+    assert history is not None
+    assert np.isclose(roc_auc_score(y, preds), history.max())
+    best_iteration = fmod.get_best_iteration()
+    assert best_iteration is not None
+    assert best_iteration < history.shape[0]
+    fmod.set_prediction_iteration(4)
+    new_preds = fmod.predict(X)
+    assert not np.allclose(new_preds, preds)
+    fmod.save_booster(mod_path)
+    loaded = GradientBooster.load_booster(mod_path)
+    assert np.allclose(loaded.predict(X), new_preds)

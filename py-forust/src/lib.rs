@@ -1,7 +1,11 @@
 use forust_ml::constraints::{Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
+use forust_ml::errors::ForustError;
+use forust_ml::gradientbooster::EvaluationData;
 use forust_ml::gradientbooster::{ContributionsMethod, GradientBooster as CrateGradientBooster};
+use forust_ml::metric::Metric;
 use forust_ml::objective::ObjectiveType;
+use forust_ml::sampler::SampleMethod;
 use forust_ml::utils::percentiles as crate_percentiles;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::exceptions::{PyKeyError, PyValueError};
@@ -9,6 +13,15 @@ use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
 use std::collections::HashMap;
+use std::str::FromStr;
+
+type PyEvaluationData<'a> = (
+    PyReadonlyArray1<'a, f64>,
+    usize,
+    usize,
+    PyReadonlyArray1<'a, f64>,
+    PyReadonlyArray1<'a, f64>,
+);
 
 fn int_map_to_constraint_map(int_map: HashMap<usize, i8>) -> PyResult<ConstraintMap> {
     let mut constraints: ConstraintMap = HashMap::new();
@@ -24,8 +37,13 @@ fn int_map_to_constraint_map(int_map: HashMap<usize, i8>) -> PyResult<Constraint
     Ok(constraints)
 }
 
-// This macro is used to define the base implementation of
-// the booster.
+fn to_value_error<T>(value: Result<T, ForustError>) -> Result<T, PyErr> {
+    match value {
+        Ok(v) => Ok(v),
+        Err(e) => Err(PyValueError::new_err(e.to_string())),
+    }
+}
+
 #[pyclass(subclass)]
 struct GradientBooster {
     booster: CrateGradientBooster,
@@ -53,13 +71,20 @@ impl GradientBooster {
         seed: u64,
         missing: f64,
         create_missing_branch: bool,
+        sample_method: Option<&str>,
+        evaluation_metric: Option<&str>,
+        early_stopping_rounds: Option<usize>,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
-        let objective_ = match objective_type {
-            "LogLoss" => Ok(ObjectiveType::LogLoss),
-            "SquaredLoss" => Ok(ObjectiveType::SquaredLoss),
-            _ => Err(PyValueError::new_err(format!("Not a valid objective type passed, expected one of 'LogLoss', 'SquaredLoss', but '{}' was provided.", objective_type))),
-        }?;
+        let objective_ = to_value_error(ObjectiveType::from_str(objective_type))?;
+        let sample_method_ = match sample_method {
+            Some(s) => to_value_error(SampleMethod::from_str(s))?,
+            None => SampleMethod::None,
+        };
+        let evaluation_metric_ = match evaluation_metric {
+            Some(s) => Some(to_value_error(Metric::from_str(s))?),
+            None => None,
+        };
         let booster = CrateGradientBooster::new(
             objective_,
             iterations,
@@ -78,6 +103,9 @@ impl GradientBooster {
             seed,
             missing,
             create_missing_branch,
+            sample_method_,
+            evaluation_metric_,
+            early_stopping_rounds,
         );
         Ok(GradientBooster { booster })
     }
@@ -89,6 +117,17 @@ impl GradientBooster {
         Ok(())
     }
 
+    #[setter]
+    fn set_prediction_iteration(&mut self, value: Option<usize>) -> PyResult<()> {
+        self.booster.prediction_iteration = value;
+        Ok(())
+    }
+
+    #[getter]
+    fn best_iteration(&self) -> PyResult<Option<usize>> {
+        Ok(self.booster.best_iteration)
+    }
+
     pub fn fit(
         &mut self,
         flat_data: PyReadonlyArray1<f64>,
@@ -96,12 +135,28 @@ impl GradientBooster {
         cols: usize,
         y: PyReadonlyArray1<f64>,
         sample_weight: PyReadonlyArray1<f64>,
+        evaluation_data: Option<Vec<PyEvaluationData>>,
     ) -> PyResult<()> {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let y = y.as_slice()?;
         let sample_weight = sample_weight.as_slice()?;
-        match self.booster.fit(&data, y, sample_weight) {
+
+        let evaluation_data_: Option<Vec<EvaluationData>> = match evaluation_data.as_ref() {
+            None => None,
+            Some(values) => {
+                let mut eval_data = Vec::new();
+                for (a, r, c, y_, w_) in values.iter() {
+                    eval_data.push((
+                        Matrix::new(a.as_slice()?, *r, *c),
+                        y_.as_slice()?,
+                        w_.as_slice()?,
+                    ));
+                }
+                Some(eval_data)
+            }
+        };
+        match self.booster.fit(&data, y, sample_weight, evaluation_data_) {
             Ok(m) => Ok(m),
             Err(e) => Err(PyValueError::new_err(e.to_string())),
         }?;
@@ -177,9 +232,10 @@ impl GradientBooster {
     pub fn get_metadata(&self, key: String) -> PyResult<String> {
         match self.booster.get_metadata(&key) {
             Some(m) => Ok(m),
-            None => Err(PyKeyError::new_err(
-                format!("No value associated with provided key {}", key).to_string(),
-            )),
+            None => Err(PyKeyError::new_err(format!(
+                "No value associated with provided key {}",
+                key
+            ))),
         }
     }
 
@@ -205,6 +261,18 @@ impl GradientBooster {
         let objective_ = match self.booster.objective_type {
             ObjectiveType::LogLoss => "LogLoss",
             ObjectiveType::SquaredLoss => "SquaredLoss",
+        };
+        let sample_method_: Option<&str> = match self.booster.sample_method {
+            SampleMethod::Random => Some("random"),
+            SampleMethod::Goss => Some("goss"),
+            SampleMethod::None => None,
+        };
+        let evaluation_metric_: Option<&str> = match self.booster.evaluation_metric {
+            Some(Metric::AUC) => Some("AUC"),
+            Some(Metric::LogLoss) => Some("LogLoss"),
+            Some(Metric::RootMeanSquaredLogError) => Some("RootMeanSquaredLogError"),
+            Some(Metric::RootMeanSquaredError) => Some("RootMeanSquaredError"),
+            _ => None,
         };
         let constraints: HashMap<usize, i8> = self
             .booster
@@ -248,9 +316,26 @@ impl GradientBooster {
                 "create_missing_branch",
                 self.booster.create_missing_branch.to_object(py),
             ),
+            ("sample_method", sample_method_.to_object(py)),
+            ("evaluation_metric", evaluation_metric_.to_object(py)),
+            (
+                "early_stopping_rounds",
+                self.booster.early_stopping_rounds.to_object(py),
+            ),
         ];
         let dict = key_vals.into_py_dict(py);
         Ok(dict.to_object(py))
+    }
+
+    pub fn get_evaluation_history<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Option<(usize, usize, &'py PyArray1<f64>)>> {
+        if let Some(data) = &self.booster.evaluation_history {
+            let d = data.data.to_owned().into_pyarray(py);
+            return Ok(Some((data.rows, data.cols, d)));
+        }
+        Ok(None)
     }
 }
 

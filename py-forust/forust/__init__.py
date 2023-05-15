@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import warnings
 from ast import literal_eval
-from typing import Any, Union, cast
+from typing import Any, Protocol, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -14,8 +14,10 @@ ArrayLike = Union[pd.Series, np.ndarray]
 FrameLike = Union[pd.DataFrame, np.ndarray]
 
 
-class BoosterType:
+class BoosterType(Protocol):
     monotone_constraints: dict[int, int]
+    prediction_iteration: None | int
+    best_iteration: None | int
 
     def fit(
         self,
@@ -24,9 +26,11 @@ class BoosterType:
         cols: int,
         y: np.ndarray,
         sample_weight: np.ndarray,
+        evaluation_data: None
+        | list[tuple[FrameLike, ArrayLike, None | ArrayLike]] = None,
         parallel: bool = True,
     ):
-        raise NotImplementedError()
+        ...
 
     def predict(
         self,
@@ -35,7 +39,7 @@ class BoosterType:
         cols: int,
         parallel: bool = True,
     ) -> np.ndarray:
-        raise NotImplementedError()
+        ...
 
     def predict_contributions(
         self,
@@ -45,40 +49,73 @@ class BoosterType:
         method: str,
         parallel: bool = True,
     ) -> np.ndarray:
-        raise NotImplementedError
+        ...
 
     def value_partial_dependence(
         self,
         feature: int,
         value: float,
     ) -> float:
-        raise NotImplementedError()
+        ...
 
     def text_dump(self) -> list[str]:
-        raise NotImplementedError()
+        ...
 
     @classmethod
     def load_booster(cls, path: str) -> BoosterType:
-        raise NotImplementedError()
+        ...
 
     def save_booster(self, path: str):
-        raise NotImplementedError()
+        ...
 
     @classmethod
     def from_json(cls, json_str: str) -> BoosterType:
-        raise NotImplementedError()
+        ...
 
     def json_dump(self) -> str:
-        raise NotImplementedError()
+        ...
 
     def get_params(self) -> dict[str, Any]:
-        raise NotImplementedError()
+        ...
 
     def insert_metadata(self, key: str, value: str) -> None:
-        raise NotImplementedError()
+        ...
 
     def get_metadata(self, key: str) -> str:
-        raise NotImplementedError()
+        ...
+
+    def get_evaluation_history(self) -> tuple[int, int, np.ndarray]:
+        ...
+
+
+def _convert_input_frame(X: FrameLike) -> tuple[list[str], np.ndarray, int, int]:
+    """Convert data to format needed by booster.
+
+    Returns:
+        tuple[list[str], np.ndarray, int, int, ]: Return column names, the flat data, number of rows, and the number of columns
+    """
+    if isinstance(X, pd.DataFrame):
+        X_ = X.to_numpy()
+        features_ = X.columns.to_list()
+    else:
+        # Assume it's a numpy array.
+        X_ = X
+        features_ = []
+    if not np.issubdtype(X_.dtype, "float64"):
+        X_ = X_.astype(dtype="float64", copy=False)
+    flat_data = X_.ravel(order="F")
+    rows, cols = X_.shape
+    return features_, flat_data, rows, cols
+
+
+def _convert_input_array(x: ArrayLike) -> np.ndarray:
+    if isinstance(x, pd.Series):
+        x_ = x.to_numpy()
+    else:
+        x_ = x
+    if not np.issubdtype(x_.dtype, "float64"):
+        x_ = x_.astype(dtype="float64", copy=False)
+    return x_
 
 
 class GradientBooster:
@@ -108,6 +145,9 @@ class GradientBooster:
         seed: int = 0,
         missing: float = np.nan,
         create_missing_branch: bool = False,
+        sample_method: str | None = None,
+        evaluation_metric: str | None = None,
+        early_stopping_rounds: int | None = None,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -165,10 +205,27 @@ class GradientBooster:
                 create a separate branch for missing, creating a ternary tree, the missing node will be given the same
                 weight value as the parent node. If this parameter is `False`, missing will be sent
                 down either the left or right branch, creating a binary tree. Defaults to `False`.
+            sample_method (str | None, optional): Optional string value to use to determine the method to
+                use to sample the data while training. If this is None, no sample method will be used.
+                If the `subsample` parameter is less than 1 and no sample_method is provided this `sample_method`
+                will be automatically set to "random". Valid options are "goss" and "random".
+                Defaults to `None`.
+            evaluation_metric (str | None, optional): Optional string value used to define an evaluation metric
+                that will be calculated at each iteration if a `evaluation_dataset` is provided at fit time.
+                The metric can be one of "AUC", "LogLoss", "RootMeanSquaredLogError", or "RootMeanSquaredError".
+                If no `evaluation_metric` is passed, but an `evaluation_dataset` is passed, then "LogLoss", will
+                be used with the "LogLoss" objective function, and "RootMeanSquaredLogError" will be used with
+                "SquaredLoss".
+            early_stopping_rounds (int | None, optional): If this is specified, and an `evaluation_dataset` is passed
+                during fit, then an improvement in the `evaluation_metric` must be seen after at least this many
+                iterations of training, otherwise training will be cut short.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
         """
+        sample_method = (
+            "random" if (subsample < 1) and (sample_method is None) else sample_method
+        )
         booster = CrateGradientBooster(
             objective_type=objective_type,
             iterations=iterations,
@@ -187,6 +244,9 @@ class GradientBooster:
             seed=seed,
             missing=missing,
             create_missing_branch=create_missing_branch,
+            sample_method=sample_method,
+            evaluation_metric=evaluation_metric,
+            early_stopping_rounds=early_stopping_rounds,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -209,33 +269,19 @@ class GradientBooster:
         self.seed = seed
         self.missing = missing
         self.create_missing_branch = create_missing_branch
-
-    def _convert_input_frame(
-        self, X: FrameLike
-    ) -> tuple[list[str], int, int, np.ndarray]:
-        """Convert data to format needed by booster.
-
-        Returns:
-            tuple[list[str], int, int, np.ndarray]: Return column names, number of rows, and number of columns, and flat data.
-        """
-        if isinstance(X, pd.DataFrame):
-            X_ = X.to_numpy()
-            features_ = X.columns.to_list()
-        else:
-            # Assume it's a numpy array.
-            X_ = X
-            features_ = []
-        if not np.issubdtype(X_.dtype, "float64"):
-            X_ = X_.astype(dtype="float64", copy=False)
-        flat_data = X_.ravel(order="F")
-        rows, cols = X_.shape
-        return features_, rows, cols, flat_data
+        self.sample_method = sample_method
+        self.evaluation_metric = evaluation_metric
+        self.early_stopping_rounds = early_stopping_rounds
 
     def fit(
         self,
         X: FrameLike,
         y: ArrayLike,
         sample_weight: Union[ArrayLike, None] = None,
+        evaluation_data: None
+        | list[
+            tuple[FrameLike, ArrayLike, ArrayLike] | tuple[FrameLike, ArrayLike]
+        ] = None,
     ):
         """Fit the gradient booster on a provided dataset.
 
@@ -248,17 +294,21 @@ class GradientBooster:
             sample_weight (Union[ArrayLike, None], optional): Instance weights to use when
                 training the model. If None is passed, a weight of 1 will be used for every record.
                 Defaults to None.
+            evaluation_data (tuple[FrameLike, ArrayLike, ArrayLike] | tuple[FrameLike, ArrayLike], optional):
+                An optional list of tuples, where each tuple should contain a dataset, and equal length
+                target array, and optional an equal length sample weight array. If this is provided
+                metric values will be calculated at each iteration of training. If `early_stopping_rounds` is
+                supplied, the first entry of this list will be used to determine if performance
+                has improved over the last set of iterations, for which if no improvement is not seen
+                in `early_stopping_rounds` training will be cut short.
         """
 
-        features_, rows, cols, flat_data = self._convert_input_frame(X)
+        features_, flat_data, rows, cols = _convert_input_frame(X)
         if len(features_) > 0:
             self.feature_names_in_ = features_
             self.insert_metadata("feature_names_in_", self.feature_names_in_)
 
-        y_ = y.to_numpy() if isinstance(y, pd.Series) else y
-
-        if not np.issubdtype(y_.dtype, "float64"):
-            y_ = y_.astype(dtype="float64", copy=False)
+        y_ = _convert_input_array(y)
 
         if sample_weight is None:
             sample_weight = np.ones(y_.shape, dtype="float64")
@@ -276,13 +326,59 @@ class GradientBooster:
         monotone_constraints_ = self._standardize_monotonicity_map(X)
         self.booster.monotone_constraints = monotone_constraints_
 
+        # Create evaluation data
+        if evaluation_data is not None:
+            evaluation_data_ = []
+            for eval_ in evaluation_data:
+                if len(eval_) == 3:
+                    eval_X, eval_y, eval_w = eval_
+                    eval_w_ = _convert_input_array(eval_w)
+                else:
+                    eval_X, eval_y = eval_
+                    eval_w_ = np.ones(eval_X.shape[0], dtype="float64")
+
+                features_, eval_flat_data, eval_rows, eval_cols = _convert_input_frame(
+                    eval_X
+                )
+                self._validate_features(features_)
+                evaluation_data_.append(
+                    (
+                        eval_flat_data,
+                        eval_rows,
+                        eval_cols,
+                        _convert_input_array(eval_y),
+                        eval_w_,
+                    )
+                )
+        else:
+            evaluation_data_ = None
+
         self.booster.fit(
             flat_data=flat_data,
             rows=rows,
             cols=cols,
             y=y_,
             sample_weight=sample_weight_,
+            evaluation_data=evaluation_data_,
         )
+
+    def _validate_features(self, features: list[str]):
+        if len(features) > 0 and hasattr(self, "feature_names_in_"):
+            if features != self.feature_names_in_:
+                raise ValueError(
+                    "Columns mismatch between data passed, and data used at fit."
+                )
+
+    def set_prediction_iteration(self, iteration: int):
+        """Set the iteration that should be used when predicting. If `early_stopping_rounds`
+        has been set, this will default to the best iteration, otherwise all of the trees
+        will be used.
+
+        Args:
+            iteration (int): Iteration number to use, this will use all trees, up to this
+                index.
+        """
+        self.booster.prediction_iteration = iteration
 
     def predict(self, X: FrameLike, parallel: Union[bool, None] = None) -> np.ndarray:
         """Predict with the fitted booster on new data.
@@ -297,7 +393,8 @@ class GradientBooster:
         Returns:
             np.ndarray: Returns a numpy array of the predictions.
         """
-        features_, rows, cols, flat_data = self._convert_input_frame(X)
+        features_, flat_data, rows, cols = _convert_input_frame(X)
+        self._validate_features(features_)
         parallel_ = self.parallel if parallel is None else parallel
         return self.booster.predict(
             flat_data=flat_data,
@@ -327,7 +424,8 @@ class GradientBooster:
         Returns:
             np.ndarray: Returns a numpy array of the predictions.
         """
-        features_, rows, cols, flat_data = self._convert_input_frame(X)
+        features_, flat_data, rows, cols = _convert_input_frame(X)
+        self._validate_features(features_)
         parallel_ = self.parallel if parallel is None else parallel
 
         contributions = self.booster.predict_contributions(
@@ -503,6 +601,25 @@ class GradientBooster:
         Returns:
             str: Value associated with the provided key in the boosters metadata.
         """
-        # We use json to serialize/deserialize so that we can
         v = self.booster.get_metadata(key=key)
-        return literal_eval(v)
+        return literal_eval(node_or_string=v)
+
+    def get_evaluation_history(self) -> np.ndarray | None:
+        """Get the results of the `evaluation_metric` calculated
+        on the `evaluation_dataset` passed to fit, at each iteration.
+        If no `evaluation_dataset` was passed, this will return None.
+
+        Returns:
+            np.ndarray | None: A numpy array equal to the shape of the number
+            of evaluation datasets passed, and the number of trees in the model.
+        """
+        r, v, d = self.booster.get_evaluation_history()
+        return d.reshape((r, v))
+
+    def get_best_iteration(self) -> int | None:
+        """Get the best iteration if `early_stopping_rounds` was used when fitting.
+
+        Returns:
+            int | None: The best iteration, or None if `early_stopping_rounds` wasn't used.
+        """
+        return self.booster.best_iteration

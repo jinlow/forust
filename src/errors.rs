@@ -10,8 +10,6 @@ pub enum ForustError {
     UnableToRead(String),
     #[error("The value {0} is set to missing, but a NaN value was found in the data.")]
     NANVAlueFound(f64),
-    // #[error("NaN found in {0}.")]
-    // ContainsNaN(String),
-    // #[error("Unable to calculate prediction.")]
-    // Prediction,
+    #[error("Invalid value {0} passed for {1}, expected one of {2}.")]
+    ParseString(String, String, String),
 }
