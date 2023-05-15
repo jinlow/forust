@@ -508,7 +508,7 @@ def test_booster_metadata(X_y, tmp_path):
             assert v == c_v
 
 
-def test_early_stopping_rounds(X_y):
+def test_early_stopping_rounds(X_y, tmp_path):
     X, y = X_y
     X = X
     fmod = GradientBooster(
@@ -527,6 +527,10 @@ def test_early_stopping_rounds(X_y):
     )
     fmod.fit(X, y, evaluation_data=[(X, y)])
     preds = fmod.predict(X)
+    mod_path = tmp_path / "early_stopping_model.json"
+    fmod.save_booster(mod_path)
+    loaded = GradientBooster.load_booster(mod_path)
+    assert np.allclose(loaded.predict(X), preds)
     history = fmod.get_evaluation_history()
     assert history is not None
     assert np.isclose(roc_auc_score(y, preds), history.max())
@@ -534,4 +538,8 @@ def test_early_stopping_rounds(X_y):
     assert best_iteration is not None
     assert best_iteration < history.shape[0]
     fmod.set_prediction_iteration(4)
-    assert not np.allclose(fmod.predict(X), preds)
+    new_preds = fmod.predict(X)
+    assert not np.allclose(new_preds, preds)
+    fmod.save_booster(mod_path)
+    loaded = GradientBooster.load_booster(mod_path)
+    assert np.allclose(loaded.predict(X), new_preds)
