@@ -32,7 +32,13 @@ impl FromStr for SampleMethod {
 pub trait Sampler {
     /// Sample the data, returning a tuple, where the first item is the samples
     /// chosen for training, and the second are the samples excluded.
-    fn sample(&mut self, rng: &mut StdRng, index: &[usize]) -> (Vec<usize>, Vec<usize>);
+    fn sample(
+        &mut self,
+        rng: &mut StdRng,
+        index: &[usize],
+        grad: &mut [f32],
+        hess: &mut [f32],
+    ) -> (Vec<usize>, Vec<usize>);
 }
 
 pub struct RandomSampler {
@@ -47,7 +53,13 @@ impl RandomSampler {
 }
 
 impl Sampler for RandomSampler {
-    fn sample(&mut self, rng: &mut StdRng, index: &[usize]) -> (Vec<usize>, Vec<usize>) {
+    fn sample(
+        &mut self,
+        rng: &mut StdRng,
+        index: &[usize],
+        grad: &mut [f32],
+        hess: &mut [f32],
+    ) -> (Vec<usize>, Vec<usize>) {
         let subsample = self.subsample;
         let mut chosen = Vec::new();
         let mut excluded = Vec::new();
@@ -63,29 +75,67 @@ impl Sampler for RandomSampler {
 }
 
 #[allow(dead_code)]
-pub struct GossSampler<'a> {
-    gradient: Option<&'a [f64]>,
+pub struct GossSampler {
+    a: f64, // https://lightgbm.readthedocs.io/en/latest/Parameters.html#top_rate
+    b: f64, // https://lightgbm.readthedocs.io/en/latest/Parameters.html#other_rate
 }
 
-impl<'a> Default for GossSampler<'a> {
+impl Default for GossSampler {
     fn default() -> Self {
-        Self::new()
+        GossSampler { a: 0.2, b: 0.1 }
     }
 }
 
 #[allow(dead_code)]
-impl<'a> GossSampler<'a> {
-    pub fn new() -> Self {
-        GossSampler { gradient: None }
-    }
-    pub fn add_gradient(&mut self, gradient: &'a [f64]) {
-        self.gradient = Some(gradient);
+impl GossSampler {
+    pub fn new(a: f64, b: f64) -> Self {
+        if !(a >= 0. && a <= 1.) {
+            panic!("move to gradientbooster constructor");
+        } else if !(b >= 0. && b <= 1.) {
+            panic!("move to gradientbooster constructor");
+        } else {
+            GossSampler { a, b }
+        }
     }
 }
 
-impl<'a> Sampler for GossSampler<'a> {
+impl Sampler for GossSampler {
     #[allow(unused_variables)]
-    fn sample(&mut self, rng: &mut StdRng, index: &[usize]) -> (Vec<usize>, Vec<usize>) {
-        todo!()
+    fn sample(
+        &mut self,
+        rng: &mut StdRng,
+        index: &[usize],
+        grad: &mut [f32],
+        hess: &mut [f32],
+    ) -> (Vec<usize>, Vec<usize>) {
+        let fact = ((1. - self.a) / self.b) as f32;
+        let topN = (self.a * index.len() as f64) as usize;
+        let randN = (self.b * index.len() as f64) as usize;
+
+        // sort gradient by absolute value from highest to lowest
+        let mut sorted = (0..index.len()).collect::<Vec<_>>();
+        sorted.sort_unstable_by(|&a, &b| grad[b].abs().total_cmp(&grad[a].abs()));
+
+        // select the topN largest gradients
+        let topSet = &sorted[0..topN];
+
+        // sample the rest based on randN
+        let subsample = (randN / (index.len() - topN)) as f64;
+        let mut randomSet = Vec::new();
+        for i in &sorted[topN..sorted.len()] {
+            if rng.gen_range(0.0..1.0) < subsample {
+                randomSet.push(*i);
+            }
+        }
+
+        let usedSet = [topSet, &randomSet].concat();
+
+        // literally, multiply the weight *= hess and grad
+        for i in &randomSet {
+            grad[*i] *= fact;
+            hess[*i] *= fact;
+        }
+
+        (usedSet, Vec::new())
     }
 }

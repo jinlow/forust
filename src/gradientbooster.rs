@@ -6,7 +6,7 @@ use crate::metric::{is_comparison_better, metric_callables, Metric, MetricFn};
 use crate::objective::{
     gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType, SquaredLoss,
 };
-use crate::sampler::{RandomSampler, SampleMethod, Sampler};
+use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
 use rand::rngs::StdRng;
@@ -289,11 +289,19 @@ impl GradientBooster {
         Ok(())
     }
 
-    fn sample_index(&self, rng: &mut StdRng, index: &[usize]) -> (Vec<usize>, Vec<usize>) {
+    fn sample_index(
+        &self,
+        rng: &mut StdRng,
+        index: &[usize],
+        grad: &mut [f32],
+        hess: &mut [f32],
+    ) -> (Vec<usize>, Vec<usize>) {
         match self.sample_method {
             SampleMethod::None => (index.to_owned(), Vec::new()),
-            SampleMethod::Random => RandomSampler::new(self.subsample).sample(rng, index),
-            SampleMethod::Goss => todo!(),
+            SampleMethod::Random => {
+                RandomSampler::new(self.subsample).sample(rng, index, grad, hess)
+            }
+            SampleMethod::Goss => GossSampler::new(0.2, 0.1).sample(rng, index, grad, hess),
         }
     }
 
@@ -349,8 +357,10 @@ impl GradientBooster {
 
         for i in 0..self.iterations {
             // We will eventually use the excluded index.
-            let (chosen_index, _excluded_index) = self.sample_index(&mut rng, &data.index);
+            let (chosen_index, _excluded_index) =
+                self.sample_index(&mut rng, &data.index, &mut grad, &mut hess);
             let mut tree = Tree::new();
+
             tree.fit(
                 &bdata,
                 chosen_index,
