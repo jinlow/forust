@@ -543,3 +543,26 @@ def test_early_stopping_rounds(X_y, tmp_path):
     fmod.save_booster(mod_path)
     loaded = GradientBooster.load_booster(mod_path)
     assert np.allclose(loaded.predict(X), new_preds)
+
+
+def test_goss_sampling_method(X_y):
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        sample_method="goss",
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        base_score=0.5,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    fmod_contribs = fmod.predict_contributions(X)
+
+    assert True

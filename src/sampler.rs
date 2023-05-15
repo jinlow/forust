@@ -57,8 +57,8 @@ impl Sampler for RandomSampler {
         &mut self,
         rng: &mut StdRng,
         index: &[usize],
-        grad: &mut [f32],
-        hess: &mut [f32],
+        _grad: &mut [f32],
+        _hess: &mut [f32],
     ) -> (Vec<usize>, Vec<usize>) {
         let subsample = self.subsample;
         let mut chosen = Vec::new();
@@ -109,33 +109,35 @@ impl Sampler for GossSampler {
         hess: &mut [f32],
     ) -> (Vec<usize>, Vec<usize>) {
         let fact = ((1. - self.a) / self.b) as f32;
-        let topN = (self.a * index.len() as f64) as usize;
-        let randN = (self.b * index.len() as f64) as usize;
+        let top_n = (self.a * index.len() as f64) as usize;
+        let rand_n = (self.b * index.len() as f64) as usize;
+
+        let grad_abs = grad.iter().map(|g| g.abs()).collect::<Vec<_>>();
 
         // sort gradient by absolute value from highest to lowest
         let mut sorted = (0..index.len()).collect::<Vec<_>>();
-        sorted.sort_unstable_by(|&a, &b| grad[b].abs().total_cmp(&grad[a].abs()));
+        sorted.sort_unstable_by(|&a, &b| grad_abs[b].total_cmp(&grad_abs[a].abs()));
 
         // select the topN largest gradients
-        let topSet = &sorted[0..topN];
+        let top_set = &sorted[0..top_n];
 
         // sample the rest based on randN
-        let subsample = (randN / (index.len() - topN)) as f64;
-        let mut randomSet = Vec::new();
-        for i in &sorted[topN..sorted.len()] {
+        let subsample = rand_n as f64 / (index.len() as f64 - top_n as f64);
+        let mut random_set = Vec::new();
+        for i in &sorted[top_n..sorted.len()] {
             if rng.gen_range(0.0..1.0) < subsample {
-                randomSet.push(*i);
+                random_set.push(*i);
             }
         }
 
-        let usedSet = [topSet, &randomSet].concat();
+        let used_set = [top_set, &random_set].concat();
 
         // literally, multiply the weight *= hess and grad
-        for i in &randomSet {
+        for i in &random_set {
             grad[*i] *= fact;
             hess[*i] *= fact;
         }
 
-        (usedSet, Vec::new())
+        (used_set, Vec::new())
     }
 }
