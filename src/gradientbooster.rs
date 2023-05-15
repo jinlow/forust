@@ -48,10 +48,19 @@ pub enum ContributionsMethod {
 ///   a smaller number, will result in faster training time, while potentially sacrificing
 ///   accuracy. If there are more bins, than unique values in a column, all unique values
 ///   will be used.
-/// * `allow_missing_splits` - Allow for splits to be made such that all missing values go
-///   down one branch, and all non-missing values go down the other, if this results
-///   in the greatest reduction of loss. If this is false, splits will only be made on non
-///   missing values.
+/// * `allow_missing_splits` - Should the algorithm allow splits that completed seperate out missing
+/// and non-missing values, in the case where `create_missing_branch` is false. When `create_missing_branch`
+/// is true, setting this to true will result in the missin branch being further split.
+/// * `monotone_constraints` - Constraints that are used to enforce a specific relationship
+///   between the training features and the target variable.
+/// * `subsample` - Percent of records to randomly sample at each iteration when training a tree.
+/// * `seed` - Integer value used to seed any randomness used in the algorithm.
+/// * `missing` - Value to consider missing.
+/// * `create_missing_branch` - Should missing be split out it's own separate branch?
+/// * `sample_method` - Specify the method that records should be sampled when training?
+/// * `evaluation_metric` - Define the evaluation metric to record at each iterations.
+/// * `early_stopping_rounds` - Number of rounds where the evaluation metric value must improve in
+///    to keep training.
 #[derive(Deserialize, Serialize)]
 pub struct GradientBooster {
     pub objective_type: ObjectiveType,
@@ -80,8 +89,12 @@ pub struct GradientBooster {
     pub early_stopping_rounds: Option<usize>,
     #[serde(default = "default_evaluation_history")]
     pub evaluation_history: Option<RowMajorMatrix<f64>>,
-    #[serde(default = "default_best_iteration")]
+    #[serde(default = "default_prediction_iterations")]
     pub best_iteration: Option<usize>,
+    /// number of trees to use when predicting,
+    /// defaults to best_iteration if this is defined.
+    #[serde(default = "default_best_iteration")]
+    pub prediction_iterations: Option<usize>,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -102,6 +115,10 @@ fn default_evaluation_history() -> Option<RowMajorMatrix<f64>> {
 }
 
 fn default_best_iteration() -> Option<usize> {
+    None
+}
+
+fn default_prediction_iterations() -> Option<usize> {
     None
 }
 
@@ -174,6 +191,9 @@ impl GradientBooster {
     /// * `seed` - Integer value used to seed any randomness used in the algorithm.
     /// * `missing` - Value to consider missing.
     /// * `create_missing_branch` - Should missing be split out it's own separate branch?
+    /// * `sample_method` - Specify the method that records should be sampled when training?
+    /// * `evaluation_metric` - Define the evaluation metric to record at each iterations.
+    /// * `early_stopping_rounds` - Number of rounds that must
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         objective_type: ObjectiveType,
@@ -220,6 +240,7 @@ impl GradientBooster {
             early_stopping_rounds,
             evaluation_history: None,
             best_iteration: None,
+            prediction_iterations: None,
             trees: Vec::new(),
             metadata: HashMap::new(),
         }
@@ -364,14 +385,14 @@ impl GradientBooster {
                             // iteration...
                             best_metric = match best_metric {
                                 None => {
-                                    self.best_iteration = Some(i);
+                                    self.update_best_iteration(i);
                                     Some(m)
                                 }
                                 // Otherwise the best could be farther back.
                                 Some(v) => {
                                     // We have reached a new best value...
                                     if is_comparison_better(v, m, maximize) {
-                                        self.best_iteration = Some(i);
+                                        self.update_best_iteration(i);
                                         Some(m)
                                     } else {
                                         // Previous value was better.
@@ -400,6 +421,11 @@ impl GradientBooster {
         Ok(())
     }
 
+    fn update_best_iteration(&mut self, i: usize) {
+        self.best_iteration = Some(i);
+        self.prediction_iterations = Some(i);
+    }
+
     fn update_predictions_inplace(&self, yhat: &mut [f64], tree: &Tree, data: &Matrix<f64>) {
         let preds = tree.predict(data, self.parallel, &self.missing);
         yhat.iter_mut().zip(preds).for_each(|(i, j)| *i += j);
@@ -424,7 +450,7 @@ impl GradientBooster {
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
     pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
         let mut init_preds = vec![self.base_score; data.rows];
-        self.trees.iter().for_each(|tree| {
+        self.get_prediction_trees().iter().for_each(|tree| {
             for (p_, val) in init_preds
                 .iter_mut()
                 .zip(tree.predict(data, parallel, &self.missing))
@@ -434,30 +460,6 @@ impl GradientBooster {
         });
         init_preds
     }
-
-    // pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
-    //     // After we discovered it's faster materializing the row once, and then
-    //     // Passing that to each tree, let's see if we can do the same with the booster
-    //     // prediction...
-    //     // Clean this up..
-    //     let mut init_preds = vec![self.base_score; data.rows];
-    //     if parallel {
-    //         init_preds.par_iter_mut().enumerate().for_each(|(i, p)| {
-    //             let pred_row = data.get_row(i);
-    //             for t in &self.trees {
-    //                 *p += t.predict_row_from_row_slice(&pred_row);
-    //             }
-    //         });
-    //     } else {
-    //         init_preds.iter_mut().enumerate().for_each(|(i, p)| {
-    //             let pred_row = data.get_row(i);
-    //             for t in &self.trees {
-    //                 *p += t.predict_row_from_row_slice(&pred_row);
-    //             }
-    //         });
-    //     }
-    //     init_preds
-    // }
 
     pub fn predict_contributions(
         &self,
@@ -492,7 +494,7 @@ impl GradientBooster {
                 .zip(contribs.par_chunks_mut(data.cols + 1))
                 .for_each(|(row, c)| {
                     let r_ = data.get_row(*row);
-                    self.trees.iter().for_each(|t| {
+                    self.get_prediction_trees().iter().for_each(|t| {
                         t.predict_contributions_row_weight(&r_, c, &self.missing);
                     });
                 });
@@ -502,7 +504,7 @@ impl GradientBooster {
                 .zip(contribs.chunks_mut(data.cols + 1))
                 .for_each(|(row, c)| {
                     let r_ = data.get_row(*row);
-                    self.trees.iter().for_each(|t| {
+                    self.get_prediction_trees().iter().for_each(|t| {
                         t.predict_contributions_row_weight(&r_, c, &self.missing);
                     });
                 });
@@ -511,18 +513,25 @@ impl GradientBooster {
         contribs
     }
 
+    /// Get the a reference to the trees for predicting, ensureing that the right number of
+    /// trees are used.
+    fn get_prediction_trees(&self) -> &[Tree] {
+        let n_iterations = self.prediction_iterations.unwrap_or(self.trees.len());
+        &self.trees[..n_iterations]
+    }
+
     /// Generate predictions on data using the gradient booster.
     /// This is equivalent to the XGBoost predict contributions with approx_contribs
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
     fn predict_contributions_average(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
         let weights: Vec<Vec<f64>> = if parallel {
-            self.trees
+            self.get_prediction_trees()
                 .par_iter()
                 .map(|t| t.distribute_leaf_weights())
                 .collect()
         } else {
-            self.trees
+            self.get_prediction_trees()
                 .iter()
                 .map(|t| t.distribute_leaf_weights())
                 .collect()
@@ -547,9 +556,12 @@ impl GradientBooster {
                 .zip(contribs.par_chunks_mut(data.cols + 1))
                 .for_each(|(row, c)| {
                     let r_ = data.get_row(*row);
-                    self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
-                        t.predict_contributions_row_average(&r_, c, w, &self.missing);
-                    });
+                    self.get_prediction_trees()
+                        .iter()
+                        .zip(weights.iter())
+                        .for_each(|(t, w)| {
+                            t.predict_contributions_row_average(&r_, c, w, &self.missing);
+                        });
                 });
         } else {
             data.index
@@ -557,9 +569,12 @@ impl GradientBooster {
                 .zip(contribs.chunks_mut(data.cols + 1))
                 .for_each(|(row, c)| {
                     let r_ = data.get_row(*row);
-                    self.trees.iter().zip(weights.iter()).for_each(|(t, w)| {
-                        t.predict_contributions_row_average(&r_, c, w, &self.missing);
-                    });
+                    self.get_prediction_trees()
+                        .iter()
+                        .zip(weights.iter())
+                        .for_each(|(t, w)| {
+                            t.predict_contributions_row_average(&r_, c, w, &self.missing);
+                        });
                 });
         }
 
@@ -573,12 +588,12 @@ impl GradientBooster {
     /// * `value` - The value for which to calculate the partial dependence.
     pub fn value_partial_dependence(&self, feature: usize, value: f64) -> f64 {
         let pd: f64 = if self.parallel {
-            self.trees
+            self.get_prediction_trees()
                 .par_iter()
                 .map(|t| t.value_partial_dependence(feature, value, &self.missing))
                 .sum()
         } else {
-            self.trees
+            self.get_prediction_trees()
                 .iter()
                 .map(|t| t.value_partial_dependence(feature, value, &self.missing))
                 .sum()
@@ -738,6 +753,42 @@ impl GradientBooster {
     /// * `missing` - Float value to consider as missing.
     pub fn set_missing(mut self, missing: f64) -> Self {
         self.missing = missing;
+        self
+    }
+
+    /// Set create missing value of the booster
+    /// * `create_missing_branch` - Bool specifying if missing should get it's own
+    /// branch.
+    pub fn set_create_missing_branch(mut self, create_missing_branch: bool) -> Self {
+        self.create_missing_branch = create_missing_branch;
+        self
+    }
+
+    /// Set sample method on the booster.
+    /// * `sample_method` - Sample method.
+    pub fn set_sample_method(mut self, sample_method: SampleMethod) -> Self {
+        self.sample_method = sample_method;
+        self
+    }
+
+    /// Set sample method on the booster.
+    /// * `evaluation_metric` - Sample method.
+    pub fn set_evaluation_metric(mut self, evaluation_metric: Option<Metric>) -> Self {
+        self.evaluation_metric = evaluation_metric;
+        self
+    }
+
+    /// Set early stopping rounds.
+    /// * `early_stopping_rounds` - Early stoppings rounds.
+    pub fn set_early_stopping_rounds(mut self, early_stopping_rounds: Option<usize>) -> Self {
+        self.early_stopping_rounds = early_stopping_rounds;
+        self
+    }
+
+    /// Set prediction iterations.
+    /// * `early_stopping_rounds` - Early stoppings rounds.
+    pub fn set_prediction_iterations(mut self, prediction_iterations: Option<usize>) -> Self {
+        self.prediction_iterations = prediction_iterations;
         self
     }
 
