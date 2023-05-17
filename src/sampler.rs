@@ -112,30 +112,23 @@ impl Sampler for GossSampler {
         let top_n = (self.a * index.len() as f64) as usize;
         let rand_n = (self.b * index.len() as f64) as usize;
 
-        let grad_abs = grad.iter().map(|g| g.abs()).collect::<Vec<_>>();
-
         // sort gradient by absolute value from highest to lowest
         let mut sorted = (0..index.len()).collect::<Vec<_>>();
-        sorted.sort_unstable_by(|&a, &b| grad_abs[b].total_cmp(&grad_abs[a].abs()));
+        sorted.sort_unstable_by(|&a, &b| grad[b].abs().total_cmp(&grad[a].abs()));
 
         // select the topN largest gradients
-        let top_set = &sorted[0..top_n];
+        let mut used_set = sorted[0..top_n].to_vec();
 
         // sample the rest based on randN
         let subsample = rand_n as f64 / (index.len() as f64 - top_n as f64);
-        let mut random_set = Vec::new();
+
+        // weight the sampled "small gradients" by fact and append indices to used_set
         for i in &sorted[top_n..sorted.len()] {
             if rng.gen_range(0.0..1.0) < subsample {
-                random_set.push(*i);
+                grad[*i] *= fact;
+                hess[*i] *= fact;
+                used_set.push(*i);
             }
-        }
-
-        let used_set = [top_set, &random_set].concat();
-
-        // literally, multiply the weight *= hess and grad
-        for i in &random_set {
-            grad[*i] *= fact;
-            hess[*i] *= fact;
         }
 
         (used_set, Vec::new())
