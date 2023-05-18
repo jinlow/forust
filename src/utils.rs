@@ -80,14 +80,14 @@ pub fn cull_gain(
     match constraint {
         None | Some(Constraint::Unconstrained) => gain,
         Some(Constraint::Negative) => {
-            if left_weight < right_weight {
+            if left_weight <= right_weight {
                 f32::NEG_INFINITY
             } else {
                 gain
             }
         }
         Some(Constraint::Positive) => {
-            if left_weight > right_weight {
+            if left_weight >= right_weight {
                 f32::NEG_INFINITY
             } else {
                 gain

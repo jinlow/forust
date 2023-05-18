@@ -26,7 +26,7 @@ pip install forust
 
 To use in a rust project add the following to your Cargo.toml file.
 ```toml
-forust-ml = "0.2.7"
+forust-ml = "0.2.8"
 ```
 
 ## Usage
@@ -64,6 +64,8 @@ It can be initialized with the following arguments.
  - `monotone_constraints` ***(dict[Any, int], optional)***: Constraints that are used to enforce a specific relationship between the training features and the target variable. A dictionary should be provided where the keys are the feature index value if the model will be fit on a numpy array, or a feature name if it will be fit on a pandas Dataframe. The values of the dictionary should be an integer value of -1, 1, or 0 to specify the relationship that should be estimated between the respective feature and the target variable. Use a value of -1 to enforce a negative relationship, 1 a positive relationship, and 0 will enforce no specific relationship at all. Features not included in the mapping will not have any constraint applied. If `None` is passed no constraints will be enforced on any variable.  Defaults to `None`.
  - `subsample` ***(float, optional)***: Percent of records to randomly sample at each iteration when
       training a tree. Defaults to 1.0, meaning all data is used for training.
+ - `top_rate` ***(float, optional)***: Used only in goss. The retain ratio of large gradient data. Defaults to 0.1.
+ - `other_rate` ***(float, optional)***: Used only in goss. the retain ratio of small gradient data. Defaults to 0.2.
  - `seed` ***(integer, optional)***: Integer value used to seed any randomness used in the
       algorithm. Defaults to 0.
  - `missing` ***(float, optional)***: Value to consider missing, when training and predicting with the booster. Defaults to `np.nan`.

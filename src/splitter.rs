@@ -40,6 +40,7 @@ pub trait Splitter {
     // fn get_allow_missing_splits(&self) -> bool;
     fn get_gamma(&self) -> f32;
     fn get_l2(&self) -> f32;
+    fn get_learning_rate(&self) -> f32;
 
     /// Find the best possible split, considering all feature histograms.
     /// If we wanted to add Column sampling, this is probably where
@@ -101,17 +102,18 @@ pub trait Splitter {
             let right_gradient = node.gradient_sum - cuml_grad - missing.gradient_sum;
             let right_hessian = node.hessian_sum - cuml_hess - missing.hessian_sum;
 
-            let (mut left_node_info, mut right_node_info, missing_info) = match self.evaluate_split(
-                left_gradient,
-                left_hessian,
-                right_gradient,
-                right_hessian,
-                missing.gradient_sum,
-                missing.hessian_sum,
-                node.lower_bound,
-                node.upper_bound,
-                constraint,
-            ) {
+            let (mut left_node_info, mut right_node_info, mut missing_info) = match self
+                .evaluate_split(
+                    left_gradient,
+                    left_hessian,
+                    right_gradient,
+                    right_hessian,
+                    missing.gradient_sum,
+                    missing.hessian_sum,
+                    node.lower_bound,
+                    node.upper_bound,
+                    constraint,
+                ) {
                 None => {
                     cuml_grad += bin.gradient_sum;
                     cuml_hess += bin.hessian_sum;
@@ -158,7 +160,12 @@ pub trait Splitter {
             };
             left_node_info.bounds = left_bounds;
             right_node_info.bounds = right_bounds;
-
+            // Apply shrinkage at this point...
+            left_node_info.weight *= self.get_learning_rate();
+            right_node_info.weight *= self.get_learning_rate();
+            if let MissingInfo::Branch(info) | MissingInfo::Leaf(info) = &mut missing_info {
+                info.weight *= self.get_learning_rate();
+            }
             // If split gain is NaN, one of the sides is empty, do not allow
             // this split.
             let split_gain = if split_gain.is_nan() { 0.0 } else { split_gain };
@@ -248,6 +255,10 @@ impl Splitter for MissingBranchSplitter {
         self.l2
     }
 
+    fn get_learning_rate(&self) -> f32 {
+        self.learning_rate
+    }
+
     fn evaluate_split(
         &self,
         left_gradient: f32,
@@ -268,12 +279,6 @@ impl Splitter for MissingBranchSplitter {
         {
             return None;
         }
-
-        let left_gradient = left_gradient;
-        let left_hessian = left_hessian;
-
-        let right_gradient = right_gradient;
-        let right_hessian = right_hessian;
 
         let left_weight = constrained_weight(
             &self.l2,
@@ -322,7 +327,7 @@ impl Splitter for MissingBranchSplitter {
             grad: missing_gradient,
             gain: missing_gain,
             cover: missing_hessian,
-            weight: missing_weight * self.learning_rate,
+            weight: missing_weight,
             bounds: (f32::NEG_INFINITY, f32::INFINITY),
         };
         let missing_node = // Check Missing direction
@@ -345,14 +350,14 @@ impl Splitter for MissingBranchSplitter {
                 grad: left_gradient,
                 gain: left_gain,
                 cover: left_hessian,
-                weight: left_weight * self.learning_rate,
+                weight: left_weight,
                 bounds: (f32::NEG_INFINITY, f32::INFINITY),
             },
             NodeInfo {
                 grad: right_gradient,
                 gain: right_gain,
                 cover: right_hessian,
-                weight: right_weight * self.learning_rate,
+                weight: right_weight,
                 bounds: (f32::NEG_INFINITY, f32::INFINITY),
             },
             missing_node,
@@ -593,6 +598,22 @@ impl MissingImputerSplitter {
 }
 
 impl Splitter for MissingImputerSplitter {
+    fn get_constraint(&self, feature: &usize) -> Option<&Constraint> {
+        self.constraints_map.get(feature)
+    }
+
+    fn get_gamma(&self) -> f32 {
+        self.gamma
+    }
+
+    fn get_l2(&self) -> f32 {
+        self.l2
+    }
+
+    fn get_learning_rate(&self) -> f32 {
+        self.learning_rate
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn evaluate_split(
         &self,
@@ -733,14 +754,14 @@ impl Splitter for MissingImputerSplitter {
                 grad: left_gradient,
                 gain: left_gain,
                 cover: left_hessian,
-                weight: left_weight * self.learning_rate,
+                weight: left_weight,
                 bounds: (f32::NEG_INFINITY, f32::INFINITY),
             },
             NodeInfo {
                 grad: right_gradient,
                 gain: right_gain,
                 cover: right_hessian,
-                weight: right_weight * self.learning_rate,
+                weight: right_weight,
                 bounds: (f32::NEG_INFINITY, f32::INFINITY),
             },
             missing_info,
@@ -842,18 +863,6 @@ impl Splitter for MissingImputerSplitter {
             split_info.right_node,
         );
         vec![left_node, right_node]
-    }
-
-    fn get_constraint(&self, feature: &usize) -> Option<&Constraint> {
-        self.constraints_map.get(feature)
-    }
-
-    fn get_gamma(&self) -> f32 {
-        self.gamma
-    }
-
-    fn get_l2(&self) -> f32 {
-        self.l2
     }
 }
 
