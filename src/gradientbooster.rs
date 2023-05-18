@@ -54,6 +54,8 @@ pub enum ContributionsMethod {
 /// * `monotone_constraints` - Constraints that are used to enforce a specific relationship
 ///   between the training features and the target variable.
 /// * `subsample` - Percent of records to randomly sample at each iteration when training a tree.
+/// * `top_rate` - Used only in goss. The retain ratio of large gradient data.
+/// * `other_rate` - Used only in goss. the retain ratio of small gradient data.
 /// * `seed` - Integer value used to seed any randomness used in the algorithm.
 /// * `missing` - Value to consider missing.
 /// * `create_missing_branch` - Should missing be split out it's own separate branch?
@@ -77,6 +79,8 @@ pub struct GradientBooster {
     pub allow_missing_splits: bool,
     pub monotone_constraints: Option<ConstraintMap>,
     pub subsample: f32,
+    pub top_rate: f64,
+    pub other_rate: f64,
     pub seed: u64,
     #[serde(deserialize_with = "parse_missing")]
     pub missing: f64,
@@ -146,6 +150,8 @@ impl Default for GradientBooster {
             true,
             None,
             1.,
+            0.1,
+            0.2,
             0,
             f64::NAN,
             false,
@@ -188,6 +194,8 @@ impl GradientBooster {
     /// * `monotone_constraints` - Constraints that are used to enforce a specific relationship
     ///   between the training features and the target variable.
     /// * `subsample` - Percent of records to randomly sample at each iteration when training a tree.
+    /// * `top_rate` - Used only in goss. The retain ratio of large gradient data.
+    /// * `other_rate` - Used only in goss. the retain ratio of small gradient data.
     /// * `seed` - Integer value used to seed any randomness used in the algorithm.
     /// * `missing` - Value to consider missing.
     /// * `create_missing_branch` - Should missing be split out it's own separate branch?
@@ -210,6 +218,8 @@ impl GradientBooster {
         allow_missing_splits: bool,
         monotone_constraints: Option<ConstraintMap>,
         subsample: f32,
+        top_rate: f64,
+        other_rate: f64,
         seed: u64,
         missing: f64,
         create_missing_branch: bool,
@@ -232,6 +242,8 @@ impl GradientBooster {
             allow_missing_splits,
             monotone_constraints,
             subsample,
+            top_rate,
+            other_rate,
             seed,
             missing,
             create_missing_branch,
@@ -301,7 +313,9 @@ impl GradientBooster {
             SampleMethod::Random => {
                 RandomSampler::new(self.subsample).sample(rng, index, grad, hess)
             }
-            SampleMethod::Goss => GossSampler::new(0.2, 0.1).sample(rng, index, grad, hess),
+            SampleMethod::Goss => {
+                GossSampler::new(self.top_rate, self.other_rate).sample(rng, index, grad, hess)
+            }
         }
     }
 

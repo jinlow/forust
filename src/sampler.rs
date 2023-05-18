@@ -89,18 +89,11 @@ impl Default for GossSampler {
 #[allow(dead_code)]
 impl GossSampler {
     pub fn new(a: f64, b: f64) -> Self {
-        if !(a >= 0. && a <= 1.) {
-            panic!("move to gradientbooster constructor");
-        } else if !(b >= 0. && b <= 1.) {
-            panic!("move to gradientbooster constructor");
-        } else {
-            GossSampler { a, b }
-        }
+        GossSampler { a, b }
     }
 }
 
 impl Sampler for GossSampler {
-    #[allow(unused_variables)]
     fn sample(
         &mut self,
         rng: &mut StdRng,

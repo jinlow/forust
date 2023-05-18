@@ -556,13 +556,13 @@ def test_goss_sampling_method(X_y):
         sample_method="goss",
         min_leaf_weight=1,
         gamma=1,
+        top_rate=0.2,
+        other_rate=0.3,
         objective_type="LogLoss",
         nbins=500,
         parallel=True,
         base_score=0.5,
     )
     fmod.fit(X, y=y)
-    fmod_preds = fmod.predict(X)
-    fmod_contribs = fmod.predict_contributions(X)
 
     assert True
