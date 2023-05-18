@@ -6,7 +6,7 @@ use crate::metric::{is_comparison_better, metric_callables, Metric, MetricFn};
 use crate::objective::{
     gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType, SquaredLoss,
 };
-use crate::sampler::{RandomSampler, SampleMethod, Sampler};
+use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
 use rand::rngs::StdRng;
@@ -54,6 +54,8 @@ pub enum ContributionsMethod {
 /// * `monotone_constraints` - Constraints that are used to enforce a specific relationship
 ///   between the training features and the target variable.
 /// * `subsample` - Percent of records to randomly sample at each iteration when training a tree.
+/// * `top_rate` - Used only in goss. The retain ratio of large gradient data.
+/// * `other_rate` - Used only in goss. the retain ratio of small gradient data.
 /// * `seed` - Integer value used to seed any randomness used in the algorithm.
 /// * `missing` - Value to consider missing.
 /// * `create_missing_branch` - Should missing be split out it's own separate branch?
@@ -77,6 +79,8 @@ pub struct GradientBooster {
     pub allow_missing_splits: bool,
     pub monotone_constraints: Option<ConstraintMap>,
     pub subsample: f32,
+    pub top_rate: f64,
+    pub other_rate: f64,
     pub seed: u64,
     #[serde(deserialize_with = "parse_missing")]
     pub missing: f64,
@@ -146,6 +150,8 @@ impl Default for GradientBooster {
             true,
             None,
             1.,
+            0.1,
+            0.2,
             0,
             f64::NAN,
             false,
@@ -188,6 +194,8 @@ impl GradientBooster {
     /// * `monotone_constraints` - Constraints that are used to enforce a specific relationship
     ///   between the training features and the target variable.
     /// * `subsample` - Percent of records to randomly sample at each iteration when training a tree.
+    /// * `top_rate` - Used only in goss. The retain ratio of large gradient data.
+    /// * `other_rate` - Used only in goss. the retain ratio of small gradient data.
     /// * `seed` - Integer value used to seed any randomness used in the algorithm.
     /// * `missing` - Value to consider missing.
     /// * `create_missing_branch` - Should missing be split out it's own separate branch?
@@ -210,6 +218,8 @@ impl GradientBooster {
         allow_missing_splits: bool,
         monotone_constraints: Option<ConstraintMap>,
         subsample: f32,
+        top_rate: f64,
+        other_rate: f64,
         seed: u64,
         missing: f64,
         create_missing_branch: bool,
@@ -232,6 +242,8 @@ impl GradientBooster {
             allow_missing_splits,
             monotone_constraints,
             subsample,
+            top_rate,
+            other_rate,
             seed,
             missing,
             create_missing_branch,
@@ -289,11 +301,21 @@ impl GradientBooster {
         Ok(())
     }
 
-    fn sample_index(&self, rng: &mut StdRng, index: &[usize]) -> (Vec<usize>, Vec<usize>) {
+    fn sample_index(
+        &self,
+        rng: &mut StdRng,
+        index: &[usize],
+        grad: &mut [f32],
+        hess: &mut [f32],
+    ) -> (Vec<usize>, Vec<usize>) {
         match self.sample_method {
             SampleMethod::None => (index.to_owned(), Vec::new()),
-            SampleMethod::Random => RandomSampler::new(self.subsample).sample(rng, index),
-            SampleMethod::Goss => todo!(),
+            SampleMethod::Random => {
+                RandomSampler::new(self.subsample).sample(rng, index, grad, hess)
+            }
+            SampleMethod::Goss => {
+                GossSampler::new(self.top_rate, self.other_rate).sample(rng, index, grad, hess)
+            }
         }
     }
 
@@ -349,8 +371,10 @@ impl GradientBooster {
 
         for i in 0..self.iterations {
             // We will eventually use the excluded index.
-            let (chosen_index, _excluded_index) = self.sample_index(&mut rng, &data.index);
+            let (chosen_index, _excluded_index) =
+                self.sample_index(&mut rng, &data.index, &mut grad, &mut hess);
             let mut tree = Tree::new();
+
             tree.fit(
                 &bdata,
                 chosen_index,

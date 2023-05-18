@@ -142,6 +142,8 @@ class GradientBooster:
         allow_missing_splits: bool = True,
         monotone_constraints: Union[dict[Any, int], None] = None,
         subsample: float = 1.0,
+        top_rate: float = 0.1,
+        other_rate: float = 0.2,
         seed: int = 0,
         missing: float = np.nan,
         create_missing_branch: bool = False,
@@ -197,6 +199,8 @@ class GradientBooster:
                 will be enforced on any variable.  Defaults to `None`.
             subsample (float, optional): Percent of records to randomly sample at each iteration when
                 training a tree. Defaults to 1.0, meaning all data is used to training.
+            top_rate (float, optional): Used only in goss. The retain ratio of large gradient data.
+            other_rate (float, optional):Used only in goss. the retain ratio of small gradient data.
             seed (integer, optional): Integer value used to seed any randomness used in the
                 algorithm. Defaults to 0.
             missing (float, optional): Value to consider missing, when training and predicting
@@ -241,6 +245,8 @@ class GradientBooster:
             allow_missing_splits=allow_missing_splits,
             monotone_constraints={},
             subsample=subsample,
+            top_rate=top_rate,
+            other_rate=other_rate,
             seed=seed,
             missing=missing,
             create_missing_branch=create_missing_branch,
@@ -270,6 +276,8 @@ class GradientBooster:
         self.missing = missing
         self.create_missing_branch = create_missing_branch
         self.sample_method = sample_method
+        self.top_rate = top_rate
+        self.other_rate = other_rate
         self.evaluation_metric = evaluation_metric
         self.early_stopping_rounds = early_stopping_rounds
 

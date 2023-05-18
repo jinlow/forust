@@ -413,8 +413,8 @@ mod tests {
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let yhat = vec![0.5; y.len()];
         let w = vec![1.; y.len()];
-        let g = LogLoss::calc_grad(&y, &yhat, &w);
-        let h = LogLoss::calc_hess(&y, &yhat, &w);
+        let mut g = LogLoss::calc_grad(&y, &yhat, &w);
+        let mut h = LogLoss::calc_hess(&y, &yhat, &w);
 
         let data = Matrix::new(&data_vec, 891, 5);
         let splitter = MissingImputerSplitter {
@@ -430,7 +430,8 @@ mod tests {
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let mut rng = StdRng::seed_from_u64(0);
-        let (index, excluded) = RandomSampler::new(0.5).sample(&mut rng, &data.index);
+        let (index, excluded) =
+            RandomSampler::new(0.5).sample(&mut rng, &data.index, &mut g, &mut h);
         assert!(excluded.len() > 0);
         tree.fit(
             &bdata,
