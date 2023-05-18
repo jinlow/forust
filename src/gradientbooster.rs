@@ -79,7 +79,9 @@ pub struct GradientBooster {
     pub allow_missing_splits: bool,
     pub monotone_constraints: Option<ConstraintMap>,
     pub subsample: f32,
+    #[serde(default = "default_top_rate")]
     pub top_rate: f64,
+    #[serde(default = "default_other_rate")]
     pub other_rate: f64,
     pub seed: u64,
     #[serde(deserialize_with = "parse_missing")]
@@ -93,11 +95,11 @@ pub struct GradientBooster {
     pub early_stopping_rounds: Option<usize>,
     #[serde(default = "default_evaluation_history")]
     pub evaluation_history: Option<RowMajorMatrix<f64>>,
-    #[serde(default = "default_prediction_iteration")]
+    #[serde(default = "default_best_iteration")]
     pub best_iteration: Option<usize>,
     /// number of trees to use when predicting,
     /// defaults to best_iteration if this is defined.
-    #[serde(default = "default_best_iteration")]
+    #[serde(default = "default_prediction_iteration")]
     pub prediction_iteration: Option<usize>,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
@@ -105,6 +107,12 @@ pub struct GradientBooster {
     metadata: HashMap<String, String>,
 }
 
+fn default_top_rate() -> f64 {
+    0.1
+}
+fn default_other_rate() -> f64 {
+    0.2
+}
 fn default_sample_method() -> SampleMethod {
     SampleMethod::None
 }
@@ -117,11 +125,9 @@ fn default_early_stopping_rounds() -> Option<usize> {
 fn default_evaluation_history() -> Option<RowMajorMatrix<f64>> {
     None
 }
-
 fn default_best_iteration() -> Option<usize> {
     None
 }
-
 fn default_prediction_iteration() -> Option<usize> {
     None
 }
