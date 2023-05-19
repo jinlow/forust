@@ -175,6 +175,17 @@ jobs:
         with:
           toolchain: stable
           override: true
+      - uses: actions/setup-python@v2
+        with:
+          python-version: "3.10"
+          architecture: x64
+      - name: Install deps
+        run: pip install numpy pandas seaborn xgboost=='1.6.1' scikit-learn
+      - run: |
+          cp README.md py-forust/README.md
+          cp LICENSE py-forust/LICENSE
+      - name: Build test data
+        run: python scripts/make_resources.py
       - name: Run Cargo tests
         uses: actions-rs/cargo@v1
         with:
