@@ -9,12 +9,14 @@ use crate::objective::{
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
+use crate::utils::items_to_strings;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::str::FromStr;
 
 pub type EvaluationData<'a> = (Matrix<'a, f64>, &'a [f64], &'a [f64]);
 pub type TrainingEvaluationData<'a> = (&'a Matrix<'a, f64>, &'a [f64], &'a [f64], Vec<f64>);
@@ -23,6 +25,23 @@ pub enum ContributionsMethod {
     Weight,
     Average,
     BranchDifference,
+}
+
+impl FromStr for ContributionsMethod {
+    type Err = ForustError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Weight" => Ok(ContributionsMethod::Weight),
+            "Average" => Ok(ContributionsMethod::Average),
+            "BranchDifference" => Ok(ContributionsMethod::BranchDifference),
+            _ => Err(ForustError::ParseString(
+                s.to_string(),
+                "BranchDifference".to_string(),
+                items_to_strings(vec!["Weight", "Average", "BranchDifference"]),
+            )),
+        }
+    }
 }
 
 /// Gradient Booster object

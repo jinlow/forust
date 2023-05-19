@@ -144,7 +144,8 @@ impl Tree {
         contribs: &mut [f64],
         missing: &f64,
     ) {
-        contribs[contribs.len() - 1] += self.nodes[0].weight_value as f64;
+        // Bias term is left as 0.
+
         let mut node_idx = 0;
         loop {
             let node = &self.nodes[node_idx];
@@ -152,16 +153,17 @@ impl Tree {
                 break;
             }
             // Get change of weight given child's weight.
-            //     a
-            //    / \
-            //   b   c
+            //       p
+            //    / | \
+            //   l  m  r
             //
-            // where b < c and we are going down c
-            // The contribution for a would be c - b.
+            // where l < r and we are going down r
+            // The contribution for a would be r - l.
+
             let child_idx = node.get_child_idx(&row[node.split_feature], missing);
             // If we are going down the missing branch, do nothing and leave
             // it at zero.
-            if child_idx == node.missing_node {
+            if node.has_missing_branch() && child_idx == node.missing_node {
                 node_idx = child_idx;
                 continue;
             }

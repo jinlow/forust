@@ -176,8 +176,6 @@ jobs:
         with:
           toolchain: stable
           override: true
-      - name: check wont run
-        run: echo "is this a release?"
-      # - run: cargo publish --token ${CRATES_TOKEN}
-      #   env:
-      #     CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
+      - run: cargo publish --token ${CRATES_TOKEN}
+        env:
+          CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
