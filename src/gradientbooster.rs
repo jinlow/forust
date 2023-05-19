@@ -4,7 +4,8 @@ use crate::data::{Matrix, RowMajorMatrix};
 use crate::errors::ForustError;
 use crate::metric::{is_comparison_better, metric_callables, Metric, MetricFn};
 use crate::objective::{
-    gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType, SquaredLoss,
+    calc_init_callables, gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType,
+    SquaredLoss,
 };
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
@@ -73,7 +74,7 @@ pub struct GradientBooster {
     pub l2: f32,
     pub gamma: f32,
     pub min_leaf_weight: f32,
-    pub base_score: f64,
+    pub base_score: Option<f64>,
     pub nbins: u16,
     pub parallel: bool,
     pub allow_missing_splits: bool,
@@ -105,6 +106,7 @@ pub struct GradientBooster {
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
     metadata: HashMap<String, String>,
+    _base_score: f64,
 }
 
 fn default_top_rate() -> f64 {
@@ -150,7 +152,7 @@ impl Default for GradientBooster {
             1.,
             0.,
             1.,
-            0.5,
+            Some(0.5),
             256,
             true,
             true,
@@ -218,7 +220,7 @@ impl GradientBooster {
         l2: f32,
         gamma: f32,
         min_leaf_weight: f32,
-        base_score: f64,
+        base_score: Option<f64>,
         nbins: u16,
         parallel: bool,
         allow_missing_splits: bool,
@@ -261,6 +263,7 @@ impl GradientBooster {
             prediction_iteration: None,
             trees: Vec::new(),
             metadata: HashMap::new(),
+            _base_score: 0.,
         }
     }
 
@@ -352,10 +355,16 @@ impl GradientBooster {
         evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
         let mut rng = StdRng::seed_from_u64(self.seed);
-        let mut yhat = vec![self.base_score; y.len()];
-        let (calc_grad, calc_hess) = gradient_hessian_callables(&self.objective_type);
-        let mut grad = calc_grad(y, &yhat, sample_weight);
-        let mut hess = calc_hess(y, &yhat, sample_weight);
+
+        self._base_score = match self.base_score {
+            Some(v) => v,
+            None => calc_init_callables(&self.objective_type)(y, sample_weight),
+        };
+
+        let mut yhat = vec![self._base_score; y.len()];
+
+        let calc_grad_hess = gradient_hessian_callables(&self.objective_type);
+        let (mut grad, mut hess) = calc_grad_hess(y, &yhat, sample_weight);
 
         // Generate binned data
         // TODO
@@ -369,7 +378,7 @@ impl GradientBooster {
             evaluation_data.as_ref().map(|evals| {
                 evals
                     .iter()
-                    .map(|(d, y, w)| (d, *y, *w, vec![self.base_score; y.len()]))
+                    .map(|(d, y, w)| (d, *y, *w, vec![self._base_score; y.len()]))
                     .collect()
             });
 
@@ -445,8 +454,7 @@ impl GradientBooster {
                 }
             }
             self.trees.push(tree);
-            grad = calc_grad(y, &yhat, sample_weight);
-            hess = calc_hess(y, &yhat, sample_weight);
+            (grad, hess) = calc_grad_hess(y, &yhat, sample_weight);
         }
         Ok(())
     }
@@ -479,7 +487,7 @@ impl GradientBooster {
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
     pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
-        let mut init_preds = vec![self.base_score; data.rows];
+        let mut init_preds = vec![self._base_score; data.rows];
         self.get_prediction_trees().iter().for_each(|tree| {
             for (p_, val) in init_preds
                 .iter_mut()
@@ -512,7 +520,7 @@ impl GradientBooster {
             .iter_mut()
             .skip(bias_idx - 1)
             .step_by(bias_idx)
-            .for_each(|v| *v += self.base_score);
+            .for_each(|v| *v += self._base_score);
 
         // Clean this up..
         // materializing a row, and then passing that to all of the
@@ -574,7 +582,7 @@ impl GradientBooster {
             .iter_mut()
             .skip(bias_idx - 1)
             .step_by(bias_idx)
-            .for_each(|v| *v += self.base_score);
+            .for_each(|v| *v += self._base_score);
 
         // Clean this up..
         // materializing a row, and then passing that to all of the
@@ -628,7 +636,7 @@ impl GradientBooster {
                 .map(|t| t.value_partial_dependence(feature, value, &self.missing))
                 .sum()
         };
-        pd + self.base_score
+        pd + self._base_score
     }
 
     /// Save a booster as a json object to a file.
@@ -733,7 +741,7 @@ impl GradientBooster {
     /// Set the base_score on the booster.
     /// * `base_score` - The base score of the booster.
     pub fn set_base_score(mut self, base_score: f64) -> Self {
-        self.base_score = base_score;
+        self._base_score = base_score;
         self
     }
 
@@ -915,6 +923,7 @@ mod tests {
         let data = Matrix::new(&data_vec, 891, 5);
         //let data = Matrix::new(data.get_col(1), 891, 1);
         let mut booster = GradientBooster::default();
+        booster.base_score = None;
         booster.iterations = 10;
         booster.nbins = 300;
         booster.max_depth = 3;
