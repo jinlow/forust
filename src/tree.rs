@@ -138,6 +138,96 @@ impl Tree {
         }
     }
 
+    pub fn predict_contributions_row_branch_difference(
+        &self,
+        row: &[f64],
+        contribs: &mut [f64],
+        missing: &f64,
+    ) {
+        contribs[contribs.len() - 1] += self.nodes[0].weight_value as f64;
+        let mut node_idx = 0;
+        loop {
+            let node = &self.nodes[node_idx];
+            if node.is_leaf {
+                break;
+            }
+            // Get change of weight given child's weight.
+            //     a
+            //    / \
+            //   b   c
+            //
+            // where b < c and we are going down c
+            // The contribution for a would be c - b.
+            let child_idx = node.get_child_idx(&row[node.split_feature], missing);
+            // If we are going down the missing branch, do nothing and leave
+            // it at zero.
+            if child_idx == node.missing_node {
+                node_idx = child_idx;
+                continue;
+            }
+            let other_child = if child_idx == node.left_child {
+                &self.nodes[node.right_child]
+            } else {
+                &self.nodes[node.left_child]
+            };
+            let delta = self.nodes[child_idx].weight_value - other_child.weight_value;
+            contribs[node.split_feature] += delta as f64;
+            node_idx = child_idx;
+        }
+    }
+
+    fn predict_contributions_single_threaded_branch_difference(
+        &self,
+        data: &Matrix<f64>,
+        contribs: &mut [f64],
+        missing: &f64,
+    ) {
+        // There needs to always be at least 2 trees
+        data.index
+            .iter()
+            .zip(contribs.chunks_mut(data.cols + 1))
+            .for_each(|(row, contribs)| {
+                self.predict_contributions_row_branch_difference(
+                    &data.get_row(*row),
+                    contribs,
+                    missing,
+                )
+            })
+    }
+
+    fn predict_contributions_parallel_branch_difference(
+        &self,
+        data: &Matrix<f64>,
+        contribs: &mut [f64],
+        missing: &f64,
+    ) {
+        // There needs to always be at least 2 trees
+        data.index
+            .par_iter()
+            .zip(contribs.par_chunks_mut(data.cols + 1))
+            .for_each(|(row, contribs)| {
+                self.predict_contributions_row_branch_difference(
+                    &data.get_row(*row),
+                    contribs,
+                    missing,
+                )
+            })
+    }
+
+    pub fn predict_contributions_branch_difference(
+        &self,
+        data: &Matrix<f64>,
+        contribs: &mut [f64],
+        parallel: bool,
+        missing: &f64,
+    ) {
+        if parallel {
+            self.predict_contributions_parallel_branch_difference(data, contribs, missing)
+        } else {
+            self.predict_contributions_single_threaded_branch_difference(data, contribs, missing)
+        }
+    }
+
     pub fn predict_contributions_row_weight(
         &self,
         row: &[f64],

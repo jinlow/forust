@@ -22,6 +22,7 @@ pub type TrainingEvaluationData<'a> = (&'a Matrix<'a, f64>, &'a [f64], &'a [f64]
 pub enum ContributionsMethod {
     Weight,
     Average,
+    BranchDifference,
 }
 
 /// Gradient Booster object
@@ -500,7 +501,54 @@ impl GradientBooster {
         match method {
             ContributionsMethod::Average => self.predict_contributions_average(data, parallel),
             ContributionsMethod::Weight => self.predict_contributions_weight(data, parallel),
+            ContributionsMethod::BranchDifference => {
+                self.predict_contributions_branch_difference(data, parallel)
+            }
         }
+    }
+
+    fn predict_contributions_branch_difference(
+        &self,
+        data: &Matrix<f64>,
+        parallel: bool,
+    ) -> Vec<f64> {
+        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
+
+        // Add the bias term to every bias value...
+        let bias_idx = data.cols + 1;
+        contribs
+            .iter_mut()
+            .skip(bias_idx - 1)
+            .step_by(bias_idx)
+            .for_each(|v| *v += self.base_score);
+
+        // Clean this up..
+        // materializing a row, and then passing that to all of the
+        // trees seems to be the fastest approach (5X faster), we should test
+        // something like this for normal predictions.
+        if parallel {
+            data.index
+                .par_iter()
+                .zip(contribs.par_chunks_mut(data.cols + 1))
+                .for_each(|(row, c)| {
+                    let r_ = data.get_row(*row);
+                    self.get_prediction_trees().iter().for_each(|t| {
+                        t.predict_contributions_row_branch_difference(&r_, c, &self.missing);
+                    });
+                });
+        } else {
+            data.index
+                .iter()
+                .zip(contribs.chunks_mut(data.cols + 1))
+                .for_each(|(row, c)| {
+                    let r_ = data.get_row(*row);
+                    self.get_prediction_trees().iter().for_each(|t| {
+                        t.predict_contributions_row_branch_difference(&r_, c, &self.missing);
+                    });
+                });
+        }
+
+        contribs
     }
 
     fn predict_contributions_weight(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
