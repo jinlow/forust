@@ -167,7 +167,6 @@ jobs:
           args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python${{ matrix.pyversion }} --skip-existing --manifest-path py-forust/Cargo.toml
 
   cargo-build-test:
-    if: "startsWith(github.ref, 'refs/tags/')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -176,6 +175,12 @@ jobs:
         with:
           toolchain: stable
           override: true
-      - run: cargo publish --token ${CRATES_TOKEN}
+      - name: Run Cargo tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+      - if: "startsWith(github.ref, 'refs/tags/')"
+        name: Publish Crate
+        run: cargo publish --token ${CRATES_TOKEN}
         env:
           CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
