@@ -12,4 +12,6 @@ pub enum ForustError {
     NANVAlueFound(f64),
     #[error("Invalid value {0} passed for {1}, expected one of {2}.")]
     ParseString(String, String, String),
+    #[error("Invalid parameter value passed for {0}, expected {1} but {2} provided.")]
+    InvalidParameter(String, String, String),
 }
