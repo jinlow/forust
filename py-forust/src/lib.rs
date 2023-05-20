@@ -191,11 +191,7 @@ impl GradientBooster {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let parallel = parallel.unwrap_or(true);
-        let method_ = match method {
-            "weight" => Ok(ContributionsMethod::Weight),
-            "average" => Ok(ContributionsMethod::Average),
-            _ => Err(PyValueError::new_err(format!("Not a valid contributions method passed, expected one of 'weight', 'average', but '{}' was provided.", method))),
-        }?;
+        let method_ = to_value_error(ContributionsMethod::from_str(method))?;
         Ok(self
             .booster
             .predict_contributions(&data, method_, parallel)

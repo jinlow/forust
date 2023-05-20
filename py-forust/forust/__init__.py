@@ -13,6 +13,16 @@ from .forust import GradientBooster as CrateGradientBooster  # type: ignore
 ArrayLike = Union[pd.Series, np.ndarray]
 FrameLike = Union[pd.DataFrame, np.ndarray]
 
+CONTRIBUTION_METHODS = {
+    "weight": "Weight",
+    "Weight": "Weight",
+    "average": "Average",
+    "Average": "Average",
+    "branch-difference": "BranchDifference",
+    "branchdifference": "BranchDifference",
+    "BranchDifference": "BranchDifference",
+}
+
 
 class BoosterType(Protocol):
     monotone_constraints: dict[int, int]
@@ -440,7 +450,7 @@ class GradientBooster:
             flat_data=flat_data,
             rows=rows,
             cols=cols,
-            method=method,
+            method=CONTRIBUTION_METHODS[method],
             parallel=parallel_,
         )
         return np.reshape(contributions, (rows, cols + 1))

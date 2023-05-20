@@ -124,14 +124,18 @@ impl EvaluationMetric for RootMeanSquaredErrorMetric {
 }
 
 pub fn log_loss(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> f64 {
-    y.iter()
+    let mut w_sum = 0.;
+    let res = y
+        .iter()
         .zip(yhat)
         .zip(sample_weight)
         .map(|((y_, yhat_), w_)| {
+            w_sum += *w_;
             let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
             -(*y_ * yhat_.ln() + (f64::ONE - *y_) * ((f64::ONE - yhat_).ln())) * *w_
         })
-        .sum::<f64>()
+        .sum::<f64>();
+    res / w_sum
 }
 
 pub fn root_mean_squared_log_error(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> f64 {
@@ -227,7 +231,7 @@ mod tests {
         let yhat = vec![0.5, 0.01, -0., 1.05, 0., -4., 0.];
         let sample_weight = vec![1., 1., 1., 1., 1., 2., 2.];
         let res = log_loss(&y, &yhat, &sample_weight);
-        assert_eq!(precision_round(res, 5), 5.33118);
+        assert_eq!(precision_round(res, 5), 0.59235);
     }
 
     #[test]
