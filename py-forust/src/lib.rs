@@ -1,6 +1,5 @@
 use forust_ml::constraints::{Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
-use forust_ml::errors::ForustError;
 use forust_ml::gradientbooster::EvaluationData;
 use forust_ml::gradientbooster::{ContributionsMethod, GradientBooster as CrateGradientBooster};
 use forust_ml::metric::Metric;
@@ -37,7 +36,7 @@ fn int_map_to_constraint_map(int_map: HashMap<usize, i8>) -> PyResult<Constraint
     Ok(constraints)
 }
 
-fn to_value_error<T>(value: Result<T, ForustError>) -> Result<T, PyErr> {
+fn to_value_error<T, E: std::fmt::Display>(value: Result<T, E>) -> Result<T, PyErr> {
     match value {
         Ok(v) => Ok(v),
         Err(e) => Err(PyValueError::new_err(e.to_string())),
@@ -111,7 +110,9 @@ impl GradientBooster {
             evaluation_metric_,
             early_stopping_rounds,
         );
-        Ok(GradientBooster { booster })
+        Ok(GradientBooster {
+            booster: to_value_error(booster)?,
+        })
     }
 
     #[setter]

@@ -1,5 +1,6 @@
 use crate::constraints::Constraint;
 use crate::data::FloatData;
+use crate::errors::ForustError;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::convert::TryInto;
@@ -13,6 +14,42 @@ pub fn items_to_strings(items: Vec<&str>) -> String {
     }
     s
 }
+
+// Validation
+pub fn validate_positive_float_parameter<T: FloatData<T>>(
+    value: T,
+    parameter: &str,
+) -> Result<(), ForustError> {
+    validate_float_parameter(value, T::ZERO, T::INFINITY, parameter)
+}
+pub fn validate_float_parameter<T: FloatData<T>>(
+    value: T,
+    min: T,
+    max: T,
+    parameter: &str,
+) -> Result<(), ForustError> {
+    let mut msg = String::new();
+    if value.is_nan() || value < min || max < value {
+        msg.push_str(&value.to_string());
+        let ex_msg = format!("real value within rang {} and {}", min, max);
+        Err(ForustError::InvalidParameter(
+            parameter.to_string(),
+            ex_msg,
+            value.to_string(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+macro_rules! validate_positive_float_field {
+    ($var: expr) => {
+        let var_name = stringify!($var).split(".").nth(1).unwrap();
+        crate::utils::validate_positive_float_parameter($var, var_name)?
+    };
+}
+
+pub(crate) use validate_positive_float_field;
 
 /// Calculate if a value is missing.
 #[inline]

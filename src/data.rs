@@ -28,6 +28,7 @@ pub trait FloatData<T>:
     const MIN: T;
     const MAX: T;
     const NAN: T;
+    const INFINITY: T;
     fn from_usize(v: usize) -> T;
     fn from_u16(v: u16) -> T;
     fn is_nan(self) -> bool;
@@ -40,6 +41,8 @@ impl FloatData<f64> for f64 {
     const MIN: f64 = f64::MIN;
     const MAX: f64 = f64::MAX;
     const NAN: f64 = f64::NAN;
+    const INFINITY: f64 = f64::INFINITY;
+
     fn from_usize(v: usize) -> f64 {
         v as f64
     }
@@ -63,6 +66,8 @@ impl FloatData<f32> for f32 {
     const MIN: f32 = f32::MIN;
     const MAX: f32 = f32::MAX;
     const NAN: f32 = f32::NAN;
+    const INFINITY: f32 = f32::INFINITY;
+
     fn from_usize(v: usize) -> f32 {
         v as f32
     }
