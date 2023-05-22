@@ -432,11 +432,11 @@ class GradientBooster:
 
         Args:
             X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
-            method (str, optional): Method to calculate the contributions, if "average"
-                is specified, the average internal node values are calculated, this is
-                equivalent to the `approx_contribs` parameter in XGBoost. The other supported
-                method is "weight", this will use the internal leaf weights, to calculate the
-                contributions. This is the same as what is described by Saabas [here](https://blog.datadive.net/interpreting-random-forests/).
+            method (str, optional): Method to calculate the contributions, available options are:
+                - "average": If this option is specified, the average internal node values are calculated, this is equivalent to the `approx_contribs` parameter in XGBoost.
+                - "weight": This method will use the internal leaf weights, to calculate the contributions. This is the same as what is described by Saabas [here](https://blog.datadive.net/interpreting-random-forests/).
+                - "branch-difference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the other non-missing branch. This method does not have the property where the contributions summed is equal to the final prediction of the model.
+                - "midpoint-difference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the mid-point between the right and left node weighted by the cover of each node. This method does not have the property where the contributions summed is equal to the final prediction of the model.
             parallel (Union[bool, None], optional): Optionally specify if the predict
                 function should run in parallel on multiple threads. If `None` is
                 passed, the `parallel` attribute of the booster will be used.
