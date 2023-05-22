@@ -9,7 +9,7 @@ use crate::objective::{
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
-use crate::utils::items_to_strings;
+use crate::utils::{items_to_strings, validate_positive_float_field};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rayon::prelude::*;
@@ -37,7 +37,7 @@ impl FromStr for ContributionsMethod {
             "BranchDifference" => Ok(ContributionsMethod::BranchDifference),
             _ => Err(ForustError::ParseString(
                 s.to_string(),
-                "BranchDifference".to_string(),
+                "ContributionsMethod".to_string(),
                 items_to_strings(vec!["Weight", "Average", "BranchDifference"]),
             )),
         }
@@ -185,6 +185,7 @@ impl Default for GradientBooster {
             None,
             None,
         )
+        .unwrap()
     }
 }
 
@@ -252,8 +253,8 @@ impl GradientBooster {
         sample_method: SampleMethod,
         evaluation_metric: Option<Metric>,
         early_stopping_rounds: Option<usize>,
-    ) -> Self {
-        GradientBooster {
+    ) -> Result<Self, ForustError> {
+        let booster = GradientBooster {
             objective_type,
             iterations,
             learning_rate,
@@ -281,7 +282,20 @@ impl GradientBooster {
             prediction_iteration: None,
             trees: Vec::new(),
             metadata: HashMap::new(),
-        }
+        };
+        booster.validate_parameters()?;
+        Ok(booster)
+    }
+
+    fn validate_parameters(&self) -> Result<(), ForustError> {
+        validate_positive_float_field!(self.learning_rate);
+        validate_positive_float_field!(self.l2);
+        validate_positive_float_field!(self.gamma);
+        validate_positive_float_field!(self.min_leaf_weight);
+        validate_positive_float_field!(self.subsample);
+        validate_positive_float_field!(self.top_rate);
+        validate_positive_float_field!(self.other_rate);
+        Ok(())
     }
 
     /// Fit the gradient booster on a provided dataset.
@@ -355,13 +369,6 @@ impl GradientBooster {
         };
         metric_callables(&metric)
     }
-
-    // fn rounds_since_last_best(&mut self, m: f64) -> usize {
-    //     let best_ = match self.best_iteration {
-    //         None => 0,
-
-    //     }
-    // }
 
     fn fit_trees<T: Splitter>(
         &mut self,

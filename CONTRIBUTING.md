@@ -4,8 +4,14 @@
 For development, it is assumed you have stable rust installed, and at least python 3.9. Additionally, in your python environment, you will need to install [`maturin`](https://github.com/PyO3/maturin).
 
 ### To run Rust tests
-If you have rust and the cargo package manager installed all you need to do to run the rust tests is in the root of the repository run the following command.
+The rust test depend on some artifacts that are generated from a python script. You can either follow the steps in the python tests section, or run the following in an environment that is running python.
 
+```sh
+python -m pip install numpy pandas seaborn
+python scripts/make_resources.py
+```
+
+If you have rust and the cargo package manager installed all you need to do to run the rust tests is in the root of the repository run the following command.
 ```sh
 cargo test
 ```

@@ -1,6 +1,6 @@
 [package]
 name = "forust-ml"
-version = "0.2.10"
+version = "0.2.11"
 edition = "2021"
 authors = ["James Inlow <james.d.inlow@gmail.com>"]
 homepage = "https://github.com/jinlow/forust"
@@ -19,7 +19,7 @@ rayon = "1.7"
 thiserror = "1.0"
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 serde = { version = "1.0", features = ["derive"] }
-rand = "0.8.5"
+rand = "0.8"
 
 [dev-dependencies]
 criterion = "0.4"
