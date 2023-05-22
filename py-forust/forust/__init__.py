@@ -21,6 +21,9 @@ CONTRIBUTION_METHODS = {
     "branch-difference": "BranchDifference",
     "branchdifference": "BranchDifference",
     "BranchDifference": "BranchDifference",
+    "midpoint-difference": "MidpointDifference",
+    "midpointdifference": "MidpointDifference",
+    "MidpointDifference": "MidpointDifference",
 }
 
 

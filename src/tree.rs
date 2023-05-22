@@ -138,6 +138,103 @@ impl Tree {
         }
     }
 
+    // Branch average difference predictions
+    pub fn predict_contributions_row_midpoint_difference(
+        &self,
+        row: &[f64],
+        contribs: &mut [f64],
+        missing: &f64,
+    ) {
+        // Bias term is left as 0.
+
+        let mut node_idx = 0;
+        loop {
+            let node = &self.nodes[node_idx];
+            if node.is_leaf {
+                break;
+            }
+            // Get change of weight given child's weight.
+            //       p
+            //    / | \
+            //   l  m  r
+            //
+            // where l < r and we are going down r
+            // The contribution for a would be r - l.
+
+            let child_idx = node.get_child_idx(&row[node.split_feature], missing);
+            let child = &self.nodes[child_idx];
+            // If we are going down the missing branch, do nothing and leave
+            // it at zero.
+            if node.has_missing_branch() && child_idx == node.missing_node {
+                node_idx = child_idx;
+                continue;
+            }
+            let other_child = if child_idx == node.left_child {
+                &self.nodes[node.right_child]
+            } else {
+                &self.nodes[node.left_child]
+            };
+            let mid = (child.weight_value * child.hessian_sum
+                + other_child.weight_value * other_child.hessian_sum)
+                / (child.hessian_sum + other_child.hessian_sum);
+            let delta = child.weight_value - mid;
+            contribs[node.split_feature] += delta as f64;
+            node_idx = child_idx;
+        }
+    }
+
+    fn predict_contributions_single_threaded_midpoint_difference(
+        &self,
+        data: &Matrix<f64>,
+        contribs: &mut [f64],
+        missing: &f64,
+    ) {
+        // There needs to always be at least 2 trees
+        data.index
+            .iter()
+            .zip(contribs.chunks_mut(data.cols + 1))
+            .for_each(|(row, contribs)| {
+                self.predict_contributions_row_midpoint_difference(
+                    &data.get_row(*row),
+                    contribs,
+                    missing,
+                )
+            })
+    }
+
+    fn predict_contributions_parallel_midpoint_difference(
+        &self,
+        data: &Matrix<f64>,
+        contribs: &mut [f64],
+        missing: &f64,
+    ) {
+        // There needs to always be at least 2 trees
+        data.index
+            .par_iter()
+            .zip(contribs.par_chunks_mut(data.cols + 1))
+            .for_each(|(row, contribs)| {
+                self.predict_contributions_row_midpoint_difference(
+                    &data.get_row(*row),
+                    contribs,
+                    missing,
+                )
+            })
+    }
+
+    pub fn predict_contributions_midpoint_difference(
+        &self,
+        data: &Matrix<f64>,
+        contribs: &mut [f64],
+        parallel: bool,
+        missing: &f64,
+    ) {
+        if parallel {
+            self.predict_contributions_parallel_midpoint_difference(data, contribs, missing)
+        } else {
+            self.predict_contributions_single_threaded_midpoint_difference(data, contribs, missing)
+        }
+    }
+    // Branch difference predictions.
     pub fn predict_contributions_row_branch_difference(
         &self,
         row: &[f64],
