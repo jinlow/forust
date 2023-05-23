@@ -21,6 +21,12 @@ use std::str::FromStr;
 pub type EvaluationData<'a> = (Matrix<'a, f64>, &'a [f64], &'a [f64]);
 pub type TrainingEvaluationData<'a> = (&'a Matrix<'a, f64>, &'a [f64], &'a [f64], Vec<f64>);
 
+#[derive(Serialize, Deserialize)]
+pub enum GrowPolicy {
+    DepthWise,
+    LossGuide,
+}
+
 pub enum ContributionsMethod {
     Weight,
     Average,
@@ -41,6 +47,22 @@ impl FromStr for ContributionsMethod {
                 s.to_string(),
                 "ContributionsMethod".to_string(),
                 items_to_strings(vec!["Weight", "Average", "BranchDifference"]),
+            )),
+        }
+    }
+}
+
+impl FromStr for GrowPolicy {
+    type Err = ForustError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "DepthWise" => Ok(GrowPolicy::DepthWise),
+            "LossGuide" => Ok(GrowPolicy::LossGuide),
+            _ => Err(ForustError::ParseString(
+                s.to_string(),
+                "GrowPolicy".to_string(),
+                items_to_strings(vec!["DepthWise", "LossGuide"]),
             )),
         }
     }
@@ -111,6 +133,8 @@ pub struct GradientBooster {
     pub create_missing_branch: bool,
     #[serde(default = "default_sample_method")]
     pub sample_method: SampleMethod,
+    #[serde(default = "default_grow_policy")]
+    pub grow_policy: GrowPolicy,
     #[serde(default = "default_evaluation_metric")]
     pub evaluation_metric: Option<Metric>,
     #[serde(default = "default_early_stopping_rounds")]
@@ -127,6 +151,10 @@ pub struct GradientBooster {
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
     metadata: HashMap<String, String>,
+}
+
+fn default_grow_policy() -> GrowPolicy {
+    GrowPolicy::DepthWise
 }
 
 fn default_top_rate() -> f64 {
@@ -184,6 +212,7 @@ impl Default for GradientBooster {
             f64::NAN,
             false,
             SampleMethod::None,
+            GrowPolicy::DepthWise,
             None,
             None,
         )
@@ -253,6 +282,7 @@ impl GradientBooster {
         missing: f64,
         create_missing_branch: bool,
         sample_method: SampleMethod,
+        grow_policy: GrowPolicy,
         evaluation_metric: Option<Metric>,
         early_stopping_rounds: Option<usize>,
     ) -> Result<Self, ForustError> {
@@ -277,6 +307,7 @@ impl GradientBooster {
             missing,
             create_missing_branch,
             sample_method,
+            grow_policy,
             evaluation_metric,
             early_stopping_rounds,
             evaluation_history: None,
@@ -421,6 +452,7 @@ impl GradientBooster {
                 self.max_depth,
                 self.parallel,
                 &self.sample_method,
+                &self.grow_policy,
             );
             self.update_predictions_inplace(&mut yhat, &tree, data);
 
