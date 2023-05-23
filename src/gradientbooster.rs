@@ -318,6 +318,13 @@ impl GradientBooster {
             ObjectiveType::SquaredLoss => Box::new(SquaredLoss {}),
         };
 
+        let sampler: Box<dyn Sampler> = match self.sample_method {
+            SampleMethod::Random | SampleMethod::None => {
+                Box::new(RandomSampler::new(self.subsample))
+            }
+            SampleMethod::Goss => Box::new(GossSampler::new(self.top_rate, self.other_rate)),
+        };
+
         // End object creation
 
         let constraints_map = self
@@ -341,6 +348,7 @@ impl GradientBooster {
                 &splitter,
                 evaluation_data,
                 objective.as_ref(),
+                sampler.as_ref(),
             )?;
         } else {
             let splitter = MissingImputerSplitter {
@@ -358,34 +366,18 @@ impl GradientBooster {
                 &splitter,
                 evaluation_data,
                 objective.as_ref(),
+                sampler.as_ref(),
             )?;
         };
 
         Ok(())
     }
 
-    fn sample_index(
-        &self,
-        rng: &mut StdRng,
-        index: &[usize],
-        grad: &mut [f32],
-        hess: &mut [f32],
-    ) -> (Vec<usize>, Vec<usize>) {
-        match self.sample_method {
-            SampleMethod::None => (index.to_owned(), Vec::new()),
-            SampleMethod::Random => {
-                RandomSampler::new(self.subsample).sample(rng, index, grad, hess)
-            }
-            SampleMethod::Goss => {
-                GossSampler::new(self.top_rate, self.other_rate).sample(rng, index, grad, hess)
-            }
-        }
-    }
-
     fn get_metric_fn(&self, objective: &dyn ObjectiveFunction) -> (MetricFn, bool) {
         metric_callables(&objective.default_metric())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn fit_trees<T: Splitter>(
         &mut self,
         y: &[f64],
@@ -394,6 +386,7 @@ impl GradientBooster {
         splitter: &T,
         evaluation_data: Option<Vec<EvaluationData>>,
         objective: &dyn ObjectiveFunction,
+        sampler: &dyn Sampler,
     ) -> Result<(), ForustError> {
         let mut rng = StdRng::seed_from_u64(self.seed);
         let mut yhat = vec![self.base_score; y.len()];
@@ -422,7 +415,7 @@ impl GradientBooster {
         for i in 0..self.iterations {
             // We will eventually use the excluded index.
             let (chosen_index, _excluded_index) =
-                self.sample_index(&mut rng, &data.index, &mut grad, &mut hess);
+                sampler.sample(&mut rng, &data.index, &mut grad, &mut hess);
             let mut tree = Tree::new();
 
             tree.fit(

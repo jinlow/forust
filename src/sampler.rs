@@ -33,7 +33,7 @@ pub trait Sampler {
     /// Sample the data, returning a tuple, where the first item is the samples
     /// chosen for training, and the second are the samples excluded.
     fn sample(
-        &mut self,
+        &self,
         rng: &mut StdRng,
         index: &[usize],
         grad: &mut [f32],
@@ -54,12 +54,16 @@ impl RandomSampler {
 
 impl Sampler for RandomSampler {
     fn sample(
-        &mut self,
+        &self,
         rng: &mut StdRng,
         index: &[usize],
         _grad: &mut [f32],
         _hess: &mut [f32],
     ) -> (Vec<usize>, Vec<usize>) {
+        if self.subsample == 1. {
+            return (index.to_vec(), Vec::new());
+        }
+
         let subsample = self.subsample;
         let mut chosen = Vec::new();
         let mut excluded = Vec::new();
@@ -95,7 +99,7 @@ impl GossSampler {
 
 impl Sampler for GossSampler {
     fn sample(
-        &mut self,
+        &self,
         rng: &mut StdRng,
         index: &[usize],
         grad: &mut [f32],
