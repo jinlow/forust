@@ -26,7 +26,7 @@ pip install forust
 
 To use in a rust project add the following to your Cargo.toml file.
 ```toml
-forust-ml = "0.2.9"
+forust-ml = "0.2.11"
 ```
 
 ## Usage
@@ -73,6 +73,7 @@ It can be initialized with the following arguments.
  - `sample_method` ***(str | None, optional)***: Optional string value to use to determine the method to use to sample the data while training. If this is None, no sample method will be used. If the `subsample` parameter is less than 1 and no sample_method is provided this `sample_method` will be automatically set to "random". Valid options are "goss" and "random". Defaults to `None`.
  - `evaluation_metric` ***(str | None, optional)***: Optional string value used to define an evaluation metric that will be calculated at each iteration if a `evaluation_dataset` is provided at fit time. The metric can be one of "AUC", "LogLoss", "RootMeanSquaredLogError", or "RootMeanSquaredError". If no `evaluation_metric` is passed, but an `evaluation_dataset` is passed, then "LogLoss", will be used with the "LogLoss" objective function, and "RootMeanSquaredLogError" will be used with "SquaredLoss".
  - `early_stopping_rounds` ***(int | None, optional)***: If this is specified, and an `evaluation_dataset` is passed during fit, then an improvement in the `evaluation_metric` must be seen after at least this many iterations of training, otherwise training will be cut short.
+ - `initialize_base_score` (bool, optional): If this is specified, the `base_score` will be calculated using the sample_weight and y data in accordance with the requested `objective_type`.
 
 ### Training and Predicting
 
@@ -117,7 +118,7 @@ The predict method accepts the following arguments.
 
 The `predict_contributions` method will predict with the fitted booster on new data, returning the feature contribution matrix. The last column is the bias term.
  - `X` ***(FrameLike)***: Either a pandas DataFrame, or a 2 dimensional numpy array, with numeric data.
- - `method` ***(str, optional)***: Method to calculate the contributions, if "average" is specified, the average internal node values are calculated, this is equivalent to the `approx_contribs` parameter in XGBoost. The other supported method is "weight", this will use the internal leaf weights, to calculate the contributions. This is the same as what is described by Saabas [here](https://blog.datadive.net/interpreting-random-forests/).
+ - `method` ***(str, optional)***: Method to calculate the contributions, if "average" is specified, the average internal node values are calculated, this is equivalent to the `approx_contribs` parameter in XGBoost. The other supported method is "weight", this will use the internal leaf weights, to calculate the contributions. This is the same as what is described by Saabas [here](https://blog.datadive.net/interpreting-random-forests/). The final method is "branch-difference", this experimental method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the other non-missing branch. This last method does not have the property where the contributions summed is equal to the final prediction of the model.
  - `parallel` ***(Optional[bool], optional)***: Optionally specify if the predict function should run in parallel on multiple threads. If `None` is passed, the `parallel` attribute of the booster will be used. Defaults to `None`.
 
 When predicting with the data, the maximum iteration that will be used when predicting can be set using the `set_prediction_iteration` method. If `early_stopping_rounds` has been set, this will default to the best iteration, otherwise all of the trees will be used. It accepts a single value.

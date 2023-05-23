@@ -1,6 +1,5 @@
 use forust_ml::constraints::{Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
-use forust_ml::errors::ForustError;
 use forust_ml::gradientbooster::EvaluationData;
 use forust_ml::gradientbooster::{ContributionsMethod, GradientBooster as CrateGradientBooster};
 use forust_ml::metric::Metric;
@@ -37,7 +36,7 @@ fn int_map_to_constraint_map(int_map: HashMap<usize, i8>) -> PyResult<Constraint
     Ok(constraints)
 }
 
-fn to_value_error<T>(value: Result<T, ForustError>) -> Result<T, PyErr> {
+fn to_value_error<T, E: std::fmt::Display>(value: Result<T, E>) -> Result<T, PyErr> {
     match value {
         Ok(v) => Ok(v),
         Err(e) => Err(PyValueError::new_err(e.to_string())),
@@ -62,7 +61,7 @@ impl GradientBooster {
         l2: f32,
         gamma: f32,
         min_leaf_weight: f32,
-        base_score: Option<f64>,
+        base_score: f64,
         nbins: u16,
         parallel: bool,
         allow_missing_splits: bool,
@@ -76,6 +75,7 @@ impl GradientBooster {
         sample_method: Option<&str>,
         evaluation_metric: Option<&str>,
         early_stopping_rounds: Option<usize>,
+        initialize_base_score: bool,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = to_value_error(ObjectiveType::from_str(objective_type))?;
@@ -96,7 +96,7 @@ impl GradientBooster {
             l2,
             gamma,
             min_leaf_weight,
-            Some(base_score),
+            base_score,
             nbins,
             parallel,
             allow_missing_splits,
@@ -110,8 +110,11 @@ impl GradientBooster {
             sample_method_,
             evaluation_metric_,
             early_stopping_rounds,
+            initialize_base_score,
         );
-        Ok(GradientBooster { booster })
+        Ok(GradientBooster {
+            booster: to_value_error(booster)?,
+        })
     }
 
     #[setter]
@@ -191,11 +194,7 @@ impl GradientBooster {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let parallel = parallel.unwrap_or(true);
-        let method_ = match method {
-            "weight" => Ok(ContributionsMethod::Weight),
-            "average" => Ok(ContributionsMethod::Average),
-            _ => Err(PyValueError::new_err(format!("Not a valid contributions method passed, expected one of 'weight', 'average', but '{}' was provided.", method))),
-        }?;
+        let method_ = to_value_error(ContributionsMethod::from_str(method))?;
         Ok(self
             .booster
             .predict_contributions(&data, method_, parallel)
@@ -327,6 +326,10 @@ impl GradientBooster {
             (
                 "early_stopping_rounds",
                 self.booster.early_stopping_rounds.to_object(py),
+            ),
+            (
+                "initialize_base_score",
+                self.booster.initialize_base_score.to_object(py),
             ),
         ];
         let dict = key_vals.into_py_dict(py);

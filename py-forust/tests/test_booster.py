@@ -1,3 +1,4 @@
+from pickletools import markobject
 from typing import Tuple
 
 import numpy as np
@@ -375,6 +376,42 @@ def test_monotone_constraints(X_y):
             assert np.all(p_d[0:-1, 1] <= p_d[1:, 1])
 
 
+def test_booster_to_xgboosts_with_contributions_missing_branch_methods(X_y):
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        create_missing_branch=True,
+        allow_missing_splits=True,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        base_score=0.5,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    contribs_average = fmod.predict_contributions(X)
+    fmod_preds[~np.isclose(contribs_average.sum(1), fmod_preds, rtol=5)]
+    contribs_average.sum(1)[~np.isclose(contribs_average.sum(1), fmod_preds, rtol=5)]
+    assert contribs_average.shape[1] == X.shape[1] + 1
+    assert np.allclose(contribs_average.sum(1), fmod_preds)
+
+    contribs_weight = fmod.predict_contributions(X, method="Weight")
+    assert (contribs_weight[:, :-1][X.isna()] == 0).all()
+    assert np.allclose(contribs_weight.sum(1), fmod_preds)
+    assert not np.allclose(contribs_weight, contribs_average)
+
+    contribs_difference = fmod.predict_contributions(X, method="BranchDifference")
+    assert (contribs_difference[:, :-1][X.isna()] == 0).all()
+    assert not np.allclose(contribs_difference.sum(1), fmod_preds)
+    assert not np.allclose(contribs_difference, contribs_average)
+
+
 def test_booster_to_xgboosts_with_contributions(X_y):
     X, y = X_y
     X = X
@@ -392,11 +429,19 @@ def test_booster_to_xgboosts_with_contributions(X_y):
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
-    fmod_contribs = fmod.predict_contributions(X)
-    fmod_preds[~np.isclose(fmod_contribs.sum(1), fmod_preds, rtol=5)]
-    fmod_contribs.sum(1)[~np.isclose(fmod_contribs.sum(1), fmod_preds, rtol=5)]
-    assert fmod_contribs.shape[1] == X.shape[1] + 1
-    assert np.allclose(fmod_contribs.sum(1), fmod_preds)
+    contribs_average = fmod.predict_contributions(X)
+    fmod_preds[~np.isclose(contribs_average.sum(1), fmod_preds, rtol=5)]
+    contribs_average.sum(1)[~np.isclose(contribs_average.sum(1), fmod_preds, rtol=5)]
+    assert contribs_average.shape[1] == X.shape[1] + 1
+    assert np.allclose(contribs_average.sum(1), fmod_preds)
+
+    contribs_weight = fmod.predict_contributions(X, method="Weight")
+    assert np.allclose(contribs_weight.sum(1), fmod_preds)
+    assert not np.allclose(contribs_weight, contribs_average)
+
+    contribs_difference = fmod.predict_contributions(X, method="BranchDifference")
+    assert not np.allclose(contribs_difference.sum(1), fmod_preds)
+    assert not np.allclose(contribs_difference, contribs_average)
 
     xmod = XGBClassifier(
         n_estimators=100,
@@ -418,7 +463,7 @@ def test_booster_to_xgboosts_with_contributions(X_y):
     xmod_contribs = xmod.get_booster().predict(
         xgb.DMatrix(X), approx_contribs=True, pred_contribs=True
     )
-    assert np.allclose(fmod_contribs, xmod_contribs, atol=0.000001)
+    assert np.allclose(contribs_average, xmod_contribs, atol=0.000001)
 
 
 def test_missing_branch_with_contributions(X_y):
@@ -566,3 +611,79 @@ def test_goss_sampling_method(X_y):
     fmod.fit(X, y=y)
 
     assert True
+
+
+def test_booster_to_xgboosts_with_base_score_log_loss(X_y):
+    from scipy.special import logit
+
+    X, y = X_y
+    xmod = XGBClassifier(
+        n_estimators=100,
+        learning_rate=0.3,
+        objective="binary:logitraw",
+        base_score=logit(y.mean()),
+        max_depth=5,
+        reg_lambda=1,
+        min_child_weight=1,
+        gamma=1,
+        eval_metric="auc",
+        tree_method="hist",
+        max_bin=500,
+    )
+    xmod.fit(X, y)
+    xmod_preds = xmod.predict(X, output_margin=True)
+
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        initialize_base_score=True,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
+
+
+def test_booster_to_xgboosts_with_base_score_squared_loss(X_y):
+    X, y = X_y
+    X = X
+    X["survived"] = y
+    y = X["fare"]
+    X = X.drop(columns=["fare"])
+    xmod = XGBRegressor(
+        n_estimators=100,
+        learning_rate=0.3,
+        objective="reg:squarederror",
+        base_score=np.mean(y),
+        max_depth=5,
+        reg_lambda=1,
+        min_child_weight=1,
+        gamma=1,
+        eval_metric="auc",
+        tree_method="hist",
+        max_bin=500,
+    )
+    xmod.fit(X, y)
+    xmod_preds = xmod.predict(X)
+
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="SquaredLoss",
+        nbins=500,
+        parallel=True,
+        initialize_base_score=True,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    assert np.allclose(fmod_preds, xmod_preds, atol=0.001)

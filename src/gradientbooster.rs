@@ -10,12 +10,14 @@ use crate::objective::{
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
+use crate::utils::{items_to_strings, validate_positive_float_field};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::str::FromStr;
 
 pub type EvaluationData<'a> = (Matrix<'a, f64>, &'a [f64], &'a [f64]);
 pub type TrainingEvaluationData<'a> = (&'a Matrix<'a, f64>, &'a [f64], &'a [f64], Vec<f64>);
@@ -23,6 +25,24 @@ pub type TrainingEvaluationData<'a> = (&'a Matrix<'a, f64>, &'a [f64], &'a [f64]
 pub enum ContributionsMethod {
     Weight,
     Average,
+    BranchDifference,
+}
+
+impl FromStr for ContributionsMethod {
+    type Err = ForustError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Weight" => Ok(ContributionsMethod::Weight),
+            "Average" => Ok(ContributionsMethod::Average),
+            "BranchDifference" => Ok(ContributionsMethod::BranchDifference),
+            _ => Err(ForustError::ParseString(
+                s.to_string(),
+                "ContributionsMethod".to_string(),
+                items_to_strings(vec!["Weight", "Average", "BranchDifference"]),
+            )),
+        }
+    }
 }
 
 /// Gradient Booster object
@@ -64,6 +84,7 @@ pub enum ContributionsMethod {
 /// * `evaluation_metric` - Define the evaluation metric to record at each iterations.
 /// * `early_stopping_rounds` - Number of rounds where the evaluation metric value must improve in
 ///    to keep training.
+/// * `initialize_base_score` - If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
 #[derive(Deserialize, Serialize)]
 pub struct GradientBooster {
     pub objective_type: ObjectiveType,
@@ -74,7 +95,7 @@ pub struct GradientBooster {
     pub l2: f32,
     pub gamma: f32,
     pub min_leaf_weight: f32,
-    pub base_score: Option<f64>,
+    pub base_score: f64,
     pub nbins: u16,
     pub parallel: bool,
     pub allow_missing_splits: bool,
@@ -94,6 +115,8 @@ pub struct GradientBooster {
     pub evaluation_metric: Option<Metric>,
     #[serde(default = "default_early_stopping_rounds")]
     pub early_stopping_rounds: Option<usize>,
+    #[serde(default = "default_initialize_base_score")]
+    pub initialize_base_score: bool,
     #[serde(default = "default_evaluation_history")]
     pub evaluation_history: Option<RowMajorMatrix<f64>>,
     #[serde(default = "default_best_iteration")]
@@ -106,7 +129,10 @@ pub struct GradientBooster {
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
     metadata: HashMap<String, String>,
-    _base_score: f64,
+}
+
+fn default_initialize_base_score() -> bool {
+    false
 }
 
 fn default_top_rate() -> f64 {
@@ -152,7 +178,7 @@ impl Default for GradientBooster {
             1.,
             0.,
             1.,
-            Some(0.5),
+            0.5,
             256,
             true,
             true,
@@ -166,7 +192,9 @@ impl Default for GradientBooster {
             SampleMethod::None,
             None,
             None,
+            false,
         )
+        .unwrap()
     }
 }
 
@@ -210,6 +238,7 @@ impl GradientBooster {
     /// * `sample_method` - Specify the method that records should be sampled when training?
     /// * `evaluation_metric` - Define the evaluation metric to record at each iterations.
     /// * `early_stopping_rounds` - Number of rounds that must
+    /// * `initialize_base_score` - If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         objective_type: ObjectiveType,
@@ -220,7 +249,7 @@ impl GradientBooster {
         l2: f32,
         gamma: f32,
         min_leaf_weight: f32,
-        base_score: Option<f64>,
+        base_score: f64,
         nbins: u16,
         parallel: bool,
         allow_missing_splits: bool,
@@ -234,8 +263,9 @@ impl GradientBooster {
         sample_method: SampleMethod,
         evaluation_metric: Option<Metric>,
         early_stopping_rounds: Option<usize>,
-    ) -> Self {
-        GradientBooster {
+        initialize_base_score: bool,
+    ) -> Result<Self, ForustError> {
+        let booster = GradientBooster {
             objective_type,
             iterations,
             learning_rate,
@@ -258,13 +288,26 @@ impl GradientBooster {
             sample_method,
             evaluation_metric,
             early_stopping_rounds,
+            initialize_base_score,
             evaluation_history: None,
             best_iteration: None,
             prediction_iteration: None,
             trees: Vec::new(),
             metadata: HashMap::new(),
-            _base_score: 0.,
-        }
+        };
+        booster.validate_parameters()?;
+        Ok(booster)
+    }
+
+    fn validate_parameters(&self) -> Result<(), ForustError> {
+        validate_positive_float_field!(self.learning_rate);
+        validate_positive_float_field!(self.l2);
+        validate_positive_float_field!(self.gamma);
+        validate_positive_float_field!(self.min_leaf_weight);
+        validate_positive_float_field!(self.subsample);
+        validate_positive_float_field!(self.top_rate);
+        validate_positive_float_field!(self.other_rate);
+        Ok(())
     }
 
     /// Fit the gradient booster on a provided dataset.
@@ -339,13 +382,6 @@ impl GradientBooster {
         metric_callables(&metric)
     }
 
-    // fn rounds_since_last_best(&mut self, m: f64) -> usize {
-    //     let best_ = match self.best_iteration {
-    //         None => 0,
-
-    //     }
-    // }
-
     fn fit_trees<T: Splitter>(
         &mut self,
         y: &[f64],
@@ -356,12 +392,11 @@ impl GradientBooster {
     ) -> Result<(), ForustError> {
         let mut rng = StdRng::seed_from_u64(self.seed);
 
-        self._base_score = match self.base_score {
-            Some(v) => v,
-            None => calc_init_callables(&self.objective_type)(y, sample_weight),
-        };
+        if self.initialize_base_score {
+            self.base_score = calc_init_callables(&self.objective_type)(y, sample_weight);
+        }
 
-        let mut yhat = vec![self._base_score; y.len()];
+        let mut yhat = vec![self.base_score; y.len()];
 
         let calc_grad_hess = gradient_hessian_callables(&self.objective_type);
         let (mut grad, mut hess) = calc_grad_hess(y, &yhat, sample_weight);
@@ -378,7 +413,7 @@ impl GradientBooster {
             evaluation_data.as_ref().map(|evals| {
                 evals
                     .iter()
-                    .map(|(d, y, w)| (d, *y, *w, vec![self._base_score; y.len()]))
+                    .map(|(d, y, w)| (d, *y, *w, vec![self.base_score; y.len()]))
                     .collect()
             });
 
@@ -487,7 +522,7 @@ impl GradientBooster {
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
     pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
-        let mut init_preds = vec![self._base_score; data.rows];
+        let mut init_preds = vec![self.base_score; data.rows];
         self.get_prediction_trees().iter().for_each(|tree| {
             for (p_, val) in init_preds
                 .iter_mut()
@@ -508,7 +543,54 @@ impl GradientBooster {
         match method {
             ContributionsMethod::Average => self.predict_contributions_average(data, parallel),
             ContributionsMethod::Weight => self.predict_contributions_weight(data, parallel),
+            ContributionsMethod::BranchDifference => {
+                self.predict_contributions_branch_difference(data, parallel)
+            }
         }
+    }
+
+    fn predict_contributions_branch_difference(
+        &self,
+        data: &Matrix<f64>,
+        parallel: bool,
+    ) -> Vec<f64> {
+        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
+
+        // Add the bias term to every bias value...
+        let bias_idx = data.cols + 1;
+        contribs
+            .iter_mut()
+            .skip(bias_idx - 1)
+            .step_by(bias_idx)
+            .for_each(|v| *v += self.base_score);
+
+        // Clean this up..
+        // materializing a row, and then passing that to all of the
+        // trees seems to be the fastest approach (5X faster), we should test
+        // something like this for normal predictions.
+        if parallel {
+            data.index
+                .par_iter()
+                .zip(contribs.par_chunks_mut(data.cols + 1))
+                .for_each(|(row, c)| {
+                    let r_ = data.get_row(*row);
+                    self.get_prediction_trees().iter().for_each(|t| {
+                        t.predict_contributions_row_branch_difference(&r_, c, &self.missing);
+                    });
+                });
+        } else {
+            data.index
+                .iter()
+                .zip(contribs.chunks_mut(data.cols + 1))
+                .for_each(|(row, c)| {
+                    let r_ = data.get_row(*row);
+                    self.get_prediction_trees().iter().for_each(|t| {
+                        t.predict_contributions_row_branch_difference(&r_, c, &self.missing);
+                    });
+                });
+        }
+
+        contribs
     }
 
     fn predict_contributions_weight(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
@@ -520,7 +602,7 @@ impl GradientBooster {
             .iter_mut()
             .skip(bias_idx - 1)
             .step_by(bias_idx)
-            .for_each(|v| *v += self._base_score);
+            .for_each(|v| *v += self.base_score);
 
         // Clean this up..
         // materializing a row, and then passing that to all of the
@@ -582,7 +664,7 @@ impl GradientBooster {
             .iter_mut()
             .skip(bias_idx - 1)
             .step_by(bias_idx)
-            .for_each(|v| *v += self._base_score);
+            .for_each(|v| *v += self.base_score);
 
         // Clean this up..
         // materializing a row, and then passing that to all of the
@@ -636,7 +718,7 @@ impl GradientBooster {
                 .map(|t| t.value_partial_dependence(feature, value, &self.missing))
                 .sum()
         };
-        pd + self._base_score
+        pd + self.base_score
     }
 
     /// Save a booster as a json object to a file.
@@ -735,13 +817,6 @@ impl GradientBooster {
     ///     node of a tree of the booster.
     pub fn set_min_leaf_weight(mut self, min_leaf_weight: f32) -> Self {
         self.min_leaf_weight = min_leaf_weight;
-        self
-    }
-
-    /// Set the base_score on the booster.
-    /// * `base_score` - The base score of the booster.
-    pub fn set_base_score(mut self, base_score: f64) -> Self {
-        self._base_score = base_score;
         self
     }
 
@@ -909,6 +984,37 @@ mod tests {
     }
 
     #[test]
+    fn test_booster_fit_nofitted_base_score() {
+        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file
+            .lines()
+            .map(|x| x.parse::<f64>().unwrap_or(f64::NAN))
+            .collect();
+        let file = fs::read_to_string("resources/performance-fare.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+
+        let data = Matrix::new(&data_vec, 891, 5);
+        //let data = Matrix::new(data.get_col(1), 891, 1);
+        let mut booster = GradientBooster::default();
+        booster.objective_type = ObjectiveType::SquaredLoss;
+        booster.initialize_base_score = true;
+        booster.iterations = 10;
+        booster.nbins = 300;
+        booster.max_depth = 3;
+        let sample_weight = vec![1.; y.len()];
+        booster.fit(&data, &y, &sample_weight, None).unwrap();
+        let preds = booster.predict(&data, false);
+        let contribs = booster.predict_contributions(&data, ContributionsMethod::Average, false);
+        assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
+        println!("{}", booster.trees[0]);
+        println!("{}", booster.trees[0].nodes.len());
+        println!("{}", booster.trees.last().unwrap().nodes.len());
+        println!("{:?}", &preds[0..10]);
+    }
+
+    #[test]
     fn test_tree_save() {
         let file = fs::read_to_string("resources/contiguous_with_missing.csv")
             .expect("Something went wrong reading the file");
@@ -923,7 +1029,6 @@ mod tests {
         let data = Matrix::new(&data_vec, 891, 5);
         //let data = Matrix::new(data.get_col(1), 891, 1);
         let mut booster = GradientBooster::default();
-        booster.base_score = None;
         booster.iterations = 10;
         booster.nbins = 300;
         booster.max_depth = 3;

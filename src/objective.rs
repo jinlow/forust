@@ -83,7 +83,6 @@ impl ObjectiveFunction for LogLoss {
             .zip(sample_weight)
             .map(|((y_, yhat_), w_)| {
                 let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
-
                 (
                     ((yhat_ - *y_) * *w_) as f32,
                     (yhat_ * (f64::ONE - yhat_) * *w_) as f32,
@@ -163,10 +162,7 @@ impl ObjectiveFunction for SquaredLoss {
         y.iter()
             .zip(yhat)
             .zip(sample_weight)
-            .map(|((y_, yhat_), w_)| {
-                let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
-                (((yhat_ - *y_) * *w_) as f32, *w_ as f32)
-            })
+            .map(|((y_, yhat_), w_)| (((yhat_ - *y_) * *w_) as f32, *w_ as f32))
             .unzip()
     }
     fn default_metric() -> Metric {
