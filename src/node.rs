@@ -46,7 +46,7 @@ pub struct Node {
 
 impl Ord for SplittableNode {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.split_gain.total_cmp(&other.split_gain)
+        self.gain_value.total_cmp(&other.gain_value)
     }
 }
 
@@ -58,7 +58,7 @@ impl PartialOrd for SplittableNode {
 
 impl PartialEq for SplittableNode {
     fn eq(&self, other: &Self) -> bool {
-        self.split_gain == other.split_gain
+        self.gain_value == other.gain_value
     }
 }
 
