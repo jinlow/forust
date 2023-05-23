@@ -3,9 +3,7 @@ use crate::constraints::ConstraintMap;
 use crate::data::{Matrix, RowMajorMatrix};
 use crate::errors::ForustError;
 use crate::metric::{is_comparison_better, metric_callables, Metric, MetricFn};
-use crate::objective::{
-    gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType, SquaredLoss,
-};
+use crate::objective::{LogLoss, ObjectiveFunction, ObjectiveType, SquaredLoss};
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
@@ -313,6 +311,15 @@ impl GradientBooster {
         sample_weight: &[f64],
         evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
+        // create objective here
+
+        let objective: Box<dyn ObjectiveFunction> = match self.objective_type {
+            ObjectiveType::LogLoss => Box::new(LogLoss {}),
+            ObjectiveType::SquaredLoss => Box::new(SquaredLoss {}),
+        };
+
+        // End object creation
+
         let constraints_map = self
             .monotone_constraints
             .as_ref()
@@ -327,7 +334,14 @@ impl GradientBooster {
                 allow_missing_splits: self.allow_missing_splits,
                 constraints_map,
             };
-            self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
+            self.fit_trees(
+                y,
+                sample_weight,
+                data,
+                &splitter,
+                evaluation_data,
+                objective.as_ref(),
+            )?;
         } else {
             let splitter = MissingImputerSplitter {
                 l2: self.l2,
@@ -337,7 +351,14 @@ impl GradientBooster {
                 allow_missing_splits: self.allow_missing_splits,
                 constraints_map,
             };
-            self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
+            self.fit_trees(
+                y,
+                sample_weight,
+                data,
+                &splitter,
+                evaluation_data,
+                objective.as_ref(),
+            )?;
         };
 
         Ok(())
@@ -361,15 +382,8 @@ impl GradientBooster {
         }
     }
 
-    fn get_metric_fn(&self) -> (MetricFn, bool) {
-        let metric = match &self.evaluation_metric {
-            None => match self.objective_type {
-                ObjectiveType::LogLoss => LogLoss::default_metric(),
-                ObjectiveType::SquaredLoss => SquaredLoss::default_metric(),
-            },
-            Some(v) => *v,
-        };
-        metric_callables(&metric)
+    fn get_metric_fn(&self, objective: &dyn ObjectiveFunction) -> (MetricFn, bool) {
+        metric_callables(&objective.default_metric())
     }
 
     fn fit_trees<T: Splitter>(
@@ -379,12 +393,13 @@ impl GradientBooster {
         data: &Matrix<f64>,
         splitter: &T,
         evaluation_data: Option<Vec<EvaluationData>>,
+        objective: &dyn ObjectiveFunction,
     ) -> Result<(), ForustError> {
         let mut rng = StdRng::seed_from_u64(self.seed);
         let mut yhat = vec![self.base_score; y.len()];
-        let (calc_grad, calc_hess) = gradient_hessian_callables(&self.objective_type);
-        let mut grad = calc_grad(y, &yhat, sample_weight);
-        let mut hess = calc_hess(y, &yhat, sample_weight);
+
+        let mut grad = objective.calc_grad(y, &yhat, sample_weight);
+        let mut hess = objective.calc_hess(y, &yhat, sample_weight);
 
         // Generate binned data
         // TODO
@@ -433,7 +448,7 @@ impl GradientBooster {
                 let mut metrics: Vec<f64> = Vec::new();
                 for (eval_i, (data, y, w, yhat)) in eval_sets.iter_mut().enumerate() {
                     self.update_predictions_inplace(yhat, &tree, data);
-                    let (metric_fn, maximize) = self.get_metric_fn();
+                    let (metric_fn, maximize) = self.get_metric_fn(objective);
                     let m = metric_fn(y, yhat, w);
                     // If early stopping rounds are defined, and this is the first
                     // eval dataset, check if we want to stop
@@ -474,8 +489,8 @@ impl GradientBooster {
                 }
             }
             self.trees.push(tree);
-            grad = calc_grad(y, &yhat, sample_weight);
-            hess = calc_hess(y, &yhat, sample_weight);
+            grad = objective.calc_grad(y, &yhat, sample_weight);
+            hess = objective.calc_hess(y, &yhat, sample_weight);
         }
         Ok(())
     }

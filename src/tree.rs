@@ -602,8 +602,8 @@ mod tests {
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let yhat = vec![0.5; y.len()];
         let w = vec![1.; y.len()];
-        let mut g = LogLoss::calc_grad(&y, &yhat, &w);
-        let mut h = LogLoss::calc_hess(&y, &yhat, &w);
+        let mut g = LogLoss::default().calc_grad(&y, &yhat, &w);
+        let mut h = LogLoss::default().calc_hess(&y, &yhat, &w);
 
         let data = Matrix::new(&data_vec, 891, 5);
         let splitter = MissingImputerSplitter {
@@ -646,8 +646,8 @@ mod tests {
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let yhat = vec![0.5; y.len()];
         let w = vec![1.; y.len()];
-        let g = LogLoss::calc_grad(&y, &yhat, &w);
-        let h = LogLoss::calc_hess(&y, &yhat, &w);
+        let g = LogLoss::default().calc_grad(&y, &yhat, &w);
+        let h = LogLoss::default().calc_hess(&y, &yhat, &w);
 
         let data = Matrix::new(&data_vec, 891, 5);
         let splitter = MissingImputerSplitter {
@@ -727,8 +727,8 @@ mod tests {
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let yhat = vec![0.5; y.len()];
         let w = vec![1.; y.len()];
-        let g = LogLoss::calc_grad(&y, &yhat, &w);
-        let h = LogLoss::calc_hess(&y, &yhat, &w);
+        let g = LogLoss::default().calc_grad(&y, &yhat, &w);
+        let h = LogLoss::default().calc_hess(&y, &yhat, &w);
         println!("GRADIENT -- {:?}", h);
 
         let data_ = Matrix::new(&data_vec, 891, 5);
