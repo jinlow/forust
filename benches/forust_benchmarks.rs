@@ -3,6 +3,7 @@ use forust_ml::binning::bin_matrix;
 use forust_ml::constraints::ConstraintMap;
 use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::GradientBooster;
+use forust_ml::grower::DepthWise;
 use forust_ml::objective::{LogLoss, ObjectiveFunction};
 use forust_ml::sampler::SampleMethod;
 use forust_ml::splitter::MissingImputerSplitter;
@@ -60,6 +61,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
         5,
         true,
         &SampleMethod::None,
+        DepthWise::default().as_mut(),
     );
     println!("{}", tree.nodes.len());
     c.bench_function("Train Tree", |b| {
@@ -76,6 +78,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
                 black_box(10),
                 black_box(false),
                 black_box(&SampleMethod::None),
+                black_box(DepthWise::default().as_mut()),
             );
         })
     });

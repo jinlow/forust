@@ -78,10 +78,13 @@ mod tests {
     use crate::constraints::ConstraintMap;
     use crate::data::Matrix;
     use crate::gradientbooster::GrowPolicy;
+    use crate::grower::DepthWise;
+    use crate::node::SplittableNode;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use crate::sampler::SampleMethod;
     use crate::splitter::MissingImputerSplitter;
     use crate::tree::Tree;
+    use std::collections::VecDeque;
     use std::fs;
     #[test]
     fn test_partial_dependence() {
@@ -121,7 +124,8 @@ mod tests {
             5,
             true,
             &SampleMethod::None,
-            &GrowPolicy::LossGuide,
+            DepthWise::default().as_mut(),
+            // Box::<VecDeque<SplittableNode>>::default().as_mut(),
         );
         let pdp1 = tree_partial_dependence(&tree, 0, 0, 1.0, 1.0, &f64::NAN);
         let pdp2 = tree_partial_dependence(&tree, 0, 0, 2.0, 1.0, &f64::NAN);

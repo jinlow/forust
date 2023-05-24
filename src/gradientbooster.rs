@@ -2,6 +2,7 @@ use crate::binning::bin_matrix;
 use crate::constraints::ConstraintMap;
 use crate::data::{Matrix, RowMajorMatrix};
 use crate::errors::ForustError;
+use crate::grower::{DepthWise, Grower, LossGuide};
 use crate::metric::{is_comparison_better, metric_callables, Metric, MetricFn};
 use crate::objective::{LogLoss, ObjectiveFunction, ObjectiveType, SquaredLoss};
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
@@ -342,8 +343,7 @@ impl GradientBooster {
         sample_weight: &[f64],
         evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
-        // create objective here
-
+        // create dynamic objects
         let objective: Box<dyn ObjectiveFunction> = match self.objective_type {
             ObjectiveType::LogLoss => Box::new(LogLoss {}),
             ObjectiveType::SquaredLoss => Box::new(SquaredLoss {}),
@@ -356,6 +356,10 @@ impl GradientBooster {
             SampleMethod::Goss => Box::new(GossSampler::new(self.top_rate, self.other_rate)),
         };
 
+        let mut grower: Box<dyn Grower> = match self.grow_policy {
+            GrowPolicy::DepthWise => DepthWise::default(),
+            GrowPolicy::LossGuide => LossGuide::default(),
+        };
         // End object creation
 
         let constraints_map = self
@@ -363,6 +367,7 @@ impl GradientBooster {
             .as_ref()
             .unwrap_or(&ConstraintMap::new())
             .to_owned();
+
         if self.create_missing_branch {
             let splitter = MissingBranchSplitter {
                 l2: self.l2,
@@ -380,6 +385,7 @@ impl GradientBooster {
                 evaluation_data,
                 objective.as_ref(),
                 sampler.as_ref(),
+                grower.as_mut(),
             )?;
         } else {
             let splitter = MissingImputerSplitter {
@@ -398,6 +404,7 @@ impl GradientBooster {
                 evaluation_data,
                 objective.as_ref(),
                 sampler.as_ref(),
+                grower.as_mut(),
             )?;
         };
 
@@ -418,6 +425,7 @@ impl GradientBooster {
         evaluation_data: Option<Vec<EvaluationData>>,
         objective: &dyn ObjectiveFunction,
         sampler: &dyn Sampler,
+        grower: &mut dyn Grower,
     ) -> Result<(), ForustError> {
         let mut rng = StdRng::seed_from_u64(self.seed);
         let mut yhat = vec![self.base_score; y.len()];
@@ -460,7 +468,7 @@ impl GradientBooster {
                 self.max_depth,
                 self.parallel,
                 &self.sample_method,
-                &self.grow_policy,
+                grower,
             );
             self.update_predictions_inplace(&mut yhat, &tree, data);
 

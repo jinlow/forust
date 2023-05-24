@@ -2,6 +2,10 @@ use crate::node::SplittableNode;
 use std::collections::BinaryHeap;
 use std::collections::VecDeque;
 
+pub type DepthWise = Box<VecDeque<SplittableNode>>;
+
+pub type LossGuide = Box<BinaryHeap<SplittableNode>>;
+
 pub trait Grower {
     fn add_node(&mut self, node: SplittableNode);
     fn get_next_node(&mut self) -> SplittableNode;

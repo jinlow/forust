@@ -1,5 +1,4 @@
 use crate::data::{JaggedMatrix, Matrix};
-use crate::gradientbooster::GrowPolicy;
 use crate::grower::Grower;
 use crate::histogram::HistogramMatrix;
 use crate::node::{Node, SplittableNode};
@@ -10,7 +9,6 @@ use crate::utils::fast_f64_sum;
 use crate::utils::{gain, weight};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{BinaryHeap, VecDeque};
 use std::fmt::{self, Display};
 
 #[derive(Deserialize, Serialize)]
@@ -42,7 +40,7 @@ impl Tree {
         max_depth: usize,
         parallel: bool,
         sample_method: &SampleMethod,
-        grow_policy: &GrowPolicy,
+        growable: &mut dyn Grower,
     ) {
         // Recreating the index for each tree, ensures that the tree construction is faster
         // for the root node. This also ensures that sorting the records is always fast,
@@ -86,11 +84,6 @@ impl Tree {
         self.nodes.push(root_node.as_node());
         let mut n_leaves = 1;
 
-        let mut growable: Box<dyn Grower> = match grow_policy {
-            GrowPolicy::DepthWise => Box::<VecDeque<SplittableNode>>::default(),
-            GrowPolicy::LossGuide => Box::<BinaryHeap<SplittableNode>>::default(),
-        };
-
         growable.add_node(root_node);
         while !growable.is_empty() {
             if n_leaves >= max_leaves {
@@ -103,16 +96,12 @@ impl Tree {
             // If we can split it, and update the corresponding
             // tree nodes children.
             let mut node = growable.get_next_node();
-            let n_idx = node.num;
             // This will only be splittable nodes
-
-            let depth = node.depth + 1;
 
             // If we have hit max depth, skip this node
             // but keep going, because there may be other
             // valid shallower nodes.
-            if depth > max_depth {
-                // self.nodes[n_idx] = node.as_leaf_node();
+            if node.depth >= max_depth {
                 continue;
             }
 
@@ -131,7 +120,7 @@ impl Tree {
             if n_new_nodes == 0 {
                 n_leaves += 1;
             } else {
-                self.nodes[n_idx].make_parent_node(node);
+                self.nodes[node.num].make_parent_node(node);
                 n_leaves += n_new_nodes;
                 n_nodes += n_new_nodes;
                 for n in new_nodes {
@@ -591,12 +580,14 @@ mod tests {
     use super::*;
     use crate::binning::bin_matrix;
     use crate::constraints::{Constraint, ConstraintMap};
+    use crate::grower::DepthWise;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use crate::sampler::{RandomSampler, Sampler};
     use crate::splitter::MissingImputerSplitter;
     use crate::utils::precision_round;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rayon::iter::Split;
     use std::fs;
     #[test]
     fn test_tree_fit_with_subsample() {
@@ -639,7 +630,7 @@ mod tests {
             5,
             true,
             &SampleMethod::Random,
-            &GrowPolicy::DepthWise,
+            DepthWise::default().as_mut(),
         );
     }
 
@@ -680,7 +671,7 @@ mod tests {
             5,
             true,
             &SampleMethod::None,
-            &GrowPolicy::DepthWise,
+            Box::<VecDeque<SplittableNode>>::default().as_mut(),
         );
 
         // println!("{}", tree);
@@ -766,7 +757,7 @@ mod tests {
             5,
             true,
             &SampleMethod::None,
-            &GrowPolicy::DepthWise,
+            Box::<VecDeque<SplittableNode>>::default().as_mut(),
         );
 
         // println!("{}", tree);
@@ -820,8 +811,8 @@ mod tests {
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let yhat = vec![0.5; y.len()];
         let w = vec![1.; y.len()];
-        let g = LogLoss::calc_grad(&y, &yhat, &w);
-        let h = LogLoss::calc_hess(&y, &yhat, &w);
+        let g = LogLoss::default().calc_grad(&y, &yhat, &w);
+        let h = LogLoss::default().calc_hess(&y, &yhat, &w);
 
         let data = Matrix::new(&data_vec, 891, 5);
         let splitter = MissingImputerSplitter {
@@ -847,7 +838,7 @@ mod tests {
             usize::MAX,
             true,
             &SampleMethod::None,
-            &GrowPolicy::LossGuide,
+            Box::<VecDeque<SplittableNode>>::default().as_mut(),
         );
 
         println!("{}", tree);
