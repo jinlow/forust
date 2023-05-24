@@ -53,7 +53,7 @@ It can be initialized with the following arguments.
     Valid values are 0 to infinity. Defaults to 0.0.
  - `min_leaf_weight` ***(float, optional)***: Minimum sum of the hessian values of the loss function
     required to be in a node. Defaults to 1.0.
- - `base_score` ***(float, optional)***: The initial prediction value of the model. Defaults to 0.5.
+ - `base_score` ***(float | None, optional)***: The initial prediction value of the model. If set to None the parameter `initialize_base_score` will automatically be set to `True`, in which case the base score will be chosen based on the objective function at fit time. Defaults to `None`.
  - `nbins` ***(int, optional)***: Number of bins to calculate to partition the data. Setting this to
     a smaller number, will result in faster training time, while potentially sacrificing
     accuracy. If there are more bins, than unique values in a column, all unique values

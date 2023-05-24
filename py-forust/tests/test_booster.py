@@ -36,6 +36,7 @@ def test_booster_to_xgboosts(X_y):
     xmod_preds = xmod.predict(X, output_margin=True)
 
     fmod = GradientBooster(
+        base_score=0.5,
         iterations=100,
         learning_rate=0.3,
         max_depth=5,
@@ -68,6 +69,7 @@ def test_booster_to_xgboosts_with_missing(X_y):
     xmod_preds = xmod.predict(X, output_margin=True)
 
     fmod = GradientBooster(
+        base_score=0.5,
         iterations=100,
         learning_rate=0.3,
         max_depth=5,
@@ -104,6 +106,7 @@ def test_booster_to_xgboosts_with_missing_sl(X_y):
     xmod_preds = xmod.predict(X, output_margin=True)
 
     fmod = GradientBooster(
+        base_score=0.5,
         iterations=100,
         learning_rate=0.3,
         max_depth=5,
@@ -242,6 +245,7 @@ def test_booster_to_xgboosts_weighted(X_y):
     xmod_preds = xmod.predict(X, output_margin=True)
 
     fmod = GradientBooster(
+        base_score=0.5,
         iterations=100,
         learning_rate=0.3,
         max_depth=5,
@@ -523,6 +527,7 @@ def test_booster_metadata(X_y, tmp_path):
         objective_type="SquaredLoss",
         nbins=500,
         parallel=True,
+        base_score=0.5,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)

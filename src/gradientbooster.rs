@@ -178,7 +178,7 @@ impl Default for GradientBooster {
             1.,
             0.,
             1.,
-            0.5,
+            None,
             256,
             true,
             true,
@@ -218,7 +218,7 @@ impl GradientBooster {
     ///   Valid values are 0 to infinity.
     /// * `min_leaf_weight` - Minimum sum of the hessian values of the loss function
     ///   required to be in a node.
-    /// * `base_score` - The initial prediction value of the model.
+    /// * `base_score` - The initial prediction value of the model. If set to None the parameter `initialize_base_score` will automatically be set to `true`, in which case the base score will be chosen based on the objective function at fit time.
     /// * `nbins` - Number of bins to calculate to partition the data. Setting this to
     ///   a smaller number, will result in faster training time, while potentially sacrificing
     ///   accuracy. If there are more bins, than unique values in a column, all unique values
@@ -249,7 +249,7 @@ impl GradientBooster {
         l2: f32,
         gamma: f32,
         min_leaf_weight: f32,
-        base_score: f64,
+        base_score: Option<f64>,
         nbins: u16,
         parallel: bool,
         allow_missing_splits: bool,
@@ -265,6 +265,10 @@ impl GradientBooster {
         early_stopping_rounds: Option<usize>,
         initialize_base_score: bool,
     ) -> Result<Self, ForustError> {
+        let (base_score_, initialize_base_score_) = match base_score {
+            Some(v) => (v, initialize_base_score),
+            None => (0.5, true),
+        };
         let booster = GradientBooster {
             objective_type,
             iterations,
@@ -274,7 +278,7 @@ impl GradientBooster {
             l2,
             gamma,
             min_leaf_weight,
-            base_score,
+            base_score: base_score_,
             nbins,
             parallel,
             allow_missing_splits,
@@ -288,7 +292,7 @@ impl GradientBooster {
             sample_method,
             evaluation_metric,
             early_stopping_rounds,
-            initialize_base_score,
+            initialize_base_score: initialize_base_score_,
             evaluation_history: None,
             best_iteration: None,
             prediction_iteration: None,
@@ -798,6 +802,16 @@ impl GradientBooster {
         self
     }
 
+    /// Set the number of nbins on the booster.
+    /// * `max_leaves` - Number of bins to calculate to partition the data. Setting this to
+    ///   a smaller number, will result in faster training time, while potentially sacrificing
+    ///   accuracy. If there are more bins, than unique values in a column, all unique values
+    ///   will be used.
+    pub fn set_nbins(mut self, nbins: u16) -> Self {
+        self.nbins = nbins;
+        self
+    }
+
     /// Set the l2 on the booster.
     /// * `l2` - The l2 regulation term of the booster.
     pub fn set_l2(mut self, l2: f32) -> Self {
@@ -820,10 +834,17 @@ impl GradientBooster {
         self
     }
 
-    /// Set the nbins on the booster.
-    /// * `nbins` - The nummber of bins used for partitioning the data of the booster.
-    pub fn set_nbins(mut self, nbins: u16) -> Self {
-        self.nbins = nbins;
+    /// Set the base_score on the booster.
+    /// * `base_score` - The base score of the booster.
+    pub fn set_base_score(mut self, base_score: f64) -> Self {
+        self.base_score = base_score;
+        self
+    }
+
+    /// Set the base_score on the booster.
+    /// * `base_score` - The base score of the booster.
+    pub fn set_initialize_base_score(mut self, initialize_base_score: bool) -> Self {
+        self.initialize_base_score = initialize_base_score;
         self
     }
 
@@ -938,11 +959,13 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         //let data = Matrix::new(data.get_col(1), 891, 1);
-        let mut booster = GradientBooster::default();
-        booster.iterations = 10;
-        booster.nbins = 300;
-        booster.max_depth = 3;
-        booster.subsample = 0.5;
+        let mut booster = GradientBooster::default()
+            .set_iterations(10)
+            .set_nbins(300)
+            .set_max_depth(3)
+            .set_subsample(0.5)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight, None).unwrap();
         let preds = booster.predict(&data, false);
@@ -968,10 +991,13 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         //let data = Matrix::new(data.get_col(1), 891, 1);
-        let mut booster = GradientBooster::default();
-        booster.iterations = 10;
-        booster.nbins = 300;
-        booster.max_depth = 3;
+        let mut booster = GradientBooster::default()
+            .set_iterations(10)
+            .set_nbins(300)
+            .set_max_depth(3)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
+
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight, None).unwrap();
         let preds = booster.predict(&data, false);
@@ -997,12 +1023,12 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         //let data = Matrix::new(data.get_col(1), 891, 1);
-        let mut booster = GradientBooster::default();
-        booster.objective_type = ObjectiveType::SquaredLoss;
-        booster.initialize_base_score = true;
-        booster.iterations = 10;
-        booster.nbins = 300;
-        booster.max_depth = 3;
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::SquaredLoss)
+            .set_iterations(10)
+            .set_nbins(300)
+            .set_max_depth(3)
+            .set_initialize_base_score(true);
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight, None).unwrap();
         let preds = booster.predict(&data, false);
@@ -1028,10 +1054,12 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         //let data = Matrix::new(data.get_col(1), 891, 1);
-        let mut booster = GradientBooster::default();
-        booster.iterations = 10;
-        booster.nbins = 300;
-        booster.max_depth = 3;
+        let mut booster = GradientBooster::default()
+            .set_iterations(10)
+            .set_nbins(300)
+            .set_max_depth(3)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight, None).unwrap();
         let preds = booster.predict(&data, true);
