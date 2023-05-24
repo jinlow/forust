@@ -10,6 +10,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.17", features = ["extension-module"] }
-forust-ml = { version="0.2.11", path="../" }
+forust-ml = { version = "0.2.11", path = "../" }
 numpy = "0.17.2"
 ndarray = "0.15.1"
