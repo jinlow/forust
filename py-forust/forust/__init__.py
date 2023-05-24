@@ -141,6 +141,7 @@ class GradientBooster:
 
     def __init__(
         self,
+        *,
         objective_type: str = "LogLoss",
         iterations: int = 100,
         learning_rate: float = 0.3,
