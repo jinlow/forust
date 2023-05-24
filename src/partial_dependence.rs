@@ -77,6 +77,7 @@ mod tests {
     use crate::binning::bin_matrix;
     use crate::constraints::ConstraintMap;
     use crate::data::Matrix;
+    use crate::gradientbooster::GrowPolicy;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use crate::sampler::SampleMethod;
     use crate::splitter::MissingImputerSplitter;
@@ -120,6 +121,7 @@ mod tests {
             5,
             true,
             &SampleMethod::None,
+            &GrowPolicy::LossGuide,
         );
         let pdp1 = tree_partial_dependence(&tree, 0, 0, 1.0, 1.0, &f64::NAN);
         let pdp2 = tree_partial_dependence(&tree, 0, 0, 2.0, 1.0, &f64::NAN);

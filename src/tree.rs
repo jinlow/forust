@@ -1,4 +1,6 @@
 use crate::data::{JaggedMatrix, Matrix};
+use crate::gradientbooster::GrowPolicy;
+use crate::grower::Grower;
 use crate::histogram::HistogramMatrix;
 use crate::node::{Node, SplittableNode};
 use crate::partial_dependence::tree_partial_dependence;
@@ -8,7 +10,7 @@ use crate::utils::fast_f64_sum;
 use crate::utils::{gain, weight};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::collections::{BinaryHeap, VecDeque};
 use std::fmt::{self, Display};
 
 #[derive(Deserialize, Serialize)]
@@ -40,6 +42,7 @@ impl Tree {
         max_depth: usize,
         parallel: bool,
         sample_method: &SampleMethod,
+        grow_policy: &GrowPolicy,
     ) {
         // Recreating the index for each tree, ensures that the tree construction is faster
         // for the root node. This also ensures that sorting the records is always fast,
@@ -82,8 +85,13 @@ impl Tree {
         // Add the first node to the tree nodes.
         self.nodes.push(root_node.as_node());
         let mut n_leaves = 1;
-        let mut growable: VecDeque<SplittableNode> = VecDeque::new();
-        growable.push_front(root_node);
+
+        let mut growable: Box<dyn Grower> = match grow_policy {
+            GrowPolicy::DepthWise => Box::<VecDeque<SplittableNode>>::default(),
+            GrowPolicy::LossGuide => Box::<BinaryHeap<SplittableNode>>::default(),
+        };
+
+        growable.add_node(root_node);
         while !growable.is_empty() {
             if n_leaves >= max_leaves {
                 break;
@@ -94,9 +102,7 @@ impl Tree {
             // Grab a splitable node from the stack
             // If we can split it, and update the corresponding
             // tree nodes children.
-            let mut node = growable
-                .pop_back()
-                .expect("Growable buffer should not be empty.");
+            let mut node = growable.get_next_node();
             let n_idx = node.num;
             // This will only be splittable nodes
 
@@ -131,7 +137,7 @@ impl Tree {
                 for n in new_nodes {
                     self.nodes.push(n.as_node());
                     if !n.is_missing_leaf {
-                        growable.push_front(n)
+                        growable.add_node(n)
                     }
                 }
             }
@@ -633,6 +639,7 @@ mod tests {
             5,
             true,
             &SampleMethod::Random,
+            &GrowPolicy::DepthWise,
         );
     }
 
@@ -673,6 +680,7 @@ mod tests {
             5,
             true,
             &SampleMethod::None,
+            &GrowPolicy::DepthWise,
         );
 
         // println!("{}", tree);
@@ -758,6 +766,7 @@ mod tests {
             5,
             true,
             &SampleMethod::None,
+            &GrowPolicy::DepthWise,
         );
 
         // println!("{}", tree);
@@ -795,6 +804,88 @@ mod tests {
             .chunks(data.cols + 1)
             .map(|i| i.iter().sum())
             .collect();
+        assert_eq!(contribs_preds.len(), full_preds.len());
+        for (i, j) in full_preds.iter().zip(contribs_preds) {
+            assert_eq!(precision_round(*i, 7), precision_round(j, 7));
+        }
+    }
+
+    #[test]
+    fn test_tree_fit_lossguide() {
+        let file = fs::read_to_string("resources/contiguous_no_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let yhat = vec![0.5; y.len()];
+        let w = vec![1.; y.len()];
+        let g = LogLoss::calc_grad(&y, &yhat, &w);
+        let h = LogLoss::calc_hess(&y, &yhat, &w);
+
+        let data = Matrix::new(&data_vec, 891, 5);
+        let splitter = MissingImputerSplitter {
+            l2: 1.0,
+            gamma: 3.0,
+            min_leaf_weight: 1.0,
+            learning_rate: 0.3,
+            allow_missing_splits: false,
+            constraints_map: ConstraintMap::new(),
+        };
+        let mut tree = Tree::new();
+
+        let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
+        let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
+        tree.fit(
+            &bdata,
+            data.index.to_owned(),
+            &b.cuts,
+            &g,
+            &h,
+            &splitter,
+            usize::MAX,
+            usize::MAX,
+            true,
+            &SampleMethod::None,
+            &GrowPolicy::LossGuide,
+        );
+
+        println!("{}", tree);
+        // let preds = tree.predict(&data, false);
+        // println!("{:?}", &preds[0..10]);
+        // assert_eq!(25, tree.nodes.len());
+        // Test contributions prediction...
+        let weights = tree.distribute_leaf_weights();
+        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
+        tree.predict_contributions_average(&data, &mut contribs, &weights, false, &f64::NAN);
+        let full_preds = tree.predict(&data, true, &f64::NAN);
+        assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
+
+        let contribs_preds: Vec<f64> = contribs
+            .chunks(data.cols + 1)
+            .map(|i| i.iter().sum())
+            .collect();
+        println!("{:?}", &contribs[0..10]);
+        println!("{:?}", &contribs_preds[0..10]);
+
+        assert_eq!(contribs_preds.len(), full_preds.len());
+        for (i, j) in full_preds.iter().zip(contribs_preds) {
+            assert_eq!(precision_round(*i, 7), precision_round(j, 7));
+        }
+
+        // Weight contributions
+        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
+        tree.predict_contributions_weight(&data, &mut contribs, false, &f64::NAN);
+        let full_preds = tree.predict(&data, true, &f64::NAN);
+        assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
+
+        let contribs_preds: Vec<f64> = contribs
+            .chunks(data.cols + 1)
+            .map(|i| i.iter().sum())
+            .collect();
+        println!("{:?}", &contribs[0..10]);
+        println!("{:?}", &contribs_preds[0..10]);
+
         assert_eq!(contribs_preds.len(), full_preds.len());
         for (i, j) in full_preds.iter().zip(contribs_preds) {
             assert_eq!(precision_round(*i, 7), precision_round(j, 7));

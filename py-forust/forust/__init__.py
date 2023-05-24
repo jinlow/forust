@@ -161,6 +161,7 @@ class GradientBooster:
         missing: float = np.nan,
         create_missing_branch: bool = False,
         sample_method: str | None = None,
+        grow_policy: str = "DepthWise",
         evaluation_metric: str | None = None,
         early_stopping_rounds: int | None = None,
     ):
@@ -227,6 +228,7 @@ class GradientBooster:
                 If the `subsample` parameter is less than 1 and no sample_method is provided this `sample_method`
                 will be automatically set to "random". Valid options are "goss" and "random".
                 Defaults to `None`.
+            grow_policy (str, optional): Optional string value that controls the way new nodes are added to the tree. Choices are `DepthWise` to split at nodes closest to the root, or `LossGuide` to split at nodes with the highest loss change.
             evaluation_metric (str | None, optional): Optional string value used to define an evaluation metric
                 that will be calculated at each iteration if a `evaluation_dataset` is provided at fit time.
                 The metric can be one of "AUC", "LogLoss", "RootMeanSquaredLogError", or "RootMeanSquaredError".
@@ -264,6 +266,7 @@ class GradientBooster:
             missing=missing,
             create_missing_branch=create_missing_branch,
             sample_method=sample_method,
+            grow_policy=grow_policy,
             evaluation_metric=evaluation_metric,
             early_stopping_rounds=early_stopping_rounds,
         )

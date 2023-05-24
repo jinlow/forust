@@ -8,6 +8,7 @@ pub mod constraints;
 pub mod data;
 pub mod errors;
 pub mod gradientbooster;
+pub mod grower;
 pub mod metric;
 pub mod objective;
 pub mod sampler;
