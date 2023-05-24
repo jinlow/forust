@@ -1,3 +1,4 @@
+from pickletools import markobject
 from typing import Tuple
 
 import numpy as np
@@ -35,6 +36,7 @@ def test_booster_to_xgboosts(X_y):
     xmod_preds = xmod.predict(X, output_margin=True)
 
     fmod = GradientBooster(
+        base_score=0.5,
         iterations=100,
         learning_rate=0.3,
         max_depth=5,
@@ -67,6 +69,7 @@ def test_booster_to_xgboosts_with_missing(X_y):
     xmod_preds = xmod.predict(X, output_margin=True)
 
     fmod = GradientBooster(
+        base_score=0.5,
         iterations=100,
         learning_rate=0.3,
         max_depth=5,
@@ -103,6 +106,7 @@ def test_booster_to_xgboosts_with_missing_sl(X_y):
     xmod_preds = xmod.predict(X, output_margin=True)
 
     fmod = GradientBooster(
+        base_score=0.5,
         iterations=100,
         learning_rate=0.3,
         max_depth=5,
@@ -241,6 +245,7 @@ def test_booster_to_xgboosts_weighted(X_y):
     xmod_preds = xmod.predict(X, output_margin=True)
 
     fmod = GradientBooster(
+        base_score=0.5,
         iterations=100,
         learning_rate=0.3,
         max_depth=5,
@@ -522,6 +527,7 @@ def test_booster_metadata(X_y, tmp_path):
         objective_type="SquaredLoss",
         nbins=500,
         parallel=True,
+        base_score=0.5,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -610,3 +616,79 @@ def test_goss_sampling_method(X_y):
     fmod.fit(X, y=y)
 
     assert True
+
+
+def test_booster_to_xgboosts_with_base_score_log_loss(X_y):
+    from scipy.special import logit
+
+    X, y = X_y
+    xmod = XGBClassifier(
+        n_estimators=100,
+        learning_rate=0.3,
+        objective="binary:logitraw",
+        base_score=logit(y.mean()),
+        max_depth=5,
+        reg_lambda=1,
+        min_child_weight=1,
+        gamma=1,
+        eval_metric="auc",
+        tree_method="hist",
+        max_bin=500,
+    )
+    xmod.fit(X, y)
+    xmod_preds = xmod.predict(X, output_margin=True)
+
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        initialize_base_score=True,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
+
+
+def test_booster_to_xgboosts_with_base_score_squared_loss(X_y):
+    X, y = X_y
+    X = X
+    X["survived"] = y
+    y = X["fare"]
+    X = X.drop(columns=["fare"])
+    xmod = XGBRegressor(
+        n_estimators=100,
+        learning_rate=0.3,
+        objective="reg:squarederror",
+        base_score=np.mean(y),
+        max_depth=5,
+        reg_lambda=1,
+        min_child_weight=1,
+        gamma=1,
+        eval_metric="auc",
+        tree_method="hist",
+        max_bin=500,
+    )
+    xmod.fit(X, y)
+    xmod_preds = xmod.predict(X)
+
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="SquaredLoss",
+        nbins=500,
+        parallel=True,
+        initialize_base_score=True,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    assert np.allclose(fmod_preds, xmod_preds, atol=0.001)

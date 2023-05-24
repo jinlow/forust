@@ -53,7 +53,7 @@ It can be initialized with the following arguments.
     Valid values are 0 to infinity. Defaults to 0.0.
  - `min_leaf_weight` ***(float, optional)***: Minimum sum of the hessian values of the loss function
     required to be in a node. Defaults to 1.0.
- - `base_score` ***(float, optional)***: The initial prediction value of the model. Defaults to 0.5.
+ - `base_score` ***(float | None, optional)***: The initial prediction value of the model. If set to None the parameter `initialize_base_score` will automatically be set to `True`, in which case the base score will be chosen based on the objective function at fit time. Defaults to `None`.
  - `nbins` ***(int, optional)***: Number of bins to calculate to partition the data. Setting this to
     a smaller number, will result in faster training time, while potentially sacrificing
     accuracy. If there are more bins, than unique values in a column, all unique values
@@ -73,6 +73,7 @@ It can be initialized with the following arguments.
  - `sample_method` ***(str | None, optional)***: Optional string value to use to determine the method to use to sample the data while training. If this is None, no sample method will be used. If the `subsample` parameter is less than 1 and no sample_method is provided this `sample_method` will be automatically set to "random". Valid options are "goss" and "random". Defaults to `None`.
  - `evaluation_metric` ***(str | None, optional)***: Optional string value used to define an evaluation metric that will be calculated at each iteration if a `evaluation_dataset` is provided at fit time. The metric can be one of "AUC", "LogLoss", "RootMeanSquaredLogError", or "RootMeanSquaredError". If no `evaluation_metric` is passed, but an `evaluation_dataset` is passed, then "LogLoss", will be used with the "LogLoss" objective function, and "RootMeanSquaredLogError" will be used with "SquaredLoss".
  - `early_stopping_rounds` ***(int | None, optional)***: If this is specified, and an `evaluation_dataset` is passed during fit, then an improvement in the `evaluation_metric` must be seen after at least this many iterations of training, otherwise training will be cut short.
+ - `initialize_base_score` (bool, optional): If this is specified, the `base_score` will be calculated using the sample_weight and y data in accordance with the requested `objective_type`.
 
 ### Training and Predicting
 

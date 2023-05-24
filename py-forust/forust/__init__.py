@@ -149,7 +149,7 @@ class GradientBooster:
         l2: float = 1.0,
         gamma: float = 0.0,
         min_leaf_weight: float = 1.0,
-        base_score: float = 0.5,
+        base_score: float | None = None,
         nbins: int = 256,
         parallel: bool = True,
         allow_missing_splits: bool = True,
@@ -163,6 +163,7 @@ class GradientBooster:
         sample_method: str | None = None,
         evaluation_metric: str | None = None,
         early_stopping_rounds: int | None = None,
+        initialize_base_score: bool = False,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -186,7 +187,7 @@ class GradientBooster:
                 Valid values are 0 to infinity. Defaults to 0.0.
             min_leaf_weight (float, optional): Minimum sum of the hessian values of the loss function
                 required to be in a node. Defaults to 1.0.
-            base_score (float, optional): The initial prediction value of the model. Defaults to 0.5.
+            base_score (float, optional): The initial prediction value of the model. If set to None the parameter `initialize_base_score` will automatically be set to True, in which case the base score will be chosen based on the objective function at fit time. Defaults to None.
             nbins (int, optional): Number of bins to calculate to partition the data. Setting this to
                 a smaller number, will result in faster training time, while potentially sacrificing
                 accuracy. If there are more bins, than unique values in a column, all unique values
@@ -236,6 +237,7 @@ class GradientBooster:
             early_stopping_rounds (int | None, optional): If this is specified, and an `evaluation_dataset` is passed
                 during fit, then an improvement in the `evaluation_metric` must be seen after at least this many
                 iterations of training, otherwise training will be cut short.
+            initialize_base_score (bool, optional): If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -266,6 +268,7 @@ class GradientBooster:
             sample_method=sample_method,
             evaluation_metric=evaluation_metric,
             early_stopping_rounds=early_stopping_rounds,
+            initialize_base_score=initialize_base_score,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -293,6 +296,7 @@ class GradientBooster:
         self.other_rate = other_rate
         self.evaluation_metric = evaluation_metric
         self.early_stopping_rounds = early_stopping_rounds
+        self.initialize_base_score = initialize_base_score
 
     def fit(
         self,

@@ -61,7 +61,7 @@ impl GradientBooster {
         l2: f32,
         gamma: f32,
         min_leaf_weight: f32,
-        base_score: f64,
+        base_score: Option<f64>,
         nbins: u16,
         parallel: bool,
         allow_missing_splits: bool,
@@ -75,6 +75,7 @@ impl GradientBooster {
         sample_method: Option<&str>,
         evaluation_metric: Option<&str>,
         early_stopping_rounds: Option<usize>,
+        initialize_base_score: bool,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = to_value_error(ObjectiveType::from_str(objective_type))?;
@@ -109,6 +110,7 @@ impl GradientBooster {
             sample_method_,
             evaluation_metric_,
             early_stopping_rounds,
+            initialize_base_score,
         );
         Ok(GradientBooster {
             booster: to_value_error(booster)?,
@@ -324,6 +326,10 @@ impl GradientBooster {
             (
                 "early_stopping_rounds",
                 self.booster.early_stopping_rounds.to_object(py),
+            ),
+            (
+                "initialize_base_score",
+                self.booster.initialize_base_score.to_object(py),
             ),
         ];
         let dict = key_vals.into_py_dict(py);
