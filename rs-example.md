@@ -4,7 +4,7 @@ To run this example, add the following code to your `Cargo.toml` file.
 ```toml
 [dependencies]
 forust-ml = "0.2.11"
-polars = "0.24"
+polars = "0.28"
 reqwest = { version = "0.11", features = ["blocking"] }
 ```
 
@@ -51,12 +51,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Create Matrix from ndarray.
     let matrix = Matrix::new(&data, y.len(), 5);
 
-    // Create booster
+    // Create booster.
     // To provide parameters generate a default booster, and then use
-    // the relevant "set_" methods for any parameters you would like to
+    // the relevant `set_` methods for any parameters you would like to
     // adjust.
     let mut model = GradientBooster::default().set_learning_rate(0.3);
-    model.fit_unweighted(&matrix, &y)?;
+    model.fit_unweighted(&matrix, &y, None)?;
 
     // Predict output.
     println!("{:?} ...", &model.predict(&matrix, true)[0..10]);

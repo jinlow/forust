@@ -25,6 +25,12 @@ if __name__ == "__main__":
         header=False,
     )
 
+    X.fare.to_csv(
+        "resources/performance-fare.csv",
+        index=False,
+        header=False,
+    )
+
     dfb = df.sample(
         100_000,
         random_state=0,

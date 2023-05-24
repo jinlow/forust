@@ -4,7 +4,8 @@ use crate::data::{Matrix, RowMajorMatrix};
 use crate::errors::ForustError;
 use crate::metric::{is_comparison_better, metric_callables, Metric, MetricFn};
 use crate::objective::{
-    gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType, SquaredLoss,
+    calc_init_callables, gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType,
+    SquaredLoss,
 };
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
@@ -107,6 +108,7 @@ impl FromStr for GrowPolicy {
 /// * `evaluation_metric` - Define the evaluation metric to record at each iterations.
 /// * `early_stopping_rounds` - Number of rounds where the evaluation metric value must improve in
 ///    to keep training.
+/// * `initialize_base_score` - If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
 #[derive(Deserialize, Serialize)]
 pub struct GradientBooster {
     pub objective_type: ObjectiveType,
@@ -139,6 +141,8 @@ pub struct GradientBooster {
     pub evaluation_metric: Option<Metric>,
     #[serde(default = "default_early_stopping_rounds")]
     pub early_stopping_rounds: Option<usize>,
+    #[serde(default = "default_initialize_base_score")]
+    pub initialize_base_score: bool,
     #[serde(default = "default_evaluation_history")]
     pub evaluation_history: Option<RowMajorMatrix<f64>>,
     #[serde(default = "default_best_iteration")]
@@ -151,6 +155,10 @@ pub struct GradientBooster {
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
     metadata: HashMap<String, String>,
+}
+
+fn default_initialize_base_score() -> bool {
+    false
 }
 
 fn default_grow_policy() -> GrowPolicy {
@@ -200,7 +208,7 @@ impl Default for GradientBooster {
             1.,
             0.,
             1.,
-            0.5,
+            None,
             256,
             true,
             true,
@@ -215,6 +223,7 @@ impl Default for GradientBooster {
             GrowPolicy::DepthWise,
             None,
             None,
+            false,
         )
         .unwrap()
     }
@@ -240,7 +249,7 @@ impl GradientBooster {
     ///   Valid values are 0 to infinity.
     /// * `min_leaf_weight` - Minimum sum of the hessian values of the loss function
     ///   required to be in a node.
-    /// * `base_score` - The initial prediction value of the model.
+    /// * `base_score` - The initial prediction value of the model. If set to None the parameter `initialize_base_score` will automatically be set to `true`, in which case the base score will be chosen based on the objective function at fit time.
     /// * `nbins` - Number of bins to calculate to partition the data. Setting this to
     ///   a smaller number, will result in faster training time, while potentially sacrificing
     ///   accuracy. If there are more bins, than unique values in a column, all unique values
@@ -260,6 +269,7 @@ impl GradientBooster {
     /// * `sample_method` - Specify the method that records should be sampled when training?
     /// * `evaluation_metric` - Define the evaluation metric to record at each iterations.
     /// * `early_stopping_rounds` - Number of rounds that must
+    /// * `initialize_base_score` - If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         objective_type: ObjectiveType,
@@ -270,7 +280,7 @@ impl GradientBooster {
         l2: f32,
         gamma: f32,
         min_leaf_weight: f32,
-        base_score: f64,
+        base_score: Option<f64>,
         nbins: u16,
         parallel: bool,
         allow_missing_splits: bool,
@@ -285,7 +295,12 @@ impl GradientBooster {
         grow_policy: GrowPolicy,
         evaluation_metric: Option<Metric>,
         early_stopping_rounds: Option<usize>,
+        initialize_base_score: bool,
     ) -> Result<Self, ForustError> {
+        let (base_score_, initialize_base_score_) = match base_score {
+            Some(v) => (v, initialize_base_score),
+            None => (0.5, true),
+        };
         let booster = GradientBooster {
             objective_type,
             iterations,
@@ -295,7 +310,7 @@ impl GradientBooster {
             l2,
             gamma,
             min_leaf_weight,
-            base_score,
+            base_score: base_score_,
             nbins,
             parallel,
             allow_missing_splits,
@@ -310,6 +325,7 @@ impl GradientBooster {
             grow_policy,
             evaluation_metric,
             early_stopping_rounds,
+            initialize_base_score: initialize_base_score_,
             evaluation_history: None,
             best_iteration: None,
             prediction_iteration: None,
@@ -412,10 +428,15 @@ impl GradientBooster {
         evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
         let mut rng = StdRng::seed_from_u64(self.seed);
+
+        if self.initialize_base_score {
+            self.base_score = calc_init_callables(&self.objective_type)(y, sample_weight);
+        }
+
         let mut yhat = vec![self.base_score; y.len()];
-        let (calc_grad, calc_hess) = gradient_hessian_callables(&self.objective_type);
-        let mut grad = calc_grad(y, &yhat, sample_weight);
-        let mut hess = calc_hess(y, &yhat, sample_weight);
+
+        let calc_grad_hess = gradient_hessian_callables(&self.objective_type);
+        let (mut grad, mut hess) = calc_grad_hess(y, &yhat, sample_weight);
 
         // Generate binned data
         // TODO
@@ -506,8 +527,7 @@ impl GradientBooster {
                 }
             }
             self.trees.push(tree);
-            grad = calc_grad(y, &yhat, sample_weight);
-            hess = calc_hess(y, &yhat, sample_weight);
+            (grad, hess) = calc_grad_hess(y, &yhat, sample_weight);
         }
         Ok(())
     }
@@ -863,6 +883,16 @@ impl GradientBooster {
         self
     }
 
+    /// Set the number of nbins on the booster.
+    /// * `max_leaves` - Number of bins to calculate to partition the data. Setting this to
+    ///   a smaller number, will result in faster training time, while potentially sacrificing
+    ///   accuracy. If there are more bins, than unique values in a column, all unique values
+    ///   will be used.
+    pub fn set_nbins(mut self, nbins: u16) -> Self {
+        self.nbins = nbins;
+        self
+    }
+
     /// Set the l2 on the booster.
     /// * `l2` - The l2 regulation term of the booster.
     pub fn set_l2(mut self, l2: f32) -> Self {
@@ -892,10 +922,10 @@ impl GradientBooster {
         self
     }
 
-    /// Set the nbins on the booster.
-    /// * `nbins` - The nummber of bins used for partitioning the data of the booster.
-    pub fn set_nbins(mut self, nbins: u16) -> Self {
-        self.nbins = nbins;
+    /// Set the base_score on the booster.
+    /// * `base_score` - The base score of the booster.
+    pub fn set_initialize_base_score(mut self, initialize_base_score: bool) -> Self {
+        self.initialize_base_score = initialize_base_score;
         self
     }
 
@@ -1010,11 +1040,13 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         //let data = Matrix::new(data.get_col(1), 891, 1);
-        let mut booster = GradientBooster::default();
-        booster.iterations = 10;
-        booster.nbins = 300;
-        booster.max_depth = 3;
-        booster.subsample = 0.5;
+        let mut booster = GradientBooster::default()
+            .set_iterations(10)
+            .set_nbins(300)
+            .set_max_depth(3)
+            .set_subsample(0.5)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight, None).unwrap();
         let preds = booster.predict(&data, false);
@@ -1040,10 +1072,44 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         //let data = Matrix::new(data.get_col(1), 891, 1);
-        let mut booster = GradientBooster::default();
-        booster.iterations = 10;
-        booster.nbins = 300;
-        booster.max_depth = 3;
+        let mut booster = GradientBooster::default()
+            .set_iterations(10)
+            .set_nbins(300)
+            .set_max_depth(3)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
+
+        let sample_weight = vec![1.; y.len()];
+        booster.fit(&data, &y, &sample_weight, None).unwrap();
+        let preds = booster.predict(&data, false);
+        let contribs = booster.predict_contributions(&data, ContributionsMethod::Average, false);
+        assert_eq!(contribs.len(), (data.cols + 1) * data.rows);
+        println!("{}", booster.trees[0]);
+        println!("{}", booster.trees[0].nodes.len());
+        println!("{}", booster.trees.last().unwrap().nodes.len());
+        println!("{:?}", &preds[0..10]);
+    }
+
+    #[test]
+    fn test_booster_fit_nofitted_base_score() {
+        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file
+            .lines()
+            .map(|x| x.parse::<f64>().unwrap_or(f64::NAN))
+            .collect();
+        let file = fs::read_to_string("resources/performance-fare.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+
+        let data = Matrix::new(&data_vec, 891, 5);
+        //let data = Matrix::new(data.get_col(1), 891, 1);
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::SquaredLoss)
+            .set_iterations(10)
+            .set_nbins(300)
+            .set_max_depth(3)
+            .set_initialize_base_score(true);
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight, None).unwrap();
         let preds = booster.predict(&data, false);
@@ -1069,10 +1135,12 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         //let data = Matrix::new(data.get_col(1), 891, 1);
-        let mut booster = GradientBooster::default();
-        booster.iterations = 10;
-        booster.nbins = 300;
-        booster.max_depth = 3;
+        let mut booster = GradientBooster::default()
+            .set_iterations(10)
+            .set_nbins(300)
+            .set_max_depth(3)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
         let sample_weight = vec![1.; y.len()];
         booster.fit(&data, &y, &sample_weight, None).unwrap();
         let preds = booster.predict(&data, true);
