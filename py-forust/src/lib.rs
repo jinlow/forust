@@ -1,7 +1,9 @@
 use forust_ml::constraints::{Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::EvaluationData;
-use forust_ml::gradientbooster::{ContributionsMethod, GradientBooster as CrateGradientBooster};
+use forust_ml::gradientbooster::{
+    ContributionsMethod, GradientBooster as CrateGradientBooster, GrowPolicy,
+};
 use forust_ml::metric::Metric;
 use forust_ml::objective::ObjectiveType;
 use forust_ml::sampler::SampleMethod;
@@ -73,6 +75,7 @@ impl GradientBooster {
         missing: f64,
         create_missing_branch: bool,
         sample_method: Option<&str>,
+        grow_policy: &str,
         evaluation_metric: Option<&str>,
         early_stopping_rounds: Option<usize>,
         initialize_base_score: bool,
@@ -83,6 +86,7 @@ impl GradientBooster {
             Some(s) => to_value_error(SampleMethod::from_str(s))?,
             None => SampleMethod::None,
         };
+        let grow_policy_ = to_value_error(GrowPolicy::from_str(grow_policy))?;
         let evaluation_metric_ = match evaluation_metric {
             Some(s) => Some(to_value_error(Metric::from_str(s))?),
             None => None,
@@ -108,6 +112,7 @@ impl GradientBooster {
             missing,
             create_missing_branch,
             sample_method_,
+            grow_policy_,
             evaluation_metric_,
             early_stopping_rounds,
             initialize_base_score,
@@ -270,6 +275,10 @@ impl GradientBooster {
             SampleMethod::Goss => Some("goss"),
             SampleMethod::None => None,
         };
+        let grow_policy_: Option<&str> = match self.booster.grow_policy {
+            GrowPolicy::DepthWise => Some("DepthWise"),
+            GrowPolicy::LossGuide => Some("LossGuide"),
+        };
         let evaluation_metric_: Option<&str> = match self.booster.evaluation_metric {
             Some(Metric::AUC) => Some("AUC"),
             Some(Metric::LogLoss) => Some("LogLoss"),
@@ -322,6 +331,7 @@ impl GradientBooster {
                 self.booster.create_missing_branch.to_object(py),
             ),
             ("sample_method", sample_method_.to_object(py)),
+            ("grow_policy", grow_policy_.to_object(py)),
             ("evaluation_metric", evaluation_metric_.to_object(py)),
             (
                 "early_stopping_rounds",

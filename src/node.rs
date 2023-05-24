@@ -3,6 +3,7 @@ use crate::histogram::HistogramMatrix;
 use crate::splitter::{MissingInfo, NodeInfo, SplitInfo};
 use crate::utils::is_missing;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::fmt::{self, Debug};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -42,6 +43,26 @@ pub struct Node {
     pub right_child: usize,
     pub is_leaf: bool,
 }
+
+impl Ord for SplittableNode {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.gain_value.total_cmp(&other.gain_value)
+    }
+}
+
+impl PartialOrd for SplittableNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for SplittableNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.gain_value == other.gain_value
+    }
+}
+
+impl Eq for SplittableNode {}
 
 impl Node {
     /// Update all the info that is needed if this node is a
