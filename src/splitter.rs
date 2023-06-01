@@ -328,7 +328,9 @@ impl Splitter for MissingBranchSplitter {
             gain: missing_gain,
             cover: missing_hessian,
             weight: missing_weight,
-            bounds: (f32::NEG_INFINITY, f32::INFINITY),
+            // Constrain to the same level as the parent weight.
+            // The more I think about this the more it makes sense.
+            bounds: (lower_bound, upper_bound),
         };
         let missing_node = // Check Missing direction
         if ((missing_gradient != 0.0) || (missing_hessian != 0.0)) && self.allow_missing_splits {
