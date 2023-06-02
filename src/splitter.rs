@@ -328,8 +328,9 @@ impl Splitter for MissingBranchSplitter {
             gain: missing_gain,
             cover: missing_hessian,
             weight: missing_weight,
-            // Constrain to the same level as the parent weight.
-            // The more I think about this the more it makes sense.
+            // Constrain to the same bounds as the parent.
+            // This will ensure that no splits further down in the missing only
+            // branch are monotonic.
             bounds: (lower_bound, upper_bound),
         };
         let missing_node = // Check Missing direction
