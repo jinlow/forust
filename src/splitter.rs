@@ -329,7 +329,7 @@ impl Splitter for MissingBranchSplitter {
             cover: missing_hessian,
             weight: missing_weight,
             // Constrain to the same bounds as the parent.
-            // This will ensure that no splits further down in the missing only
+            // This will ensure that splits further down in the missing only
             // branch are monotonic.
             bounds: (lower_bound, upper_bound),
         };
