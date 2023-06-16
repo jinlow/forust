@@ -33,6 +33,7 @@ pub enum ContributionsMethod {
     Average,
     BranchDifference,
     MidpointDifference,
+    ModeDifference,
 }
 
 impl FromStr for ContributionsMethod {
@@ -44,6 +45,7 @@ impl FromStr for ContributionsMethod {
             "Average" => Ok(ContributionsMethod::Average),
             "BranchDifference" => Ok(ContributionsMethod::BranchDifference),
             "MidpointDifference" => Ok(ContributionsMethod::MidpointDifference),
+            "ModeDifference" => Ok(ContributionsMethod::ModeDifference),
             _ => Err(ForustError::ParseString(
                 s.to_string(),
                 "ContributionsMethod".to_string(),
@@ -572,6 +574,7 @@ impl GradientBooster {
         init_preds
     }
 
+    /// Predict the contributions matrix for the provided dataset.
     pub fn predict_contributions(
         &self,
         data: &Matrix<f64>,
@@ -580,31 +583,40 @@ impl GradientBooster {
     ) -> Vec<f64> {
         match method {
             ContributionsMethod::Average => self.predict_contributions_average(data, parallel),
-            ContributionsMethod::Weight => self.predict_contributions_weight(data, parallel),
+            _ => self.predict_contributions_tree_alone(data, parallel, method),
+        }
+    }
+
+    // All of the contribution calculation methods, except for average are calculated
+    // using just the model, so we don't need to have separate methods, we can instead
+    // just have this one method, that dispatches to each one respectively.
+    fn predict_contributions_tree_alone(
+        &self,
+        data: &Matrix<f64>,
+        parallel: bool,
+        method: ContributionsMethod,
+    ) -> Vec<f64> {
+        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
+
+        // Add the bias term to every bias value...
+        let bias_idx = data.cols + 1;
+        contribs
+            .iter_mut()
+            .skip(bias_idx - 1)
+            .step_by(bias_idx)
+            .for_each(|v| *v += self.base_score);
+
+        let row_pred_fn = match method {
+            ContributionsMethod::Weight => Tree::predict_contributions_row_weight,
             ContributionsMethod::BranchDifference => {
-                self.predict_contributions_branch_difference(data, parallel)
+                Tree::predict_contributions_row_branch_difference
             }
             ContributionsMethod::MidpointDifference => {
-                self.predict_contributions_midpoint_difference(data, parallel)
+                Tree::predict_contributions_row_midpoint_difference
             }
-        }
-    }
-
-    fn predict_contributions_midpoint_difference(
-        &self,
-        data: &Matrix<f64>,
-        parallel: bool,
-    ) -> Vec<f64> {
-        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
-
-        // Add the bias term to every bias value...
-        let bias_idx = data.cols + 1;
-        contribs
-            .iter_mut()
-            .skip(bias_idx - 1)
-            .step_by(bias_idx)
-            .for_each(|v| *v += self.base_score);
-
+            ContributionsMethod::ModeDifference => Tree::predict_contributions_row_mode_difference,
+            ContributionsMethod::Average => unreachable!(),
+        };
         // Clean this up..
         // materializing a row, and then passing that to all of the
         // trees seems to be the fastest approach (5X faster), we should test
@@ -616,7 +628,7 @@ impl GradientBooster {
                 .for_each(|(row, c)| {
                     let r_ = data.get_row(*row);
                     self.get_prediction_trees().iter().for_each(|t| {
-                        t.predict_contributions_row_midpoint_difference(&r_, c, &self.missing);
+                        row_pred_fn(t, &r_, c, &self.missing);
                     });
                 });
         } else {
@@ -626,91 +638,7 @@ impl GradientBooster {
                 .for_each(|(row, c)| {
                     let r_ = data.get_row(*row);
                     self.get_prediction_trees().iter().for_each(|t| {
-                        t.predict_contributions_row_midpoint_difference(&r_, c, &self.missing);
-                    });
-                });
-        }
-
-        contribs
-    }
-
-    fn predict_contributions_branch_difference(
-        &self,
-        data: &Matrix<f64>,
-        parallel: bool,
-    ) -> Vec<f64> {
-        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
-
-        // Add the bias term to every bias value...
-        let bias_idx = data.cols + 1;
-        contribs
-            .iter_mut()
-            .skip(bias_idx - 1)
-            .step_by(bias_idx)
-            .for_each(|v| *v += self.base_score);
-
-        // Clean this up..
-        // materializing a row, and then passing that to all of the
-        // trees seems to be the fastest approach (5X faster), we should test
-        // something like this for normal predictions.
-        if parallel {
-            data.index
-                .par_iter()
-                .zip(contribs.par_chunks_mut(data.cols + 1))
-                .for_each(|(row, c)| {
-                    let r_ = data.get_row(*row);
-                    self.get_prediction_trees().iter().for_each(|t| {
-                        t.predict_contributions_row_branch_difference(&r_, c, &self.missing);
-                    });
-                });
-        } else {
-            data.index
-                .iter()
-                .zip(contribs.chunks_mut(data.cols + 1))
-                .for_each(|(row, c)| {
-                    let r_ = data.get_row(*row);
-                    self.get_prediction_trees().iter().for_each(|t| {
-                        t.predict_contributions_row_branch_difference(&r_, c, &self.missing);
-                    });
-                });
-        }
-
-        contribs
-    }
-
-    fn predict_contributions_weight(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
-        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
-
-        // Add the bias term to every bias value...
-        let bias_idx = data.cols + 1;
-        contribs
-            .iter_mut()
-            .skip(bias_idx - 1)
-            .step_by(bias_idx)
-            .for_each(|v| *v += self.base_score);
-
-        // Clean this up..
-        // materializing a row, and then passing that to all of the
-        // trees seems to be the fastest approach (5X faster), we should test
-        // something like this for normal predictions.
-        if parallel {
-            data.index
-                .par_iter()
-                .zip(contribs.par_chunks_mut(data.cols + 1))
-                .for_each(|(row, c)| {
-                    let r_ = data.get_row(*row);
-                    self.get_prediction_trees().iter().for_each(|t| {
-                        t.predict_contributions_row_weight(&r_, c, &self.missing);
-                    });
-                });
-        } else {
-            data.index
-                .iter()
-                .zip(contribs.chunks_mut(data.cols + 1))
-                .for_each(|(row, c)| {
-                    let r_ = data.get_row(*row);
-                    self.get_prediction_trees().iter().for_each(|t| {
-                        t.predict_contributions_row_weight(&r_, c, &self.missing);
+                        row_pred_fn(t, &r_, c, &self.missing);
                     });
                 });
         }

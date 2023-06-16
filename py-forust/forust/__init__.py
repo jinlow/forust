@@ -24,6 +24,9 @@ CONTRIBUTION_METHODS = {
     "midpoint-difference": "MidpointDifference",
     "midpointdifference": "MidpointDifference",
     "MidpointDifference": "MidpointDifference",
+    "mode-difference": "ModeDifference",
+    "modedifference": "ModeDifference",
+    "ModeDifference": "ModeDifference",
 }
 
 
@@ -445,6 +448,7 @@ class GradientBooster:
                 - "weight": This method will use the internal leaf weights, to calculate the contributions. This is the same as what is described by Saabas [here](https://blog.datadive.net/interpreting-random-forests/).
                 - "branch-difference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the other non-missing branch. This method does not have the property where the contributions summed is equal to the final prediction of the model.
                 - "midpoint-difference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the mid-point between the right and left node weighted by the cover of each node. This method does not have the property where the contributions summed is equal to the final prediction of the model.
+                - "mode-difference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the node with the largest cover (the mode node). This method does not have the property where the contributions summed is equal to the final prediction of the model.
             parallel (Union[bool, None], optional): Optionally specify if the predict
                 function should run in parallel on multiple threads. If `None` is
                 passed, the `parallel` attribute of the booster will be used.

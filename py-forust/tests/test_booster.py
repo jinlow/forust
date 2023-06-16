@@ -410,10 +410,24 @@ def test_booster_to_xgboosts_with_contributions_missing_branch_methods(X_y):
     assert np.allclose(contribs_weight.sum(1), fmod_preds)
     assert not np.allclose(contribs_weight, contribs_average)
 
-    contribs_difference = fmod.predict_contributions(X, method="BranchDifference")
-    assert (contribs_difference[:, :-1][X.isna()] == 0).all()
-    assert not np.allclose(contribs_difference.sum(1), fmod_preds)
-    assert not np.allclose(contribs_difference, contribs_average)
+    contribs_branch_difference = fmod.predict_contributions(
+        X, method="BranchDifference"
+    )
+    assert (contribs_branch_difference[:, :-1][X.isna()] == 0).all()
+    assert not np.allclose(contribs_branch_difference.sum(1), fmod_preds)
+    assert not np.allclose(contribs_branch_difference, contribs_average)
+
+    contribs_midpoint_difference = fmod.predict_contributions(
+        X, method="MidpointDifference"
+    )
+    assert (contribs_midpoint_difference[:, :-1][X.isna()] == 0).all()
+    assert not np.allclose(contribs_midpoint_difference.sum(1), fmod_preds)
+    assert not np.allclose(contribs_midpoint_difference, contribs_average)
+
+    contribs_mode_difference = fmod.predict_contributions(X, method="ModeDifference")
+    assert (contribs_mode_difference[:, :-1][X.isna()] == 0).all()
+    assert not np.allclose(contribs_mode_difference.sum(1), fmod_preds)
+    assert not np.allclose(contribs_mode_difference, contribs_average)
 
 
 def test_booster_to_xgboosts_with_contributions(X_y):
