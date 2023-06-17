@@ -26,7 +26,7 @@ pip install forust
 
 To use in a rust project add the following to your Cargo.toml file.
 ```toml
-forust-ml = "0.2.13"
+forust-ml = "0.2.14"
 ```
 
 ## Usage
@@ -124,6 +124,7 @@ The `predict_contributions` method will predict with the fitted booster on new d
       - "weight": This method will use the internal leaf weights, to calculate the contributions. This is the same as what is described by Saabas [here](https://blog.datadive.net/interpreting-random-forests/).
       - "branch-difference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the other non-missing branch. This method does not have the property where the contributions summed is equal to the final prediction of the model.
       - "midpoint-difference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the mid-point between the right and left node weighted by the cover of each node. This method does not have the property where the contributions summed is equal to the final prediction of the model.
+      - "mode-difference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the node with the largest cover (the mode node). This method does not have the property where the contributions summed is equal to the final prediction of the model.
  - `parallel` ***(Optional[bool], optional)***: Optionally specify if the predict function should run in parallel on multiple threads. If `None` is passed, the `parallel` attribute of the booster will be used. Defaults to `None`.
 
 When predicting with the data, the maximum iteration that will be used when predicting can be set using the `set_prediction_iteration` method. If `early_stopping_rounds` has been set, this will default to the best iteration, otherwise all of the trees will be used. It accepts a single value.
