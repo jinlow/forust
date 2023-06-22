@@ -28,6 +28,7 @@ pub enum GrowPolicy {
     LossGuide,
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum ContributionsMethod {
     Weight,
     Average,

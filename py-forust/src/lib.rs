@@ -1,9 +1,7 @@
 use forust_ml::constraints::{Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::EvaluationData;
-use forust_ml::gradientbooster::{
-    ContributionsMethod, GradientBooster as CrateGradientBooster, GrowPolicy,
-};
+use forust_ml::gradientbooster::{GradientBooster as CrateGradientBooster, GrowPolicy};
 use forust_ml::metric::Metric;
 use forust_ml::objective::ObjectiveType;
 use forust_ml::sampler::SampleMethod;
@@ -13,9 +11,8 @@ use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
-use serde_json;
+use serde_plain;
 use std::collections::HashMap;
-use std::str::FromStr;
 
 type PyEvaluationData<'a> = (
     PyReadonlyArray1<'a, f64>,
@@ -55,6 +52,32 @@ struct GradientBooster {
 impl GradientBooster {
     #[new]
     #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature=(
+        objective_type,
+        iterations,
+        learning_rate,
+        max_depth,
+        max_leaves,
+        l2,
+        gamma,
+        min_leaf_weight,
+        base_score,
+        nbins,
+        parallel,
+        allow_missing_splits,
+        monotone_constraints,
+        subsample,
+        top_rate,
+        other_rate,
+        seed,
+        missing,
+        create_missing_branch,
+        sample_method,
+        grow_policy,
+        evaluation_metric,
+        early_stopping_rounds,
+        initialize_base_score,
+    ))]
     pub fn new(
         objective_type: &str,
         iterations: usize,
@@ -82,14 +105,14 @@ impl GradientBooster {
         initialize_base_score: bool,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
-        let objective_ = to_value_error(ObjectiveType::from_str(objective_type))?;
+        let objective_ = to_value_error(serde_plain::from_str(objective_type))?;
         let sample_method_ = match sample_method {
-            Some(s) => to_value_error(SampleMethod::from_str(s))?,
+            Some(s) => to_value_error(serde_plain::from_str(s))?,
             None => SampleMethod::None,
         };
-        let grow_policy_ = to_value_error(GrowPolicy::from_str(grow_policy))?;
+        let grow_policy_ = to_value_error(serde_plain::from_str(grow_policy))?;
         let evaluation_metric_ = match evaluation_metric {
-            Some(s) => Some(to_value_error(Metric::from_str(s))?),
+            Some(s) => Some(to_value_error(serde_plain::from_str(s))?),
             None => None,
         };
         let booster = CrateGradientBooster::new(
@@ -200,8 +223,7 @@ impl GradientBooster {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let parallel = parallel.unwrap_or(true);
-        // let method_ = to_value_error(ContributionsMethod::from_str(method))?;
-        let method_ = to_value_error(serde_json::from_str(method))?;
+        let method_ = to_value_error(serde_plain::from_str(method))?;
         Ok(self
             .booster
             .predict_contributions(&data, method_, parallel)
@@ -268,14 +290,12 @@ impl GradientBooster {
     }
 
     pub fn get_params(&self, py: Python) -> PyResult<PyObject> {
-        let objective_ = match self.booster.objective_type {
-            ObjectiveType::LogLoss => "LogLoss",
-            ObjectiveType::SquaredLoss => "SquaredLoss",
-        };
-        let sample_method_: Option<&str> = match self.booster.sample_method {
-            SampleMethod::Random => Some("random"),
-            SampleMethod::Goss => Some("goss"),
+        let objective_ = to_value_error(serde_plain::to_string::<ObjectiveType>(
+            &self.booster.objective_type,
+        ))?;
+        let sample_method_: Option<String> = match self.booster.sample_method {
             SampleMethod::None => None,
+            _ => serde_plain::to_string::<SampleMethod>(&self.booster.sample_method).ok(),
         };
         let grow_policy_: Option<&str> = match self.booster.grow_policy {
             GrowPolicy::DepthWise => Some("DepthWise"),

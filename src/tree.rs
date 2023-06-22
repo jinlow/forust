@@ -431,15 +431,15 @@ impl Tree {
         weights
     }
 
-    fn get_node_stats<F>(&self, stat: &F, node: &Node, mut count: usize, mut value: f64)
+    fn get_node_stats<F>(&self, stat: &F, node: &Node, count: &mut usize, value: &mut f64)
     where
         F: Fn(&Node) -> f64,
     {
         if node.is_leaf {
             return;
         }
-        count += 1;
-        value += stat(node);
+        *count += 1;
+        *value += stat(node);
         self.get_node_stats(stat, &self.nodes[node.left_child], count, value);
         self.get_node_stats(stat, &self.nodes[node.right_child], count, value);
         if node.has_missing_branch() {
@@ -448,13 +448,13 @@ impl Tree {
     }
 
     pub fn calculate_importance_weight(&self, feature: usize) -> (usize, f64) {
-        let count = 0;
-        let value = 0.;
+        let mut count = 0;
+        let mut value = 0.;
         self.get_node_stats(
             &|n: &Node| (n.split_feature == feature) as i8 as f64,
             &self.nodes[0],
-            count,
-            value,
+            &mut count,
+            &mut value,
         );
         (count, value)
     }

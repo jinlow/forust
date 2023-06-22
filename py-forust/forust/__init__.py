@@ -29,6 +29,13 @@ CONTRIBUTION_METHODS = {
     "ModeDifference": "ModeDifference",
 }
 
+SAMPLE_METHODS = {
+    "goss": "Goss",
+    "Goss": "Goss",
+    "random": "Random",
+    "Random": "Random",
+}
+
 
 class BoosterType(Protocol):
     monotone_constraints: dict[int, int]
@@ -249,7 +256,9 @@ class GradientBooster:
             TypeError: Raised if an invalid dtype is passed.
         """
         sample_method = (
-            "random" if (subsample < 1) and (sample_method is None) else sample_method
+            "Random"
+            if (subsample < 1) and (sample_method is None)
+            else SAMPLE_METHODS[sample_method]
         )
         booster = CrateGradientBooster(
             objective_type=objective_type,
