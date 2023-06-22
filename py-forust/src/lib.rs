@@ -15,6 +15,7 @@ use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
 use std::collections::HashMap;
 use std::str::FromStr;
+use serde_json;
 
 type PyEvaluationData<'a> = (
     PyReadonlyArray1<'a, f64>,
@@ -199,7 +200,8 @@ impl GradientBooster {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let parallel = parallel.unwrap_or(true);
-        let method_ = to_value_error(ContributionsMethod::from_str(method))?;
+        // let method_ = to_value_error(ContributionsMethod::from_str(method))?;
+        let method_ = to_value_error(serde_json::from_str(method))?;
         Ok(self
             .booster
             .predict_contributions(&data, method_, parallel)

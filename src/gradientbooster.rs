@@ -49,6 +49,34 @@ impl FromStr for ContributionsMethod {
             _ => Err(ForustError::ParseString(
                 s.to_string(),
                 "ContributionsMethod".to_string(),
+                items_to_strings(vec!["Weight", "Average", "BranchDifference", "MidpointDifference", "ModeDifference"]),
+            )),
+        }
+    }
+}
+
+
+pub enum ImportanceMethod {
+    Weight,
+    Gain,
+    Cover,
+    TotalGain,
+    TotalCover,
+}
+
+impl FromStr for ImportanceMethod {
+    type Err = ForustError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Weight" => Ok(ImportanceMethod::Weight),
+            "Gain" => Ok(ImportanceMethod::Gain),
+            "Cover" => Ok(ImportanceMethod::Cover),
+            "TotalGain" => Ok(ImportanceMethod::TotalGain),
+            "TotalCover" => Ok(ImportanceMethod::TotalCover),
+            _ => Err(ForustError::ParseString(
+                s.to_string(),
+                "ImportanceMethod".to_string(),
                 items_to_strings(vec!["Weight", "Average", "BranchDifference"]),
             )),
         }
