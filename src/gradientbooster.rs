@@ -49,12 +49,17 @@ impl FromStr for ContributionsMethod {
             _ => Err(ForustError::ParseString(
                 s.to_string(),
                 "ContributionsMethod".to_string(),
-                items_to_strings(vec!["Weight", "Average", "BranchDifference", "MidpointDifference", "ModeDifference"]),
+                items_to_strings(vec![
+                    "Weight",
+                    "Average",
+                    "BranchDifference",
+                    "MidpointDifference",
+                    "ModeDifference",
+                ]),
             )),
         }
     }
 }
-
 
 pub enum ImportanceMethod {
     Weight,

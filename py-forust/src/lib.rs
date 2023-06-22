@@ -13,9 +13,9 @@ use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
+use serde_json;
 use std::collections::HashMap;
 use std::str::FromStr;
-use serde_json;
 
 type PyEvaluationData<'a> = (
     PyReadonlyArray1<'a, f64>,
