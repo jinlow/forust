@@ -1,6 +1,4 @@
-use std::str::FromStr;
-
-use crate::{data::FloatData, errors::ForustError, metric::Metric, utils::items_to_strings};
+use crate::{data::FloatData, metric::Metric};
 use serde::{Deserialize, Serialize};
 
 type ObjFn = fn(&[f64], &[f64], &[f64]) -> (Vec<f32>, Vec<f32>);
@@ -9,22 +7,6 @@ type ObjFn = fn(&[f64], &[f64], &[f64]) -> (Vec<f32>, Vec<f32>);
 pub enum ObjectiveType {
     LogLoss,
     SquaredLoss,
-}
-
-impl FromStr for ObjectiveType {
-    type Err = ForustError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "LogLoss" => Ok(ObjectiveType::LogLoss),
-            "SquaredLoss" => Ok(ObjectiveType::SquaredLoss),
-            _ => Err(ForustError::ParseString(
-                s.to_string(),
-                "ObjectiveType".to_string(),
-                items_to_strings(vec!["LogLoss", "SquaredLoss"]),
-            )),
-        }
-    }
 }
 
 pub fn gradient_hessian_callables(objective_type: &ObjectiveType) -> ObjFn {

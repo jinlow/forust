@@ -258,7 +258,7 @@ class GradientBooster:
         sample_method = (
             "Random"
             if (subsample < 1) and (sample_method is None)
-            else SAMPLE_METHODS[sample_method]
+            else SAMPLE_METHODS.get(sample_method, "Random")
         )
         booster = CrateGradientBooster(
             objective_type=objective_type,
