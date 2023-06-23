@@ -575,8 +575,12 @@ class GradientBooster:
         """Calculate variable importance for features in the model.
 
         Args:
-            method (str, optional): Variable importance method. Defaults to "Weight".
-            return_dictionary (bool, optional): Return a dictionary where the keys are the feature names if the model was fit on  pandas data-frame, otherwise they will be the index of the feature.
+            method (str, optional): Variable importance method. Defaults to "Weight". Valid options are:
+              - "Weight": The number of times a feature is used to split the data across all trees.
+              - "Gain": The average split gain across all splits the feature is used in.
+              - "Cover": The average coverage across all splits the feature is used in.
+              - "TotalGain": The total gain across all splits the feature is used in.
+              - "TotalCover": The total coverage across all splits the feature is used in.
 
         Returns:
             dict[str, float]: Variable importance values, for features present in the model.
