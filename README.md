@@ -216,7 +216,13 @@ Feature importance values can be calculated with the `calculate_feature_importan
 
 ```python
 model.calculate_feature_importance("Gain")
-# 
+# {
+#   'parch': 0.0713072270154953, 
+#   'age': 0.11609109491109848,
+#   'sibsp': 0.1486879289150238,
+#   'fare': 0.14309120178222656,
+#   'pclass': 0.5208225250244141
+# }
 ```
 
 ### Saving the model
