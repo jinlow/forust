@@ -205,16 +205,18 @@ plt.ylabel("Log Odds")
 ```
 <img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/pdp_plot_age_mono.png">
 
-Feature importance values can be calculated with the `calculate_feature_importance` method. This function takes the following arguments.
- - `method` ***(str, optional)***: Variable importance method. Defaults to "Weight". Valid options are:
+Feature importance values can be calculated with the `calculate_feature_importance` method. This function will return a dictionary of the features and their importances. It should be noted that if a feature was never used for splitting it will not be returned in importance dictionary. This function takes the following arguments.
+ - `method` ***(str, optional)***: Variable importance method. Defaults to "Gain". Valid options are:
       - "Weight": The number of times a feature is used to split the data across all trees.
       - "Gain": The average split gain across all splits the feature is used in.
       - "Cover": The average coverage across all splits the feature is used in.
       - "TotalGain": The total gain across all splits the feature is used in.
       - "TotalCover": The total coverage across all splits the feature is used in.
+ - `normalize` ***(bool, optional)***: Should the importance be normalized to sum to 1? Defaults to `True`.
 
 ```python
-model.calculate_feature_importance("Weight")
+model.calculate_feature_importance("Gain")
+# 
 ```
 
 ### Saving the model

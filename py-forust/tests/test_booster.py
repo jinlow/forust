@@ -115,24 +115,24 @@ def test_importance(X_y):
     )
     fmod.fit(X, y)
     x_imp = xmod.get_booster().get_score(importance_type="weight")
-    f_imp = fmod.calculate_feature_importance(method="Weight")
-    assert all(f_imp[f] == x_imp[f] for f in x_imp.keys())
+    f_imp = fmod.calculate_feature_importance(method="Weight", normalize=False)
+    assert all([f_imp[f] == x_imp[f] for f in x_imp.keys()])
 
     x_imp = xmod.get_booster().get_score(importance_type="gain")
-    f_imp = fmod.calculate_feature_importance(method="Gain")
-    assert all(np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys())
+    f_imp = fmod.calculate_feature_importance(method="Gain", normalize=False)
+    assert all([np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys()])
 
     x_imp = xmod.get_booster().get_score(importance_type="total_gain")
-    f_imp = fmod.calculate_feature_importance(method="TotalGain")
-    assert all(np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys())
+    f_imp = fmod.calculate_feature_importance(method="TotalGain", normalize=False)
+    assert all([np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys()])
 
     x_imp = xmod.get_booster().get_score(importance_type="cover")
-    f_imp = fmod.calculate_feature_importance(method="Cover")
-    assert all(np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys())
+    f_imp = fmod.calculate_feature_importance(method="Cover", normalize=False)
+    assert all([np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys()])
 
     x_imp = xmod.get_booster().get_score(importance_type="total_cover")
-    f_imp = fmod.calculate_feature_importance(method="TotalCover")
-    assert all(np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys())
+    f_imp = fmod.calculate_feature_importance(method="TotalCover", normalize=False)
+    assert all([np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys()])
 
 
 def test_booster_to_xgboosts_with_missing_sl(X_y):

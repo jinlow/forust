@@ -230,9 +230,15 @@ impl GradientBooster {
             .into_pyarray(py))
     }
 
-    pub fn calculate_feature_importance(&self, method: &str) -> PyResult<HashMap<usize, f32>> {
+    pub fn calculate_feature_importance(
+        &self,
+        method: &str,
+        normalize: bool,
+    ) -> PyResult<HashMap<usize, f32>> {
         let method_ = to_value_error(serde_plain::from_str(method))?;
-        Ok(self.booster.calculate_feature_importance(method_))
+        Ok(self
+            .booster
+            .calculate_feature_importance(method_, normalize))
     }
 
     pub fn value_partial_dependence(&self, feature: usize, value: f64) -> PyResult<f64> {

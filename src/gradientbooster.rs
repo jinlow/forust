@@ -712,7 +712,11 @@ impl GradientBooster {
     /// in the model.
     /// - `method`: variable importance method to use.
     /// - `n_features`: The number of features to calculate the importance for.
-    pub fn calculate_feature_importance(&self, method: ImportanceMethod) -> HashMap<usize, f32> {
+    pub fn calculate_feature_importance(
+        &self,
+        method: ImportanceMethod,
+        normalize: bool,
+    ) -> HashMap<usize, f32> {
         let (average, importance_fn): (bool, ImportanceFn) = match method {
             ImportanceMethod::Weight => (false, Tree::calculate_importance_weight),
             ImportanceMethod::Gain => (true, Tree::calculate_importance_gain),
@@ -725,7 +729,7 @@ impl GradientBooster {
             importance_fn(tree, &mut stats)
         }
 
-        stats
+        let importance = stats
             .iter()
             .map(|(k, (v, c))| {
                 if average {
@@ -734,7 +738,13 @@ impl GradientBooster {
                     (*k, *v)
                 }
             })
-            .collect()
+            .collect::<HashMap<usize, f32>>();
+        if normalize {
+            let total: f32 = importance.values().sum();
+            importance.iter().map(|(k, v)| (*k, v / total)).collect()
+        } else {
+            importance
+        }
     }
 
     /// Save a booster as a json object to a file.

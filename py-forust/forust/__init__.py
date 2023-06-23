@@ -84,7 +84,8 @@ class BoosterType(Protocol):
     def calculate_feature_importance(
         self,
         method: str,
-    ) -> np.array:
+        normalize: bool,
+    ) -> dict[str, float]:
         ...
 
     def text_dump(self) -> list[str]:
@@ -571,21 +572,26 @@ class GradientBooster:
             )
         return np.array(res)
 
-    def calculate_feature_importance(self, method: str = "Weight") -> dict[str, float]:
+    def calculate_feature_importance(
+        self, method: str = "Gain", normalize: bool = True
+    ) -> dict[str, float]:
         """Calculate variable importance for features in the model.
 
         Args:
-            method (str, optional): Variable importance method. Defaults to "Weight". Valid options are:
+            method (str, optional): Variable importance method. Defaults to "Gain". Valid options are:
               - "Weight": The number of times a feature is used to split the data across all trees.
               - "Gain": The average split gain across all splits the feature is used in.
               - "Cover": The average coverage across all splits the feature is used in.
               - "TotalGain": The total gain across all splits the feature is used in.
               - "TotalCover": The total coverage across all splits the feature is used in.
+            normalize (bool, optional): Should the importance be normalized to sum to 1? Defaults to `True`.
 
         Returns:
             dict[str, float]: Variable importance values, for features present in the model.
         """
-        importance_ = self.booster.calculate_feature_importance(method=method)
+        importance_ = self.booster.calculate_feature_importance(
+            method=method, normalize=normalize
+        )
         if hasattr(self, "feature_names_in_"):
             feature_map = {i: f for i, f in enumerate(self.feature_names_in_)}
             importance_ = {feature_map[i]: v for i, v in importance_.items()}
