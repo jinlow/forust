@@ -10,7 +10,7 @@ use crate::utils::fast_f64_sum;
 use crate::utils::{gain, weight};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{BinaryHeap, VecDeque};
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::fmt::{self, Display};
 
 #[derive(Deserialize, Serialize)]
@@ -429,6 +429,50 @@ impl Tree {
         let mut weights = vec![0.; self.nodes.len()];
         self.distribute_node_leaf_weights(0, &mut weights);
         weights
+    }
+
+    fn calc_feature_node_stats<F>(
+        &self,
+        calc_stat: &F,
+        node: &Node,
+        stats: &mut HashMap<usize, (f32, usize)>,
+    ) where
+        F: Fn(&Node) -> f32,
+    {
+        if node.is_leaf {
+            return;
+        }
+        stats
+            .entry(node.split_feature)
+            .and_modify(|(v, c)| {
+                *v += calc_stat(node);
+                *c += 1;
+            })
+            .or_insert((calc_stat(node), 1));
+        self.calc_feature_node_stats(calc_stat, &self.nodes[node.left_child], stats);
+        self.calc_feature_node_stats(calc_stat, &self.nodes[node.right_child], stats);
+        if node.has_missing_branch() {
+            self.calc_feature_node_stats(calc_stat, &self.nodes[node.missing_node], stats);
+        }
+    }
+
+    fn get_node_stats<F>(&self, calc_stat: &F, stats: &mut HashMap<usize, (f32, usize)>)
+    where
+        F: Fn(&Node) -> f32,
+    {
+        self.calc_feature_node_stats(calc_stat, &self.nodes[0], stats);
+    }
+
+    pub fn calculate_importance_weight(&self, stats: &mut HashMap<usize, (f32, usize)>) {
+        self.get_node_stats(&|_: &Node| 1., stats);
+    }
+
+    pub fn calculate_importance_gain(&self, stats: &mut HashMap<usize, (f32, usize)>) {
+        self.get_node_stats(&|n: &Node| n.split_gain, stats);
+    }
+
+    pub fn calculate_importance_cover(&self, stats: &mut HashMap<usize, (f32, usize)>) {
+        self.get_node_stats(&|n: &Node| n.hessian_sum, stats);
     }
 }
 

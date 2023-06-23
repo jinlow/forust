@@ -26,7 +26,7 @@ pip install forust
 
 To use in a rust project add the following to your Cargo.toml file.
 ```toml
-forust-ml = "0.2.14"
+forust-ml = "0.2.15"
 ```
 
 ## Usage
@@ -204,6 +204,26 @@ plt.xlabel("Age")
 plt.ylabel("Log Odds")
 ```
 <img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/pdp_plot_age_mono.png">
+
+Feature importance values can be calculated with the `calculate_feature_importance` method. This function will return a dictionary of the features and their importances. It should be noted that if a feature was never used for splitting it will not be returned in importance dictionary. This function takes the following arguments.
+ - `method` ***(str, optional)***: Variable importance method. Defaults to "Gain". Valid options are:
+      - "Weight": The number of times a feature is used to split the data across all trees.
+      - "Gain": The average split gain across all splits the feature is used in.
+      - "Cover": The average coverage across all splits the feature is used in.
+      - "TotalGain": The total gain across all splits the feature is used in.
+      - "TotalCover": The total coverage across all splits the feature is used in.
+ - `normalize` ***(bool, optional)***: Should the importance be normalized to sum to 1? Defaults to `True`.
+
+```python
+model.calculate_feature_importance("Gain")
+# {
+#   'parch': 0.0713072270154953, 
+#   'age': 0.11609109491109848,
+#   'sibsp': 0.1486879289150238,
+#   'fare': 0.14309120178222656,
+#   'pclass': 0.5208225250244141
+# }
+```
 
 ### Saving the model
 To save and subsequently load a trained booster, the `save_booster` and `load_booster` methods can be used. Each accepts a path, which is used to write the model to. The model is saved and loaded as a json object.
