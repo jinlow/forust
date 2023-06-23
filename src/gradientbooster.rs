@@ -10,17 +10,16 @@ use crate::objective::{
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
-use crate::utils::{items_to_strings, validate_positive_float_field};
+use crate::utils::validate_positive_float_field;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::str::FromStr;
-
 pub type EvaluationData<'a> = (Matrix<'a, f64>, &'a [f64], &'a [f64]);
 pub type TrainingEvaluationData<'a> = (&'a Matrix<'a, f64>, &'a [f64], &'a [f64], Vec<f64>);
+type ImportanceFn = fn(&Tree, &mut HashMap<usize, (f32, usize)>);
 
 #[derive(Serialize, Deserialize)]
 pub enum GrowPolicy {
@@ -37,28 +36,13 @@ pub enum ContributionsMethod {
     ModeDifference,
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum ImportanceMethod {
     Weight,
     Gain,
     Cover,
     TotalGain,
     TotalCover,
-}
-
-impl FromStr for GrowPolicy {
-    type Err = ForustError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "DepthWise" => Ok(GrowPolicy::DepthWise),
-            "LossGuide" => Ok(GrowPolicy::LossGuide),
-            _ => Err(ForustError::ParseString(
-                s.to_string(),
-                "GrowPolicy".to_string(),
-                items_to_strings(vec!["DepthWise", "LossGuide"]),
-            )),
-        }
-    }
 }
 
 /// Gradient Booster object
@@ -722,6 +706,35 @@ impl GradientBooster {
                 .sum()
         };
         pd + self.base_score
+    }
+
+    /// Calculate feature importance measure for the features
+    /// in the model.
+    /// - `method`: variable importance method to use.
+    /// - `n_features`: The number of features to calculate the importance for.
+    pub fn calculate_feature_importance(&self, method: ImportanceMethod) -> HashMap<usize, f32> {
+        let (average, importance_fn): (bool, ImportanceFn) = match method {
+            ImportanceMethod::Weight => (false, Tree::calculate_importance_weight),
+            ImportanceMethod::Gain => (true, Tree::calculate_importance_gain),
+            ImportanceMethod::TotalGain => (false, Tree::calculate_importance_gain),
+            ImportanceMethod::Cover => (true, Tree::calculate_importance_cover),
+            ImportanceMethod::TotalCover => (false, Tree::calculate_importance_cover),
+        };
+        let mut stats = HashMap::new();
+        for tree in self.trees.iter() {
+            importance_fn(tree, &mut stats)
+        }
+
+        stats
+            .iter()
+            .map(|(k, (v, c))| {
+                if average {
+                    (*k, v / (*c as f32))
+                } else {
+                    (*k, *v)
+                }
+            })
+            .collect()
     }
 
     /// Save a booster as a json object to a file.

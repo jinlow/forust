@@ -11,7 +11,6 @@ use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
-use serde_plain;
 use std::collections::HashMap;
 
 type PyEvaluationData<'a> = (
@@ -211,6 +210,7 @@ impl GradientBooster {
         let parallel = parallel.unwrap_or(true);
         Ok(self.booster.predict(&data, parallel).into_pyarray(py))
     }
+
     pub fn predict_contributions<'py>(
         &self,
         py: Python<'py>,
@@ -228,6 +228,11 @@ impl GradientBooster {
             .booster
             .predict_contributions(&data, method_, parallel)
             .into_pyarray(py))
+    }
+
+    pub fn calculate_feature_importance(&self, method: &str) -> PyResult<HashMap<usize, f32>> {
+        let method_ = to_value_error(serde_plain::from_str(method))?;
+        Ok(self.booster.calculate_feature_importance(method_))
     }
 
     pub fn value_partial_dependence(&self, feature: usize, value: f64) -> PyResult<f64> {
@@ -297,16 +302,12 @@ impl GradientBooster {
             SampleMethod::None => None,
             _ => serde_plain::to_string::<SampleMethod>(&self.booster.sample_method).ok(),
         };
-        let grow_policy_: Option<&str> = match self.booster.grow_policy {
-            GrowPolicy::DepthWise => Some("DepthWise"),
-            GrowPolicy::LossGuide => Some("LossGuide"),
-        };
-        let evaluation_metric_: Option<&str> = match self.booster.evaluation_metric {
-            Some(Metric::AUC) => Some("AUC"),
-            Some(Metric::LogLoss) => Some("LogLoss"),
-            Some(Metric::RootMeanSquaredLogError) => Some("RootMeanSquaredLogError"),
-            Some(Metric::RootMeanSquaredError) => Some("RootMeanSquaredError"),
-            _ => None,
+        let grow_policy_: Option<String> =
+            serde_plain::to_string::<GrowPolicy>(&self.booster.grow_policy).ok();
+
+        let evaluation_metric_ = match self.booster.evaluation_metric {
+            None => None,
+            Some(v) => serde_plain::to_string::<Metric>(&v).ok(),
         };
         let constraints: HashMap<usize, i8> = self
             .booster

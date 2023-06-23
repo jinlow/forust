@@ -81,6 +81,12 @@ class BoosterType(Protocol):
     ) -> float:
         ...
 
+    def calculate_feature_importance(
+        self,
+        method: str,
+    ) -> np.array:
+        ...
+
     def text_dump(self) -> list[str]:
         ...
 
@@ -147,7 +153,7 @@ class GradientBooster:
     # this is useful for parameters that should be
     # attempted to be loaded in and set
     # as attributes on the booster after it is loaded.
-    meta_data_attributes = ["feature_names_in_"]
+    meta_data_attributes = ["feature_names_in_", "n_features_"]
 
     def __init__(
         self,
@@ -345,6 +351,8 @@ class GradientBooster:
         """
 
         features_, flat_data, rows, cols = _convert_input_frame(X)
+        self.n_features_ = cols
+        self.insert_metadata("n_features_", self.n_features_)
         if len(features_) > 0:
             self.feature_names_in_ = features_
             self.insert_metadata("feature_names_in_", self.feature_names_in_)
@@ -562,6 +570,23 @@ class GradientBooster:
                 (v, self.booster.value_partial_dependence(feature=feature_idx, value=v))
             )
         return np.array(res)
+
+    def calculate_feature_importance(self, method: str = "Weight") -> dict[str, float]:
+        """Calculate variable importance for features in the model.
+
+        Args:
+            method (str, optional): Variable importance method. Defaults to "Weight".
+            return_dictionary (bool, optional): Return a dictionary where the keys are the feature names if the model was fit on  pandas data-frame, otherwise they will be the index of the feature.
+
+        Returns:
+            dict[str, float]: Variable importance values, for features present in the model.
+        """
+        importance_ = self.booster.calculate_feature_importance(method=method)
+        if hasattr(self, "feature_names_in_"):
+            feature_map = {i: f for i, f in enumerate(self.feature_names_in_)}
+            importance_ = {feature_map[i]: v for i, v in importance_.items()}
+
+        return importance_
 
     def text_dump(self) -> list[str]:
         """Return all of the trees of the model in text form.

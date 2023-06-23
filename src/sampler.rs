@@ -1,31 +1,12 @@
-use crate::errors::ForustError;
-use crate::utils::items_to_strings;
 use rand::rngs::StdRng;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 
 #[derive(Serialize, Deserialize)]
 pub enum SampleMethod {
     None,
     Random,
     Goss,
-}
-
-impl FromStr for SampleMethod {
-    type Err = ForustError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "random" => Ok(SampleMethod::Random),
-            "goss" => Ok(SampleMethod::Goss),
-            _ => Err(ForustError::ParseString(
-                s.to_string(),
-                "SampleMethod".to_string(),
-                items_to_strings(vec!["random", "goss"]),
-            )),
-        }
-    }
 }
 
 // A sampler can be used to subset the data prior to fitting a new tree.

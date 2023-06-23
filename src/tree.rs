@@ -10,7 +10,7 @@ use crate::utils::fast_f64_sum;
 use crate::utils::{gain, weight};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{BinaryHeap, VecDeque};
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::fmt::{self, Display};
 
 #[derive(Deserialize, Serialize)]
@@ -431,32 +431,48 @@ impl Tree {
         weights
     }
 
-    fn get_node_stats<F>(&self, stat: &F, node: &Node, count: &mut usize, value: &mut f64)
-    where
-        F: Fn(&Node) -> f64,
+    fn calc_feature_node_stats<F>(
+        &self,
+        calc_stat: &F,
+        node: &Node,
+        stats: &mut HashMap<usize, (f32, usize)>,
+    ) where
+        F: Fn(&Node) -> f32,
     {
         if node.is_leaf {
             return;
         }
-        *count += 1;
-        *value += stat(node);
-        self.get_node_stats(stat, &self.nodes[node.left_child], count, value);
-        self.get_node_stats(stat, &self.nodes[node.right_child], count, value);
+        stats
+            .entry(node.split_feature)
+            .and_modify(|(v, c)| {
+                *v += calc_stat(node);
+                *c += 1;
+            })
+            .or_insert((calc_stat(node), 1));
+        self.calc_feature_node_stats(calc_stat, &self.nodes[node.left_child], stats);
+        self.calc_feature_node_stats(calc_stat, &self.nodes[node.right_child], stats);
         if node.has_missing_branch() {
-            self.get_node_stats(stat, &self.nodes[node.missing_node], count, value);
+            self.calc_feature_node_stats(calc_stat, &self.nodes[node.missing_node], stats);
         }
     }
 
-    pub fn calculate_importance_weight(&self, feature: usize) -> (usize, f64) {
-        let mut count = 0;
-        let mut value = 0.;
-        self.get_node_stats(
-            &|n: &Node| (n.split_feature == feature) as i8 as f64,
-            &self.nodes[0],
-            &mut count,
-            &mut value,
-        );
-        (count, value)
+    fn get_node_stats<F>(&self, calc_stat: &F, stats: &mut HashMap<usize, (f32, usize)>)
+    where
+        F: Fn(&Node) -> f32,
+    {
+        self.calc_feature_node_stats(calc_stat, &self.nodes[0], stats);
+    }
+
+    pub fn calculate_importance_weight(&self, stats: &mut HashMap<usize, (f32, usize)>) {
+        self.get_node_stats(&|_: &Node| 1., stats);
+    }
+
+    pub fn calculate_importance_gain(&self, stats: &mut HashMap<usize, (f32, usize)>) {
+        self.get_node_stats(&|n: &Node| n.split_gain, stats);
+    }
+
+    pub fn calculate_importance_cover(&self, stats: &mut HashMap<usize, (f32, usize)>) {
+        self.get_node_stats(&|n: &Node| n.hessian_sum, stats);
     }
 }
 
