@@ -25,7 +25,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["maturin", "pytest", "seaborn", "xgboost==1.6.1", "scikit-learn", "mkdocs-material==9.*", "mkdocstrings[python]==0.22.0", "mkdocs-autorefs==1.*"]
+dev = ["maturin", "pytest", "seaborn", "xgboost==1.6.1", "scikit-learn", "mkdocs-material==9.*", "mkdocstrings[python]==0.22.0", "mkdocs-autorefs"]
 
 [tool.maturin]
 sdist-include = ["LICENSE", "README.md"]
