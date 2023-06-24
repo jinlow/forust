@@ -18,8 +18,8 @@ jobs:
           path: .cache
           restore-keys: |
             mkdocs-material-
-      - run: pip install .[dev]
       - run: pip install mkdocs-material 
       - run: |
           cd py-forust
+          pip install .[dev]
           mkdocs gh-deploy --force
