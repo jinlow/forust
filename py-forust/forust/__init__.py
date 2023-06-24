@@ -196,12 +196,9 @@ class GradientBooster:
             learning_rate (float, optional): Step size to use at each iteration. Each
                 leaf weight is multiplied by this number. The smaller the value, the more
                 conservative the weights will be. Defaults to 0.3.
-            max_depth (int, optional): Maximum depth of an individual tree. Valid values
-            are 0 to infinity. Defaults to 5.
-            max_leaves (int, optional): Maximum number of leaves allowed on a tree. Valid values
-                are 0 to infinity. This is the total number of final nodes. Defaults to sys.maxsize.
-            l2 (float, optional): L2 regularization term applied to the weights of the tree. Valid values
-                are 0 to infinity. Defaults to 1.0.
+            max_depth (int, optional): Maximum depth of an individual tree. Valid values are 0 to infinity. Defaults to 5.
+            max_leaves (int, optional): Maximum number of leaves allowed on a tree. Valid values are 0 to infinity. This is the total number of final nodes. Defaults to sys.maxsize.
+            l2 (float, optional): L2 regularization term applied to the weights of the tree. Valid values are 0 to infinity. Defaults to 1.0.
             gamma (float, optional): The minimum amount of loss required to further split a node.
                 Valid values are 0 to infinity. Defaults to 0.0.
             min_leaf_weight (float, optional): Minimum sum of the hessian values of the loss function
@@ -261,6 +258,36 @@ class GradientBooster:
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
+
+        Example:
+            Once, the booster has been initialized, it can be fit on a provided dataset, and performance field. After fitting, the model can be used to predict on a dataset.
+            In the case of this example, the predictions are the log odds of a given record being 1.
+
+            ```python
+            # Small example dataset
+            from seaborn import load_dataset
+
+            df = load_dataset("titanic")
+            X = df.select_dtypes("number").drop(columns=["survived"])
+            y = df["survived"]
+
+            # Initialize a booster with defaults.
+            from forust import GradientBooster
+            model = GradientBooster(objective_type="LogLoss")
+            model.fit(X, y)
+
+            # Predict on data
+            model.predict(X.head())
+            # array([-1.94919663,  2.25863229,  0.32963671,  2.48732194, -3.00371813])
+
+            # predict contributions
+            model.predict_contributions(X.head())
+            # array([[-0.63014213,  0.33880048, -0.16520798, -0.07798772, -0.85083578,
+            #        -1.07720813],
+            #       [ 1.05406709,  0.08825999,  0.21662544, -0.12083538,  0.35209258,
+            #        -1.07720813],
+            ```
+
         """
         sample_method = (
             "Random"
@@ -459,6 +486,11 @@ class GradientBooster:
         """Predict with the fitted booster on new data, returning the feature
         contribution matrix. The last column is the bias term.
 
+
+        When predicting with the data, the maximum iteration that will be used when predicting can be set using the `set_prediction_iteration` method. If `early_stopping_rounds` has been set, this will default to the best iteration, otherwise all of the trees will be used.
+
+        If early stopping was used, the evaluation history can be retrieved with the [get_evaluation_history][forust.GradientBooster.get_evaluation_history] method.
+
         Args:
             X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
             method (str, optional): Method to calculate the contributions, available options are:
@@ -579,11 +611,12 @@ class GradientBooster:
 
         Args:
             method (str, optional): Variable importance method. Defaults to "Gain". Valid options are:
-              - "Weight": The number of times a feature is used to split the data across all trees.
-              - "Gain": The average split gain across all splits the feature is used in.
-              - "Cover": The average coverage across all splits the feature is used in.
-              - "TotalGain": The total gain across all splits the feature is used in.
-              - "TotalCover": The total coverage across all splits the feature is used in.
+
+                - "Weight": The number of times a feature is used to split the data across all trees.
+                - "Gain": The average split gain across all splits the feature is used in.
+                - "Cover": The average coverage across all splits the feature is used in.
+                - "TotalGain": The total gain across all splits the feature is used in.
+                - "TotalCover": The total coverage across all splits the feature is used in.
             normalize (bool, optional): Should the importance be normalized to sum to 1? Defaults to `True`.
 
         Returns:
@@ -689,6 +722,18 @@ class GradientBooster:
         Returns:
             np.ndarray | None: A numpy array equal to the shape of the number
             of evaluation datasets passed, and the number of trees in the model.
+
+        Example:
+            ```python
+            model = GradientBooster(objective_type="LogLoss")
+            model.fit(X, y, evaluation_data=[(X, y)])
+
+            model.get_evaluation_history()[0:3]
+
+            # array([[588.9158873 ],
+            #        [532.01055803],
+            #        [496.76933646]])
+            ```
         """
         r, v, d = self.booster.get_evaluation_history()
         return d.reshape((r, v))
