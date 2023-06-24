@@ -18,6 +18,9 @@ I developed this package for a few reasons, mainly to better understand the XGBo
 
 All of the rust code for the package can be found in the [src](src/) directory, while all of the python wrapper code is in the [py-forust](py-forust/) directory.
 
+## Documentation
+Documentation for the python API can be found [here](https://jinlow.github.io/forust/).
+
 ## Installation
 The package can be installed directly from [pypi](https://pypi.org/project/forust/).
 ```shell
