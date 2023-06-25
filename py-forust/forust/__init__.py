@@ -319,7 +319,7 @@ class GradientBooster:
             seed=seed,
             missing=missing,
             create_missing_branch=create_missing_branch,
-            sample_method=sample_method,
+            sample_method=sample_method_,
             grow_policy=grow_policy,
             evaluation_metric=evaluation_metric,
             early_stopping_rounds=early_stopping_rounds,
