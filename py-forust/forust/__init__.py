@@ -85,7 +85,7 @@ class BoosterType(Protocol):
         self,
         method: str,
         normalize: bool,
-    ) -> dict[str, float]:
+    ) -> dict[int, float]:
         ...
 
     def text_dump(self) -> list[str]:
@@ -289,10 +289,15 @@ class GradientBooster:
             ```
 
         """
-        sample_method = (
-            "Random"
-            if (subsample < 1) and (sample_method is None)
+        sample_method_ = (
+            "None"
+            if sample_method is None
             else SAMPLE_METHODS.get(sample_method, "Random")
+        )
+        sample_method_ = (
+            "Random"
+            if (subsample < 1) and (sample_method_ == "None")
+            else sample_method_
         )
         booster = CrateGradientBooster(
             objective_type=objective_type,
@@ -314,7 +319,7 @@ class GradientBooster:
             seed=seed,
             missing=missing,
             create_missing_branch=create_missing_branch,
-            sample_method=sample_method,
+            sample_method=sample_method_,
             grow_policy=grow_policy,
             evaluation_metric=evaluation_metric,
             early_stopping_rounds=early_stopping_rounds,
@@ -446,17 +451,6 @@ class GradientBooster:
                     "Columns mismatch between data passed, and data used at fit."
                 )
 
-    def set_prediction_iteration(self, iteration: int):
-        """Set the iteration that should be used when predicting. If `early_stopping_rounds`
-        has been set, this will default to the best iteration, otherwise all of the trees
-        will be used.
-
-        Args:
-            iteration (int): Iteration number to use, this will use all trees, up to this
-                index.
-        """
-        self.booster.prediction_iteration = iteration
-
     def predict(self, X: FrameLike, parallel: Union[bool, None] = None) -> np.ndarray:
         """Predict with the fitted booster on new data.
 
@@ -494,7 +488,7 @@ class GradientBooster:
         Args:
             X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
             method (str, optional): Method to calculate the contributions, available options are:
-            
+
                 - "average": If this option is specified, the average internal node values are calculated, this is equivalent to the `approx_contribs` parameter in XGBoost.
                 - "weight": This method will use the internal leaf weights, to calculate the contributions. This is the same as what is described by Saabas [here](https://blog.datadive.net/interpreting-random-forests/).
                 - "branch-difference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the other non-missing branch. This method does not have the property where the contributions summed is equal to the final prediction of the model.
@@ -520,6 +514,17 @@ class GradientBooster:
             parallel=parallel_,
         )
         return np.reshape(contributions, (rows, cols + 1))
+
+    def set_prediction_iteration(self, iteration: int):
+        """Set the iteration that should be used when predicting. If `early_stopping_rounds`
+        has been set, this will default to the best iteration, otherwise all of the trees
+        will be used.
+
+        Args:
+            iteration (int): Iteration number to use, this will use all trees, up to this
+                index.
+        """
+        self.booster.prediction_iteration = iteration
 
     def partial_dependence(
         self,
@@ -556,6 +561,42 @@ class GradientBooster:
             np.ndarray: A 2 dimensional numpy array, where the first column is the
                 sorted unique values of the feature, and then the second column
                 is the partial dependence values for each feature value.
+
+        Example:
+            This information can be plotted to visualize how a feature is used in the model, like so.
+
+            ```python
+            from seaborn import lineplot
+            import matplotlib.pyplot as plt
+
+            pd_values = model.partial_dependence(X=X, feature="age", samples=None)
+
+            fig = lineplot(x=pd_values[:,0], y=pd_values[:,1],)
+            plt.title("Partial Dependence Plot")
+            plt.xlabel("Age")
+            plt.ylabel("Log Odds")
+            ```
+            <img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/pdp_plot_age.png">
+
+            We can see how this is impacted if a model is created, where a specific constraint is applied to the feature using the `monotone_constraint` parameter.
+
+            ```python
+            model = GradientBooster(
+                objective_type="LogLoss",
+                monotone_constraints={"age": -1},
+            )
+            model.fit(X, y)
+
+            pd_values = model.partial_dependence(X=X, feature="age")
+            fig = lineplot(
+                x=pd_values[:, 0],
+                y=pd_values[:, 1],
+            )
+            plt.title("Partial Dependence Plot with Monotonicity")
+            plt.xlabel("Age")
+            plt.ylabel("Log Odds")
+            ```
+            <img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/pdp_plot_age_mono.png">
         """
         is_dataframe = isinstance(X, pd.DataFrame)
         if isinstance(feature, str):
@@ -607,8 +648,8 @@ class GradientBooster:
 
     def calculate_feature_importance(
         self, method: str = "Gain", normalize: bool = True
-    ) -> dict[str, float]:
-        """Calculate variable importance for features in the model.
+    ) -> dict[int, float] | dict[str, float]:
+        """Feature importance values can be calculated with the `calculate_feature_importance` method. This function will return a dictionary of the features and their importances. It should be noted that if a feature was never used for splitting it will not be returned in importance dictionary.
 
         Args:
             method (str, optional): Variable importance method. Defaults to "Gain". Valid options are:
@@ -622,14 +663,28 @@ class GradientBooster:
 
         Returns:
             dict[str, float]: Variable importance values, for features present in the model.
+
+        Example:
+            ```python
+            model.calculate_feature_importance("Gain")
+            # {
+            #   'parch': 0.0713072270154953,
+            #   'age': 0.11609109491109848,
+            #   'sibsp': 0.1486879289150238,
+            #   'fare': 0.14309120178222656,
+            #   'pclass': 0.5208225250244141
+            # }
+            ```
         """
-        importance_ = self.booster.calculate_feature_importance(
-            method=method, normalize=normalize
+        importance_: dict[int, float] = self.booster.calculate_feature_importance(
+            method=method,
+            normalize=normalize,
         )
         if hasattr(self, "feature_names_in_"):
-            feature_map = {i: f for i, f in enumerate(self.feature_names_in_)}
-            importance_ = {feature_map[i]: v for i, v in importance_.items()}
-
+            feature_map: dict[int, str] = {
+                i: f for i, f in enumerate(self.feature_names_in_)
+            }
+            return {feature_map[i]: v for i, v in importance_.items()}
         return importance_
 
     def text_dump(self) -> list[str]:
@@ -638,6 +693,16 @@ class GradientBooster:
         Returns:
             list[str]: A list of strings, where each string is a text representation
                 of the tree.
+        Example:
+            ```python
+            model.text_dump()[0]
+            # 0:[0 < 3] yes=1,no=2,missing=2,gain=91.50833,cover=209.388307
+            #       1:[4 < 13.7917] yes=3,no=4,missing=4,gain=28.185467,cover=94.00148
+            #             3:[1 < 18] yes=7,no=8,missing=8,gain=1.4576768,cover=22.090348
+            #                   7:[1 < 17] yes=15,no=16,missing=16,gain=0.691266,cover=0.705011
+            #                         15:leaf=-0.15120,cover=0.23500
+            #                         16:leaf=0.154097,cover=0.470007
+            ```
         """
         return self.booster.text_dump()
 
@@ -696,7 +761,7 @@ class GradientBooster:
         Args:
             key (str): Key to give the inserted value in the metadata.
             value (str): Value to assign the the key.
-        """
+        """  # noqa: E501
         if isinstance(value, str):
             value_ = f"'{value}'"
         else:
@@ -717,7 +782,7 @@ class GradientBooster:
 
     def get_evaluation_history(self) -> np.ndarray | None:
         """Get the results of the `evaluation_metric` calculated
-        on the `evaluation_dataset` passed to fit, at each iteration.
+        on the `evaluation_dataset` passed to [`fit`][forust.GradientBooster.fit], at each iteration.
         If no `evaluation_dataset` was passed, this will return None.
 
         Returns:
