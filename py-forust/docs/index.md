@@ -1,4 +1,5 @@
-# Forust
+# Forust 
+## Python API Reference
 
 <a href="https://pypi.org/project/forust/">![PyPI](https://img.shields.io/pypi/v/forust?color=gr&style=for-the-badge)</a>
 
