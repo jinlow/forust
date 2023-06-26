@@ -486,7 +486,7 @@ def test_missing_treatment(X_y):
     X, y = X_y
     X = X
     fmod = GradientBooster(
-        iterations=1,
+        iterations=100,
         learning_rate=0.3,
         max_depth=5,
         l2=1,
@@ -507,6 +507,7 @@ def test_missing_treatment(X_y):
     contribs_average.sum(1)[~np.isclose(contribs_average.sum(1), fmod_preds, rtol=5)]
     assert contribs_average.shape[1] == X.shape[1] + 1
     assert np.allclose(contribs_average.sum(1), fmod_preds)
+    assert np.allclose(contribs_average[:, :-1][X.isna()], 0, atol=0.0000001)
     assert (contribs_average[:, :-1][X.isna()] == 0).all()
     assert (X.isna().sum().sum()) > 0
 

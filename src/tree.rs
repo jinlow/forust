@@ -328,8 +328,9 @@ impl Tree {
             let child_idx = node.get_child_idx(&row[node.split_feature], missing);
             let node_weight = weights[node_idx];
             let child_weight = weights[child_idx];
-            let delta = child_weight - node_weight;
-            contribs[node.split_feature] += delta as f64;
+            // let delta = precision_round((child_weight - node_weight) as f64, 7);
+            let delta = (child_weight - node_weight) as f64;
+            contribs[node.split_feature] += delta;
             node_idx = child_idx
         }
     }
