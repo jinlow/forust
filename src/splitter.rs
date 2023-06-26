@@ -1,5 +1,6 @@
 use crate::constraints::{Constraint, ConstraintMap};
 use crate::data::{JaggedMatrix, Matrix};
+use crate::gradientbooster::MissingNodeTreatment;
 use crate::histogram::HistogramMatrix;
 use crate::node::SplittableNode;
 use crate::utils::{
@@ -240,6 +241,7 @@ pub struct MissingBranchSplitter {
     pub learning_rate: f32,
     pub allow_missing_splits: bool,
     pub constraints_map: ConstraintMap,
+    pub missing_node_treatment: MissingNodeTreatment,
 }
 
 impl Splitter for MissingBranchSplitter {
@@ -312,11 +314,20 @@ impl Splitter for MissingBranchSplitter {
         // we will default to creating an empty branch.
 
         // Set weight to the parent weight...
-        let missing_weight = weight(
-            &self.get_l2(),
-            missing_gradient + left_gradient + right_gradient,
-            missing_hessian + left_hessian + right_hessian,
-        ); // weight(&self.get_l2(), missing_gradient, missing_hessian);
+        let missing_weight = match self.missing_node_treatment {
+            MissingNodeTreatment::AssignToParent => weight(
+                &self.get_l2(),
+                missing_gradient + left_gradient + right_gradient,
+                missing_hessian + left_hessian + right_hessian,
+            ),
+            // Calculate the local leaf average for now, after training the tree.
+            // Recursively assign to the leaf weights underneath.
+            MissingNodeTreatment::AverageLeafWeight => {
+                (right_weight * right_hessian + left_weight * left_hessian)
+                    / (right_hessian + left_hessian)
+            }
+            MissingNodeTreatment::None => weight(&self.get_l2(), missing_gradient, missing_hessian),
+        };
         let missing_gain = gain_given_weight(
             &self.get_l2(),
             missing_gradient,
@@ -389,12 +400,14 @@ impl Splitter for MissingBranchSplitter {
             MissingInfo::Leaf(i) => (true, i),
             _ => unreachable!(),
         };
+
         // Set missing weight to parent weight value...
         // This essentially neutralizes missing.
         // Manually calculating it, was leading to some small numeric
         // rounding differences...
-        missing_info.weight = node.weight_value;
-
+        if let MissingNodeTreatment::AssignToParent = self.missing_node_treatment {
+            missing_info.weight = node.weight_value;
+        }
         // We need to move all of the index's above and below our
         // split value.
         // pivot the sub array that this node has on our split value

@@ -83,7 +83,6 @@ impl Node {
         } else if v < &self.split_value {
             self.left_child
         } else {
-            //  if v >= &self.split_value
             self.right_child
         }
     }

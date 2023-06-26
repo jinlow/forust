@@ -36,97 +36,117 @@ pub enum ContributionsMethod {
     ModeDifference,
 }
 
+/// Method to calculate variable importance.
 #[derive(Serialize, Deserialize)]
 pub enum ImportanceMethod {
+    /// The number of times a feature is used to split the data across all trees.
     Weight,
+    /// The average split gain across all splits the feature is used in.
     Gain,
+    /// The average coverage across all splits the feature is used in.
     Cover,
+    /// The total gain across all splits the feature is used in.
     TotalGain,
+    /// The total coverage across all splits the feature is used in.
     TotalCover,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy)]
+pub enum MissingNodeTreatment {
+    /// Calculate missing node weight values without any constraints.
+    None,
+    /// Assign the weight of the missing node to that of the parent.
+    AssignToParent,
+    /// Assign the weight of the missing node to be the weighted averaged of all
+    /// of the leaves reachable by the left and right node. This method
+    /// is only valid if `allow_missing_splits` is `False`.
+    AverageLeafWeight,
+}
+
 /// Gradient Booster object
-///
-/// * `objective_type` - The name of objective function used to optimize.
-///   Valid options include "LogLoss" to use logistic loss as the objective function,
-///   or "SquaredLoss" to use Squared Error as the objective function.
-/// * `iterations` - Total number of trees to train in the ensemble.
-/// * `learning_rate` - Step size to use at each iteration. Each
-///   leaf weight is multiplied by this number. The smaller the value, the more
-///   conservative the weights will be.
-/// * `max_depth` - Maximum depth of an individual tree. Valid values
-///   are 0 to infinity.
-/// * `max_leaves` - Maximum number of leaves allowed on a tree. Valid values
-///   are 0 to infinity. This is the total number of final nodes.
-/// * `l2` - L2 regularization term applied to the weights of the tree. Valid values
-///   are 0 to infinity.
-/// * `gamma` - The minimum amount of loss required to further split a node.
-///   Valid values are 0 to infinity.
-/// * `min_leaf_weight` - Minimum sum of the hessian values of the loss function
-///   required to be in a node.
-/// * `base_score` - The initial prediction value of the model.
-/// * `nbins` - Number of bins to calculate to partition the data. Setting this to
-///   a smaller number, will result in faster training time, while potentially sacrificing
-///   accuracy. If there are more bins, than unique values in a column, all unique values
-///   will be used.
-/// * `allow_missing_splits` - Should the algorithm allow splits that completed seperate out missing
-/// and non-missing values, in the case where `create_missing_branch` is false. When `create_missing_branch`
-/// is true, setting this to true will result in the missin branch being further split.
-/// * `monotone_constraints` - Constraints that are used to enforce a specific relationship
-///   between the training features and the target variable.
-/// * `subsample` - Percent of records to randomly sample at each iteration when training a tree.
-/// * `top_rate` - Used only in goss. The retain ratio of large gradient data.
-/// * `other_rate` - Used only in goss. the retain ratio of small gradient data.
-/// * `seed` - Integer value used to seed any randomness used in the algorithm.
-/// * `missing` - Value to consider missing.
-/// * `create_missing_branch` - Should missing be split out it's own separate branch?
-/// * `sample_method` - Specify the method that records should be sampled when training?
-/// * `evaluation_metric` - Define the evaluation metric to record at each iterations.
-/// * `early_stopping_rounds` - Number of rounds where the evaluation metric value must improve in
-///    to keep training.
-/// * `initialize_base_score` - If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
 #[derive(Deserialize, Serialize)]
 pub struct GradientBooster {
+    /// The name of objective function used to optimize.
+    /// Valid options include "LogLoss" to use logistic loss as the objective function,
+    /// or "SquaredLoss" to use Squared Error as the objective function.
     pub objective_type: ObjectiveType,
+    /// Total number of trees to train in the ensemble.
     pub iterations: usize,
+    /// Step size to use at each iteration. Each
+    /// leaf weight is multiplied by this number. The smaller the value, the more
+    /// conservative the weights will be.
     pub learning_rate: f32,
+    /// Maximum depth of an individual tree. Valid values are 0 to infinity.
     pub max_depth: usize,
+    /// Maximum number of leaves allowed on a tree. Valid values
+    /// are 0 to infinity. This is the total number of final nodes.
     pub max_leaves: usize,
+    /// L2 regularization term applied to the weights of the tree. Valid values
+    /// are 0 to infinity.
     pub l2: f32,
+    /// The minimum amount of loss required to further split a node.
+    /// Valid values are 0 to infinity.
     pub gamma: f32,
+    /// Minimum sum of the hessian values of the loss function
+    /// required to be in a node.
     pub min_leaf_weight: f32,
+    /// The initial prediction value of the model.
     pub base_score: f64,
+    /// Number of bins to calculate to partition the data. Setting this to
+    /// a smaller number, will result in faster training time, while potentially sacrificing
+    /// accuracy. If there are more bins, than unique values in a column, all unique values
+    /// will be used.
     pub nbins: u16,
     pub parallel: bool,
+    /// Should the algorithm allow splits that completed seperate out missing
+    /// and non-missing values, in the case where `create_missing_branch` is false. When `create_missing_branch`
+    /// is true, setting this to true will result in the missin branch being further split.
     pub allow_missing_splits: bool,
+    /// Constraints that are used to enforce a specific relationship
+    /// between the training features and the target variable.
     pub monotone_constraints: Option<ConstraintMap>,
+    /// Percent of records to randomly sample at each iteration when training a tree.
     pub subsample: f32,
+    /// Used only in goss. The retain ratio of large gradient data.
     #[serde(default = "default_top_rate")]
     pub top_rate: f64,
+    /// Used only in goss. the retain ratio of small gradient data.
     #[serde(default = "default_other_rate")]
     pub other_rate: f64,
+    /// Integer value used to seed any randomness used in the algorithm.
     pub seed: u64,
+    /// Value to consider missing.
     #[serde(deserialize_with = "parse_missing")]
     pub missing: f64,
+    /// Should missing be split out it's own separate branch?
     pub create_missing_branch: bool,
+    /// Specify the method that records should be sampled when training?
     #[serde(default = "default_sample_method")]
     pub sample_method: SampleMethod,
+    /// Growth policy to use when training a tree, this is how the next node is selected.
     #[serde(default = "default_grow_policy")]
     pub grow_policy: GrowPolicy,
+    /// Define the evaluation metric to record at each iterations.
     #[serde(default = "default_evaluation_metric")]
     pub evaluation_metric: Option<Metric>,
+    /// Number of rounds where the evaluation metric value must improve in
+    /// to keep training.
     #[serde(default = "default_early_stopping_rounds")]
     pub early_stopping_rounds: Option<usize>,
+    /// If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
     #[serde(default = "default_initialize_base_score")]
     pub initialize_base_score: bool,
     #[serde(default = "default_evaluation_history")]
     pub evaluation_history: Option<RowMajorMatrix<f64>>,
     #[serde(default = "default_best_iteration")]
     pub best_iteration: Option<usize>,
-    /// number of trees to use when predicting,
+    /// Number of trees to use when predicting,
     /// defaults to best_iteration if this is defined.
     #[serde(default = "default_prediction_iteration")]
     pub prediction_iteration: Option<usize>,
+    /// How the missing nodes weights should be treated at training time.
+    #[serde(default = "default_missing_node_treatment")]
+    pub missing_node_treatment: MissingNodeTreatment,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -166,6 +186,10 @@ fn default_prediction_iteration() -> Option<usize> {
     None
 }
 
+fn default_missing_node_treatment() -> MissingNodeTreatment {
+    MissingNodeTreatment::AssignToParent
+}
+
 fn parse_missing<'de, D>(d: D) -> Result<f64, D::Error>
 where
     D: Deserializer<'de>,
@@ -200,6 +224,7 @@ impl Default for GradientBooster {
             None,
             None,
             false,
+            MissingNodeTreatment::AssignToParent,
         )
         .unwrap()
     }
@@ -272,6 +297,7 @@ impl GradientBooster {
         evaluation_metric: Option<Metric>,
         early_stopping_rounds: Option<usize>,
         initialize_base_score: bool,
+        missing_node_treatment: MissingNodeTreatment,
     ) -> Result<Self, ForustError> {
         let (base_score_, initialize_base_score_) = match base_score {
             Some(v) => (v, initialize_base_score),
@@ -305,6 +331,7 @@ impl GradientBooster {
             evaluation_history: None,
             best_iteration: None,
             prediction_iteration: None,
+            missing_node_treatment,
             trees: Vec::new(),
             metadata: HashMap::new(),
         };
@@ -313,6 +340,11 @@ impl GradientBooster {
     }
 
     fn validate_parameters(&self) -> Result<(), ForustError> {
+        if let MissingNodeTreatment::AverageLeafWeight = self.missing_node_treatment {
+            if !self.create_missing_branch || self.allow_missing_splits {
+                return Err(ForustError::InvalidParameter(String::from("missing_node_treatment"), String::from("'None' or 'AssignToParent' when either 'create_missing_branch' and 'allow_missing_split' are true or 'create_missing_branch' is false"), String::from("AllowAverageLeafWeight")));
+            }
+        }
         validate_positive_float_field!(self.learning_rate);
         validate_positive_float_field!(self.l2);
         validate_positive_float_field!(self.gamma);
@@ -349,6 +381,7 @@ impl GradientBooster {
                 learning_rate: self.learning_rate,
                 allow_missing_splits: self.allow_missing_splits,
                 constraints_map,
+                missing_node_treatment: self.missing_node_treatment,
             };
             self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
         } else {
@@ -502,6 +535,10 @@ impl GradientBooster {
                     history.append_row(metrics);
                 }
             }
+            if let MissingNodeTreatment::AverageLeafWeight = self.missing_node_treatment {
+                tree.update_missing_weights();
+            }
+
             self.trees.push(tree);
             (grad, hess) = calc_grad_hess(y, &yhat, sample_weight);
         }
@@ -632,7 +669,7 @@ impl GradientBooster {
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
     fn predict_contributions_average(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
-        let weights: Vec<Vec<f64>> = if parallel {
+        let weights: Vec<Vec<f32>> = if parallel {
             self.get_prediction_trees()
                 .par_iter()
                 .map(|t| t.distribute_leaf_weights())

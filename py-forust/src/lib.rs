@@ -1,6 +1,6 @@
 use forust_ml::constraints::{Constraint, ConstraintMap};
 use forust_ml::data::Matrix;
-use forust_ml::gradientbooster::EvaluationData;
+use forust_ml::gradientbooster::{EvaluationData, MissingNodeTreatment};
 use forust_ml::gradientbooster::{GradientBooster as CrateGradientBooster, GrowPolicy};
 use forust_ml::metric::Metric;
 use forust_ml::objective::ObjectiveType;
@@ -76,6 +76,7 @@ impl GradientBooster {
         evaluation_metric,
         early_stopping_rounds,
         initialize_base_score,
+        missing_node_treatment,
     ))]
     pub fn new(
         objective_type: &str,
@@ -102,6 +103,7 @@ impl GradientBooster {
         evaluation_metric: Option<&str>,
         early_stopping_rounds: Option<usize>,
         initialize_base_score: bool,
+        missing_node_treatment: &str,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = to_value_error(serde_plain::from_str(objective_type))?;
@@ -114,6 +116,8 @@ impl GradientBooster {
             Some(s) => Some(to_value_error(serde_plain::from_str(s))?),
             None => None,
         };
+        let missing_node_treatment_ =
+            to_value_error(serde_plain::from_str(missing_node_treatment))?;
         let booster = CrateGradientBooster::new(
             objective_,
             iterations,
@@ -139,6 +143,7 @@ impl GradientBooster {
             evaluation_metric_,
             early_stopping_rounds,
             initialize_base_score,
+            missing_node_treatment_,
         );
         Ok(GradientBooster {
             booster: to_value_error(booster)?,
@@ -330,6 +335,10 @@ impl GradientBooster {
                 (*f, c_)
             })
             .collect();
+        let missing_node_treatement_ =
+            to_value_error(serde_plain::to_string::<MissingNodeTreatment>(
+                &self.booster.missing_node_treatment,
+            ))?;
         let key_vals: Vec<(&str, PyObject)> = vec![
             ("objective_type", objective_.to_object(py)),
             ("iterations", self.booster.iterations.to_object(py)),
@@ -369,6 +378,10 @@ impl GradientBooster {
             (
                 "initialize_base_score",
                 self.booster.initialize_base_score.to_object(py),
+            ),
+            (
+                "missing_node_treatment",
+                missing_node_treatement_.to_object(py),
             ),
         ];
         let dict = key_vals.into_py_dict(py);

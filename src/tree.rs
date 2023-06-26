@@ -313,11 +313,11 @@ impl Tree {
         &self,
         row: &[f64],
         contribs: &mut [f64],
-        weights: &[f64],
+        weights: &[f32],
         missing: &f64,
     ) {
         // Add the bias term first...
-        contribs[contribs.len() - 1] += weights[0];
+        contribs[contribs.len() - 1] += weights[0] as f64;
         let mut node_idx = 0;
         loop {
             let node = &self.nodes[node_idx];
@@ -329,7 +329,7 @@ impl Tree {
             let node_weight = weights[node_idx];
             let child_weight = weights[child_idx];
             let delta = child_weight - node_weight;
-            contribs[node.split_feature] += delta;
+            contribs[node.split_feature] += delta as f64;
             node_idx = child_idx
         }
     }
@@ -338,7 +338,7 @@ impl Tree {
         &self,
         data: &Matrix<f64>,
         contribs: &mut [f64],
-        weights: &[f64],
+        weights: &[f32],
         missing: &f64,
     ) {
         // There needs to always be at least 2 trees
@@ -404,7 +404,7 @@ impl Tree {
     pub fn value_partial_dependence(&self, feature: usize, value: f64, missing: &f64) -> f64 {
         tree_partial_dependence(self, 0, feature, value, 1.0, missing)
     }
-    fn distribute_node_leaf_weights(&self, i: usize, weights: &mut [f64]) -> f64 {
+    fn distribute_node_leaf_weights(&self, i: usize, weights: &mut [f32]) -> f64 {
         let node = &self.nodes[i];
         let mut w = node.weight_value as f64;
         if !node.is_leaf {
@@ -422,13 +422,67 @@ impl Tree {
             }
             w /= node.hessian_sum as f64;
         }
-        weights[i] = w;
+        weights[i] = w as f32;
         w
     }
-    pub fn distribute_leaf_weights(&self) -> Vec<f64> {
+    pub fn distribute_leaf_weights(&self) -> Vec<f32> {
         let mut weights = vec![0.; self.nodes.len()];
         self.distribute_node_leaf_weights(0, &mut weights);
         weights
+    }
+
+    pub fn get_average_leaf_weights(&self, i: usize) -> f64 {
+        let node = &self.nodes[i];
+        let mut w = node.weight_value as f64;
+        if node.is_leaf {
+            w as f64
+        } else {
+            let left_node = &self.nodes[node.left_child];
+            let right_node = &self.nodes[node.right_child];
+            w = left_node.hessian_sum as f64 * self.get_average_leaf_weights(node.left_child);
+            w += right_node.hessian_sum as f64 * self.get_average_leaf_weights(node.right_child);
+            // If this a tree with a missing branch.
+            if node.has_missing_branch() {
+                let missing_node = &self.nodes[node.missing_node];
+                w += missing_node.hessian_sum as f64
+                    * self.get_average_leaf_weights(node.missing_node);
+            }
+            w /= node.hessian_sum as f64;
+            w
+        }
+    }
+
+    pub fn update_missing_weights(&mut self) {
+        // Update the weights of the missing nodes to be
+        // equal to the weighted average of the left and right
+        // nodes. This should probably be put in the splitter
+        // from a design standpoint, but will put here just for
+        // testing.
+        let mut update_buffer: VecDeque<usize> = VecDeque::new();
+        update_buffer.push_front(0);
+        while let Some(i) = update_buffer.pop_back() {
+            let node = &self.nodes[i];
+            if node.is_leaf || !node.has_missing_branch() {
+                continue;
+            }
+            let left = node.left_child;
+            let left_hessian = self.nodes[left].hessian_sum as f64;
+            let left_avg_weight = self.get_average_leaf_weights(left);
+
+            let right = node.right_child;
+            let right_hessian = self.nodes[right].hessian_sum as f64;
+            let right_avg_weight = self.get_average_leaf_weights(right);
+
+            let missing = node.missing_node;
+
+            if let Some(m) = self.nodes.get_mut(missing) {
+                m.weight_value = ((right_avg_weight * right_hessian
+                    + left_avg_weight * left_hessian)
+                    / (left_hessian + right_hessian)) as f32;
+            }
+            update_buffer.push_back(left);
+            update_buffer.push_back(right);
+        }
     }
 
     fn calc_feature_node_stats<F>(

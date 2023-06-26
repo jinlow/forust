@@ -454,6 +454,8 @@ def test_booster_to_xgboosts_with_contributions_missing_branch_methods(X_y):
     contribs_average.sum(1)[~np.isclose(contribs_average.sum(1), fmod_preds, rtol=5)]
     assert contribs_average.shape[1] == X.shape[1] + 1
     assert np.allclose(contribs_average.sum(1), fmod_preds)
+    assert (contribs_average[:, :-1][X.isna()] != 0).all()
+    assert (X.isna().sum().sum()) > 0
 
     contribs_weight = fmod.predict_contributions(X, method="Weight")
     assert (contribs_weight[:, :-1][X.isna()] == 0).all()
@@ -478,6 +480,35 @@ def test_booster_to_xgboosts_with_contributions_missing_branch_methods(X_y):
     assert (contribs_mode_difference[:, :-1][X.isna()] == 0).all()
     assert not np.allclose(contribs_mode_difference.sum(1), fmod_preds)
     assert not np.allclose(contribs_mode_difference, contribs_average)
+
+
+def test_missing_treatment(X_y):
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=1,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        create_missing_branch=True,
+        allow_missing_splits=False,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        base_score=0.5,
+        missing_node_treatment="AverageLeafWeight",
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    contribs_average = fmod.predict_contributions(X)
+    fmod_preds[~np.isclose(contribs_average.sum(1), fmod_preds, rtol=5)]
+    contribs_average.sum(1)[~np.isclose(contribs_average.sum(1), fmod_preds, rtol=5)]
+    assert contribs_average.shape[1] == X.shape[1] + 1
+    assert np.allclose(contribs_average.sum(1), fmod_preds)
+    assert (contribs_average[:, :-1][X.isna()] == 0).all()
+    assert (X.isna().sum().sum()) > 0
 
 
 def test_booster_to_xgboosts_with_contributions(X_y):

@@ -183,6 +183,7 @@ class GradientBooster:
         evaluation_metric: str | None = None,
         early_stopping_rounds: int | None = None,
         initialize_base_score: bool = False,
+        missing_node_treatment: str = "AssignToParent",
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -255,6 +256,11 @@ class GradientBooster:
                 during fit, then an improvement in the `evaluation_metric` must be seen after at least this many
                 iterations of training, otherwise training will be cut short.
             initialize_base_score (bool, optional): If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
+            missing_node_treatment (str, optional): Method for selecting the `weight` for the missing node, if `create_missing_branch` is set to `True`. Defaults to "AssignToParent". Valid options are:
+
+                - "None": Calculate missing node weight values without any constraints.
+                - "AssignToParent": Assign the weight of the missing node to that of the parent.
+                - "AverageLeafWeight": Assign the weight of the missing node to be the weighted averaged of all of the leaves reachable by the left and right node. This method is only valid if `allow_missing_splits` is `False`.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -324,6 +330,7 @@ class GradientBooster:
             evaluation_metric=evaluation_metric,
             early_stopping_rounds=early_stopping_rounds,
             initialize_base_score=initialize_base_score,
+            missing_node_treatment=missing_node_treatment,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -352,6 +359,7 @@ class GradientBooster:
         self.evaluation_metric = evaluation_metric
         self.early_stopping_rounds = early_stopping_rounds
         self.initialize_base_score = initialize_base_score
+        self.missing_node_treatment = missing_node_treatment
 
     def fit(
         self,
