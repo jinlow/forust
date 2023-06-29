@@ -1,3 +1,4 @@
+import json
 from pickletools import markobject
 from typing import Tuple
 
@@ -756,3 +757,77 @@ def test_booster_to_xgboosts_with_base_score_squared_loss(X_y):
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
     assert np.allclose(fmod_preds, xmod_preds, atol=0.001)
+
+
+def test_booster_terminate_missing_features(X_y):
+    X, y = X_y
+    X = X.copy()
+    missing_mask = np.random.uniform(0, 1, size=X.shape)
+    X = X.mask(missing_mask < 0.3)
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=10,
+        l2=1,
+        min_leaf_weight=0,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        initialize_base_score=True,
+        allow_missing_splits=True,
+        create_missing_branch=True,
+        terminate_missing_features=["pclass", "fare"],
+    )
+    fmod.fit(X, y=y)
+    [pclass_idx] = [i for i, f in enumerate(X.columns) if f == "pclass"]
+    [fare_idx] = [i for i, f in enumerate(X.columns) if f == "fare"]
+
+    def check_feature_split(feature: int, tree: dict, n: int):
+        node = tree[n]
+        if node["is_leaf"]:
+            return
+        if node["split_feature"] == feature:
+            if not tree[node["missing_node"]]["is_leaf"]:
+                raise ValueError("Node split more!")
+        check_feature_split(feature, tree, node["missing_node"])
+        check_feature_split(feature, tree, node["left_child"])
+        check_feature_split(feature, tree, node["right_child"])
+
+    # Does pclass never get split out?
+    for tree in json.loads(fmod.json_dump())["trees"]:
+        check_feature_split(pclass_idx, tree["nodes"], 0)
+        check_feature_split(fare_idx, tree["nodes"], 0)
+
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="SquaredLoss",
+        nbins=500,
+        parallel=True,
+        initialize_base_score=True,
+        allow_missing_splits=True,
+        create_missing_branch=True,
+        # terminate_missing_features=["pclass"]
+    )
+    fmod.fit(X, y=y)
+
+    # Does age never get split out?
+    pclass_one_bombed = False
+    for tree in json.loads(fmod.json_dump())["trees"]:
+        try:
+            check_feature_split(pclass_idx, tree["nodes"], 0)
+        except ValueError as e:
+            pclass_one_bombed = True
+    assert pclass_one_bombed
+
+    fare_one_bombed = False
+    for tree in json.loads(fmod.json_dump())["trees"]:
+        try:
+            check_feature_split(fare_idx, tree["nodes"], 0)
+        except ValueError as e:
+            fare_one_bombed = True
+    assert fare_one_bombed

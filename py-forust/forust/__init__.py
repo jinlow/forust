@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import warnings
 from ast import literal_eval
-from typing import Any, Protocol, Union, cast
+from typing import Any, Iterable, Protocol, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -41,6 +41,7 @@ class BoosterType(Protocol):
     monotone_constraints: dict[int, int]
     prediction_iteration: None | int
     best_iteration: None | int
+    terminate_missing_features: set[int]
 
     def fit(
         self,
@@ -183,6 +184,7 @@ class GradientBooster:
         evaluation_metric: str | None = None,
         early_stopping_rounds: int | None = None,
         initialize_base_score: bool = False,
+        terminate_missing_features: Iterable[Any] | None = None,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -255,6 +257,7 @@ class GradientBooster:
                 during fit, then an improvement in the `evaluation_metric` must be seen after at least this many
                 iterations of training, otherwise training will be cut short.
             initialize_base_score (bool, optional): If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
+            terminate_missing_features (set[Any], optional): An optional iterable of features (either strings, or integer values specifying the feature indices if numpy arrays are used for fitting), for which the missing node will always be terminated, even if `allow_missing_splits` is set to true. This value is only valid if `create_missing_branch` is also True.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -299,6 +302,11 @@ class GradientBooster:
             if (subsample < 1) and (sample_method_ == "None")
             else sample_method_
         )
+        terminate_missing_features_ = (
+            set()
+            if terminate_missing_features is None
+            else set(terminate_missing_features)
+        )
         booster = CrateGradientBooster(
             objective_type=objective_type,
             iterations=iterations,
@@ -324,6 +332,7 @@ class GradientBooster:
             evaluation_metric=evaluation_metric,
             early_stopping_rounds=early_stopping_rounds,
             initialize_base_score=initialize_base_score,
+            terminate_missing_features=set(),
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -352,6 +361,7 @@ class GradientBooster:
         self.evaluation_metric = evaluation_metric
         self.early_stopping_rounds = early_stopping_rounds
         self.initialize_base_score = initialize_base_score
+        self.terminate_missing_features = terminate_missing_features_
 
     def fit(
         self,
@@ -407,6 +417,9 @@ class GradientBooster:
         # by the rust code.
         monotone_constraints_ = self._standardize_monotonicity_map(X)
         self.booster.monotone_constraints = monotone_constraints_
+        self.booster.terminate_missing_features = (
+            self._standardize_terminate_missing_features(X)
+        )
 
         # Create evaluation data
         if evaluation_data is not None:
@@ -754,6 +767,16 @@ class GradientBooster:
         else:
             feature_map = {f: i for i, f in enumerate(X.columns)}
             return {feature_map[f]: v for f, v in self.monotone_constraints.items()}
+
+    def _standardize_terminate_missing_features(
+        self,
+        X: Union[pd.DataFrame, np.ndarray],
+    ) -> set[int]:
+        if isinstance(X, np.ndarray):
+            return self.terminate_missing_features
+        else:
+            feature_map = {f: i for i, f in enumerate(X.columns)}
+            return set(feature_map[f] for f in self.terminate_missing_features)
 
     def insert_metadata(self, key: str, value: Any):
         """Insert data into the models metadata, this will be saved on the booster object.
