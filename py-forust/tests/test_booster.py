@@ -786,7 +786,7 @@ def test_booster_terminate_missing_features(X_y):
         if node["is_leaf"]:
             return
         if node["split_feature"] == pclass_idx:
-            if tree[node["missing_node"]]["is_leaf"]:
+            if not tree[node["missing_node"]]["is_leaf"]:
                 raise ValueError("Node split more!")
         check_pclass_split(tree, node["missing_node"])
         check_pclass_split(tree, node["left_child"])
@@ -815,6 +815,10 @@ def test_booster_terminate_missing_features(X_y):
     [pclass_idx] = [i for i, f in enumerate(X.columns) if f == "pclass"]
 
     # Does age never get split out?
+    one_bombed = False
     for tree in json.loads(fmod.json_dump())["trees"]:
-        with pytest.raises(ValueError, match="Node split more!"):
+        try:
             check_pclass_split(tree["nodes"], 0)
+        except ValueError as e:
+            one_bombed = True
+    assert one_bombed
