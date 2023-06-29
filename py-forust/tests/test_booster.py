@@ -776,25 +776,27 @@ def test_booster_terminate_missing_features(X_y):
         initialize_base_score=True,
         allow_missing_splits=True,
         create_missing_branch=True,
-        terminate_missing_features=["pclass"],
+        terminate_missing_features=["pclass", "fare"],
     )
     fmod.fit(X, y=y)
     [pclass_idx] = [i for i, f in enumerate(X.columns) if f == "pclass"]
+    [fare_idx] = [i for i, f in enumerate(X.columns) if f == "fare"]
 
-    def check_pclass_split(tree: dict, n: int):
+    def check_feature_split(feature: int, tree: dict, n: int):
         node = tree[n]
         if node["is_leaf"]:
             return
-        if node["split_feature"] == pclass_idx:
+        if node["split_feature"] == feature:
             if not tree[node["missing_node"]]["is_leaf"]:
                 raise ValueError("Node split more!")
-        check_pclass_split(tree, node["missing_node"])
-        check_pclass_split(tree, node["left_child"])
-        check_pclass_split(tree, node["right_child"])
+        check_feature_split(feature, tree, node["missing_node"])
+        check_feature_split(feature, tree, node["left_child"])
+        check_feature_split(feature, tree, node["right_child"])
 
     # Does pclass never get split out?
     for tree in json.loads(fmod.json_dump())["trees"]:
-        check_pclass_split(tree["nodes"], 0)
+        check_feature_split(pclass_idx, tree["nodes"], 0)
+        check_feature_split(fare_idx, tree["nodes"], 0)
 
     fmod = GradientBooster(
         iterations=100,
@@ -815,10 +817,18 @@ def test_booster_terminate_missing_features(X_y):
     [pclass_idx] = [i for i, f in enumerate(X.columns) if f == "pclass"]
 
     # Does age never get split out?
-    one_bombed = False
+    pclass_one_bombed = False
     for tree in json.loads(fmod.json_dump())["trees"]:
         try:
-            check_pclass_split(tree["nodes"], 0)
+            check_feature_split(pclass_idx, tree["nodes"], 0)
         except ValueError as e:
-            one_bombed = True
-    assert one_bombed
+            pclass_one_bombed = True
+    assert pclass_one_bombed
+
+    fare_one_bombed = False
+    for tree in json.loads(fmod.json_dump())["trees"]:
+        try:
+            check_feature_split(fare_idx, tree["nodes"], 0)
+        except ValueError as e:
+            fare_one_bombed = True
+    assert fare_one_bombed
