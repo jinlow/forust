@@ -11,7 +11,7 @@ use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyType;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 type PyEvaluationData<'a> = (
     PyReadonlyArray1<'a, f64>,
@@ -76,6 +76,7 @@ impl GradientBooster {
         evaluation_metric,
         early_stopping_rounds,
         initialize_base_score,
+        terminate_missing_features,
     ))]
     pub fn new(
         objective_type: &str,
@@ -102,6 +103,7 @@ impl GradientBooster {
         evaluation_metric: Option<&str>,
         early_stopping_rounds: Option<usize>,
         initialize_base_score: bool,
+        terminate_missing_features: HashSet<usize>,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = to_value_error(serde_plain::from_str(objective_type))?;
@@ -139,6 +141,7 @@ impl GradientBooster {
             evaluation_metric_,
             early_stopping_rounds,
             initialize_base_score,
+            terminate_missing_features,
         );
         Ok(GradientBooster {
             booster: to_value_error(booster)?,
@@ -149,6 +152,12 @@ impl GradientBooster {
     fn set_monotone_constraints(&mut self, value: HashMap<usize, i8>) -> PyResult<()> {
         let map = int_map_to_constraint_map(value)?;
         self.booster.monotone_constraints = Some(map);
+        Ok(())
+    }
+
+    #[setter]
+    fn set_terminate_missing_features(&mut self, value: HashSet<usize>) -> PyResult<()> {
+        self.booster.terminate_missing_features = value;
         Ok(())
     }
 
@@ -369,6 +378,10 @@ impl GradientBooster {
             (
                 "initialize_base_score",
                 self.booster.initialize_base_score.to_object(py),
+            ),
+            (
+                "terminate_missing_features",
+                self.booster.terminate_missing_features.to_object(py),
             ),
         ];
         let dict = key_vals.into_py_dict(py);

@@ -96,7 +96,6 @@ impl Tree {
             if n_leaves >= max_leaves {
                 break;
             }
-
             // We know there is a value here, because of how the
             // while loop is setup.
             // Grab a splitable node from the stack
@@ -104,7 +103,6 @@ impl Tree {
             // tree nodes children.
             let mut node = growable.get_next_node();
             let n_idx = node.num;
-            // This will only be splittable nodes
 
             let depth = node.depth + 1;
 
@@ -112,7 +110,6 @@ impl Tree {
             // but keep going, because there may be other
             // valid shallower nodes.
             if depth > max_depth {
-                // self.nodes[n_idx] = node.as_leaf_node();
                 continue;
             }
 

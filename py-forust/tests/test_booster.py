@@ -1,3 +1,4 @@
+import json
 from pickletools import markobject
 from typing import Tuple
 
@@ -756,3 +757,64 @@ def test_booster_to_xgboosts_with_base_score_squared_loss(X_y):
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
     assert np.allclose(fmod_preds, xmod_preds, atol=0.001)
+
+
+def test_booster_terminate_missing_features(X_y):
+    X, y = X_y
+    X = X.copy()
+    missing_mask = np.random.uniform(0, 1, size=X.shape)
+    X = X.mask(missing_mask < 0.3)
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=10,
+        l2=1,
+        min_leaf_weight=0,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        initialize_base_score=True,
+        allow_missing_splits=True,
+        create_missing_branch=True,
+        terminate_missing_features=["pclass"],
+    )
+    fmod.fit(X, y=y)
+    [pclass_idx] = [i for i, f in enumerate(X.columns) if f == "pclass"]
+
+    def check_pclass_split(tree: dict, n: int):
+        node = tree[n]
+        if node["is_leaf"]:
+            return
+        if node["split_feature"] == pclass_idx:
+            if tree[node["missing_node"]]["is_leaf"]:
+                raise ValueError("Node split more!")
+        check_pclass_split(tree, node["missing_node"])
+        check_pclass_split(tree, node["left_child"])
+        check_pclass_split(tree, node["right_child"])
+
+    # Does pclass never get split out?
+    for tree in json.loads(fmod.json_dump())["trees"]:
+        check_pclass_split(tree["nodes"], 0)
+
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="SquaredLoss",
+        nbins=500,
+        parallel=True,
+        initialize_base_score=True,
+        allow_missing_splits=True,
+        create_missing_branch=True,
+        # terminate_missing_features=["pclass"]
+    )
+    fmod.fit(X, y=y)
+    [pclass_idx] = [i for i, f in enumerate(X.columns) if f == "pclass"]
+
+    # Does age never get split out?
+    for tree in json.loads(fmod.json_dump())["trees"]:
+        with pytest.raises(ValueError, match="Node split more!"):
+            check_pclass_split(tree["nodes"], 0)

@@ -124,6 +124,9 @@ pub struct GradientBooster {
     /// If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
     #[serde(default = "default_initialize_base_score")]
     pub initialize_base_score: bool,
+    /// A set of features for which the missing node will always be terminated, even
+    /// if `allow_missing_splits` is set to true. This value is only valid if
+    /// `create_missing_branch` is also True.
     #[serde(default = "default_terminate_missing_features")]
     pub terminate_missing_features: HashSet<usize>,
     /// A matrix of the evaluation history on the evaluation datasets.

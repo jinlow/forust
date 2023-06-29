@@ -389,7 +389,10 @@ impl Splitter for MissingBranchSplitter {
 
         let (missing_is_leaf, mut missing_info) = match split_info.missing_node {
             MissingInfo::Branch(i) => {
-                if true {
+                if self
+                    .terminate_missing_features
+                    .contains(&split_info.split_feature)
+                {
                     (true, i)
                 } else {
                     (false, i)
@@ -520,7 +523,6 @@ impl Splitter for MissingBranchSplitter {
             )
         } else {
             // right is the largest
-
             missing_histograms = HistogramMatrix::new(
                 data,
                 cuts,
