@@ -814,7 +814,6 @@ def test_booster_terminate_missing_features(X_y):
         # terminate_missing_features=["pclass"]
     )
     fmod.fit(X, y=y)
-    [pclass_idx] = [i for i, f in enumerate(X.columns) if f == "pclass"]
 
     # Does age never get split out?
     pclass_one_bombed = False
