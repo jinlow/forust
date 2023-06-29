@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::constraints::{Constraint, ConstraintMap};
 use crate::data::{JaggedMatrix, Matrix};
 use crate::histogram::HistogramMatrix;
@@ -240,6 +242,7 @@ pub struct MissingBranchSplitter {
     pub learning_rate: f32,
     pub allow_missing_splits: bool,
     pub constraints_map: ConstraintMap,
+    pub terminate_missing_features: HashSet<usize>,
 }
 
 impl Splitter for MissingBranchSplitter {
@@ -385,7 +388,13 @@ impl Splitter for MissingBranchSplitter {
         node.update_children(missing_child, left_child, right_child, &split_info);
 
         let (missing_is_leaf, mut missing_info) = match split_info.missing_node {
-            MissingInfo::Branch(i) => (false, i),
+            MissingInfo::Branch(i) => {
+                if true {
+                    (true, i)
+                } else {
+                    (false, i)
+                }
+            }
             MissingInfo::Leaf(i) => (true, i),
             _ => unreachable!(),
         };
