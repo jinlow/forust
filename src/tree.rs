@@ -139,6 +139,9 @@ impl Tree {
                 }
             }
         }
+
+        // Any final post processing required.
+        splitter.clean_up_splits(self);
     }
 
     // Branch average difference predictions
@@ -447,56 +450,6 @@ impl Tree {
             w /= node.hessian_sum as f64;
             w
         }
-    }
-
-    pub fn update_average_missing_nodes(&mut self, node_idx: usize) -> f64 {
-        let node = &self.nodes[node_idx];
-
-        if node.is_leaf {
-            return node.weight_value as f64;
-        }
-
-        let right = node.right_child;
-        let left = node.left_child;
-        let current_node = node.num;
-        let missing = node.missing_node;
-
-        let right_hessian = self.nodes[right].hessian_sum as f64;
-        let right_avg_weight = self.update_average_missing_nodes(right);
-
-        let left_hessian = self.nodes[left].hessian_sum as f64;
-        let left_avg_weight = self.update_average_missing_nodes(left);
-
-        // This way this process supports missing branches that terminate (and will neutralize)
-        // and then if missing is split further those values will have non-zero contributions.
-        let (missing_hessian, missing_avg_weight, missing_leaf) = if self.nodes[missing].is_leaf {
-            (0., 0., true)
-        } else {
-            (
-                self.nodes[missing].hessian_sum as f64,
-                self.update_average_missing_nodes(missing),
-                false,
-            )
-        };
-
-        let update = (right_avg_weight * right_hessian
-            + left_avg_weight * left_hessian
-            + missing_avg_weight * missing_hessian)
-            / (left_hessian + right_hessian + missing_hessian);
-
-        // Update current node, and the missing value
-        if let Some(n) = self.nodes.get_mut(current_node) {
-            n.weight_value = update as f32;
-        }
-        // Only update the missing node if it's a leaf, otherwise we will auto-update
-        // them via the recursion called earlier.
-        if missing_leaf {
-            if let Some(m) = self.nodes.get_mut(missing) {
-                m.weight_value = update as f32;
-            }
-        }
-
-        update
     }
 
     fn calc_feature_node_stats<F>(

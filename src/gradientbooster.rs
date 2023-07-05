@@ -57,7 +57,7 @@ pub enum MissingNodeTreatment {
     None,
     /// Assign the weight of the missing node to that of the parent.
     AssignToParent,
-    /// After training each tree, starting from the bottom of the tree, assign the missing node weight to the weighted average of the left and right child nodes. Next assign the parent to the weighted average of the children nodes. This is performed recursively up through the entire tree. This is performed as a post processing step on each tree as when it is trained, and prior to updating the predictions for which to train the next tree.
+    /// After training each tree, starting from the bottom of the tree, assign the missing node weight to the weighted average of the left and right child nodes. Next assign the parent to the weighted average of the children nodes. This is performed recursively up through the entire tree. This is performed as a post processing step on each tree after it is build, and prior to updating the predictions for which to train the next tree.
     AverageLeafWeight,
 }
 
@@ -490,6 +490,7 @@ impl GradientBooster {
                 &self.sample_method,
                 &self.grow_policy,
             );
+
             self.update_predictions_inplace(&mut yhat, &tree, data);
 
             // Update Evaluation data, if it's needed.
@@ -540,9 +541,6 @@ impl GradientBooster {
                 if let Some(history) = &mut self.evaluation_history {
                     history.append_row(metrics);
                 }
-            }
-            if let MissingNodeTreatment::AverageLeafWeight = self.missing_node_treatment {
-                tree.update_average_missing_nodes(0);
             }
             self.trees.push(tree);
             (grad, hess) = calc_grad_hess(y, &yhat, sample_weight);
