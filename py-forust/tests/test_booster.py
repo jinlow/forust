@@ -831,3 +831,33 @@ def test_booster_terminate_missing_features(X_y):
         except ValueError as e:
             fare_one_bombed = True
     assert fare_one_bombed
+
+
+def test_missing_treatment(X_y):
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        create_missing_branch=True,
+        allow_missing_splits=False,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        base_score=0.5,
+        missing_node_treatment="AverageLeafWeight",
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    contribus_weight = fmod.predict_contributions(X, method="weight")
+    fmod_preds[~np.isclose(contribus_weight.sum(1), fmod_preds, rtol=5)]
+    contribus_weight.sum(1)[~np.isclose(contribus_weight.sum(1), fmod_preds, rtol=5)]
+    assert contribus_weight.shape[1] == X.shape[1] + 1
+    assert np.allclose(contribus_weight.sum(1), fmod_preds)
+    assert np.allclose(contribus_weight[:, :-1][X.isna()], 0, atol=0.0000001)
+    assert (contribus_weight[:, :-1][X.isna()] == 0).all()
+    assert (X.isna().sum().sum()) > 0
