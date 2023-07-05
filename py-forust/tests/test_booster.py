@@ -835,11 +835,13 @@ def test_booster_terminate_missing_features(X_y):
 
 def test_missing_treatment(X_y):
     X, y = X_y
-    X = X
+    X = X.copy()
+    missing_mask = np.random.uniform(0, 1, size=X.shape)
+    X = X.mask(missing_mask < 0.3)
     fmod = GradientBooster(
         iterations=100,
         learning_rate=0.3,
-        max_depth=5,
+        max_depth=10,
         l2=1,
         min_leaf_weight=1,
         create_missing_branch=True,
