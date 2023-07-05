@@ -2,8 +2,10 @@ use std::collections::HashSet;
 
 use crate::constraints::{Constraint, ConstraintMap};
 use crate::data::{JaggedMatrix, Matrix};
+use crate::gradientbooster::MissingNodeTreatment;
 use crate::histogram::HistogramMatrix;
 use crate::node::SplittableNode;
+use crate::tree::Tree;
 use crate::utils::{
     constrained_weight, cull_gain, gain_given_weight, pivot_on_split,
     pivot_on_split_exclude_missing, weight,
@@ -43,6 +45,12 @@ pub trait Splitter {
     fn get_gamma(&self) -> f32;
     fn get_l2(&self) -> f32;
     fn get_learning_rate(&self) -> f32;
+
+    /// Perform any post processing on the tree that is
+    /// relevant for the specific splitter, empty default
+    /// implementation so that it can be called even if it's
+    /// not used.
+    fn clean_up_splits(&self, _tree: &mut Tree) {}
 
     /// Find the best possible split, considering all feature histograms.
     /// If we wanted to add Column sampling, this is probably where
@@ -243,9 +251,68 @@ pub struct MissingBranchSplitter {
     pub allow_missing_splits: bool,
     pub constraints_map: ConstraintMap,
     pub terminate_missing_features: HashSet<usize>,
+    pub missing_node_treatment: MissingNodeTreatment,
+}
+
+impl MissingBranchSplitter {
+    pub fn update_average_missing_nodes(tree: &mut Tree, node_idx: usize) -> f64 {
+        let node = &tree.nodes[node_idx];
+
+        if node.is_leaf {
+            return node.weight_value as f64;
+        }
+
+        let right = node.right_child;
+        let left = node.left_child;
+        let current_node = node.num;
+        let missing = node.missing_node;
+
+        let right_hessian = tree.nodes[right].hessian_sum as f64;
+        let right_avg_weight = Self::update_average_missing_nodes(tree, right);
+
+        let left_hessian = tree.nodes[left].hessian_sum as f64;
+        let left_avg_weight = Self::update_average_missing_nodes(tree, left);
+
+        // This way this process supports missing branches that terminate (and will neutralize)
+        // and then if missing is split further those values will have non-zero contributions.
+        let (missing_hessian, missing_avg_weight, missing_leaf) = if tree.nodes[missing].is_leaf {
+            (0., 0., true)
+        } else {
+            (
+                tree.nodes[missing].hessian_sum as f64,
+                Self::update_average_missing_nodes(tree, missing),
+                false,
+            )
+        };
+
+        let update = (right_avg_weight * right_hessian
+            + left_avg_weight * left_hessian
+            + missing_avg_weight * missing_hessian)
+            / (left_hessian + right_hessian + missing_hessian);
+
+        // Update current node, and the missing value
+        if let Some(n) = tree.nodes.get_mut(current_node) {
+            n.weight_value = update as f32;
+        }
+        // Only update the missing node if it's a leaf, otherwise we will auto-update
+        // them via the recursion called earlier.
+        if missing_leaf {
+            if let Some(m) = tree.nodes.get_mut(missing) {
+                m.weight_value = update as f32;
+            }
+        }
+
+        update
+    }
 }
 
 impl Splitter for MissingBranchSplitter {
+    fn clean_up_splits(&self, tree: &mut Tree) {
+        if let MissingNodeTreatment::AverageLeafWeight = self.missing_node_treatment {
+            MissingBranchSplitter::update_average_missing_nodes(tree, 0);
+        }
+    }
+
     fn get_constraint(&self, feature: &usize) -> Option<&Constraint> {
         self.constraints_map.get(feature)
     }
@@ -314,12 +381,21 @@ impl Splitter for MissingBranchSplitter {
         // If we don't want to allow the missing branch to be split further,
         // we will default to creating an empty branch.
 
-        // Set weight to the parent weight...
-        let missing_weight = weight(
-            &self.get_l2(),
-            missing_gradient + left_gradient + right_gradient,
-            missing_hessian + left_hessian + right_hessian,
-        ); // weight(&self.get_l2(), missing_gradient, missing_hessian);
+        // Set weight based on the missing node treatment.
+        let missing_weight = match self.missing_node_treatment {
+            MissingNodeTreatment::AssignToParent => weight(
+                &self.get_l2(),
+                missing_gradient + left_gradient + right_gradient,
+                missing_hessian + left_hessian + right_hessian,
+            ),
+            // Calculate the local leaf average for now, after training the tree.
+            // Recursively assign to the leaf weights underneath.
+            MissingNodeTreatment::AverageLeafWeight => {
+                (right_weight * right_hessian + left_weight * left_hessian)
+                    / (right_hessian + left_hessian)
+            }
+            MissingNodeTreatment::None => weight(&self.get_l2(), missing_gradient, missing_hessian),
+        };
         let missing_gain = gain_given_weight(
             &self.get_l2(),
             missing_gradient,
@@ -405,8 +481,9 @@ impl Splitter for MissingBranchSplitter {
         // This essentially neutralizes missing.
         // Manually calculating it, was leading to some small numeric
         // rounding differences...
-        missing_info.weight = node.weight_value;
-
+        if let MissingNodeTreatment::AssignToParent = self.missing_node_treatment {
+            missing_info.weight = node.weight_value;
+        }
         // We need to move all of the index's above and below our
         // split value.
         // pivot the sub array that this node has on our split value

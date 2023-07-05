@@ -139,6 +139,9 @@ impl Tree {
                 }
             }
         }
+
+        // Any final post processing required.
+        splitter.clean_up_splits(self);
     }
 
     // Branch average difference predictions
@@ -426,6 +429,27 @@ impl Tree {
         let mut weights = vec![0.; self.nodes.len()];
         self.distribute_node_leaf_weights(0, &mut weights);
         weights
+    }
+
+    pub fn get_average_leaf_weights(&self, i: usize) -> f64 {
+        let node = &self.nodes[i];
+        let mut w = node.weight_value as f64;
+        if node.is_leaf {
+            w
+        } else {
+            let left_node = &self.nodes[node.left_child];
+            let right_node = &self.nodes[node.right_child];
+            w = left_node.hessian_sum as f64 * self.get_average_leaf_weights(node.left_child);
+            w += right_node.hessian_sum as f64 * self.get_average_leaf_weights(node.right_child);
+            // If this a tree with a missing branch.
+            if node.has_missing_branch() {
+                let missing_node = &self.nodes[node.missing_node];
+                w += missing_node.hessian_sum as f64
+                    * self.get_average_leaf_weights(node.missing_node);
+            }
+            w /= node.hessian_sum as f64;
+            w
+        }
     }
 
     fn calc_feature_node_stats<F>(

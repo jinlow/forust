@@ -25,7 +25,11 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["maturin", "pytest", "seaborn", "xgboost==1.6.1", "scikit-learn", "mkdocs-material==9.*", "mkdocstrings[python]==0.22.0", "mkdocs-autorefs"]
+dev = ["maturin", "pytest", "seaborn", "xgboost==1.6.1", "scikit-learn", "mkdocs-material==9.*", "mkdocstrings[python]==0.22.0", "mkdocs-autorefs", "ruff>=0.0.272"]
 
 [tool.maturin]
 sdist-include = ["LICENSE", "README.md"]
+
+[tool.ruff]
+# Never enforce `E501` (line length violations).
+ignore = ["E501"]

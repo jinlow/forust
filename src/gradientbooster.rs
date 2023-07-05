@@ -51,6 +51,16 @@ pub enum ImportanceMethod {
     TotalCover,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy)]
+pub enum MissingNodeTreatment {
+    /// Calculate missing node weight values without any constraints.
+    None,
+    /// Assign the weight of the missing node to that of the parent.
+    AssignToParent,
+    /// After training each tree, starting from the bottom of the tree, assign the missing node weight to the weighted average of the left and right child nodes. Next assign the parent to the weighted average of the children nodes. This is performed recursively up through the entire tree. This is performed as a post processing step on each tree after it is built, and prior to updating the predictions for which to train the next tree.
+    AverageLeafWeight,
+}
+
 /// Gradient Booster object
 #[derive(Deserialize, Serialize)]
 pub struct GradientBooster {
@@ -138,6 +148,9 @@ pub struct GradientBooster {
     /// defaults to best_iteration if this is defined.
     #[serde(default = "default_prediction_iteration")]
     pub prediction_iteration: Option<usize>,
+    /// How the missing nodes weights should be treated at training time.
+    #[serde(default = "default_missing_node_treatment")]
+    pub missing_node_treatment: MissingNodeTreatment,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -180,6 +193,10 @@ fn default_terminate_missing_features() -> HashSet<usize> {
     HashSet::new()
 }
 
+fn default_missing_node_treatment() -> MissingNodeTreatment {
+    MissingNodeTreatment::AssignToParent
+}
+
 fn parse_missing<'de, D>(d: D) -> Result<f64, D::Error>
 where
     D: Deserializer<'de>,
@@ -215,6 +232,7 @@ impl Default for GradientBooster {
             None,
             false,
             HashSet::new(),
+            MissingNodeTreatment::AssignToParent,
         )
         .unwrap()
     }
@@ -288,6 +306,7 @@ impl GradientBooster {
         early_stopping_rounds: Option<usize>,
         initialize_base_score: bool,
         terminate_missing_features: HashSet<usize>,
+        missing_node_treatment: MissingNodeTreatment,
     ) -> Result<Self, ForustError> {
         let (base_score_, initialize_base_score_) = match base_score {
             Some(v) => (v, initialize_base_score),
@@ -322,6 +341,7 @@ impl GradientBooster {
             evaluation_history: None,
             best_iteration: None,
             prediction_iteration: None,
+            missing_node_treatment,
             trees: Vec::new(),
             metadata: HashMap::new(),
         };
@@ -367,6 +387,7 @@ impl GradientBooster {
                 allow_missing_splits: self.allow_missing_splits,
                 constraints_map,
                 terminate_missing_features: self.terminate_missing_features.clone(),
+                missing_node_treatment: self.missing_node_treatment,
             };
             self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
         } else {
@@ -469,6 +490,7 @@ impl GradientBooster {
                 &self.sample_method,
                 &self.grow_policy,
             );
+
             self.update_predictions_inplace(&mut yhat, &tree, data);
 
             // Update Evaluation data, if it's needed.

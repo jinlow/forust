@@ -1,5 +1,4 @@
 import json
-from pickletools import markobject
 from typing import Tuple
 
 import numpy as np
@@ -526,7 +525,6 @@ def test_booster_to_xgboosts_with_contributions(X_y):
         base_score=0.5,
     )
     xmod.fit(X, y)
-    xmod_preds = xmod.predict(X, output_margin=True)
     import xgboost as xgb
 
     xmod_contribs = xmod.get_booster().predict(
@@ -621,6 +619,8 @@ def test_booster_metadata(X_y, tmp_path):
             assert isinstance(c_v, forust.CrateGradientBooster)
         else:
             assert v == c_v
+    fmod_loaded_preds = loaded.predict(X)
+    assert np.allclose(fmod_preds, fmod_loaded_preds)
 
 
 def test_early_stopping_rounds(X_y, tmp_path):
@@ -820,7 +820,7 @@ def test_booster_terminate_missing_features(X_y):
     for tree in json.loads(fmod.json_dump())["trees"]:
         try:
             check_feature_split(pclass_idx, tree["nodes"], 0)
-        except ValueError as e:
+        except ValueError:
             pclass_one_bombed = True
     assert pclass_one_bombed
 
@@ -828,6 +828,90 @@ def test_booster_terminate_missing_features(X_y):
     for tree in json.loads(fmod.json_dump())["trees"]:
         try:
             check_feature_split(fare_idx, tree["nodes"], 0)
-        except ValueError as e:
+        except ValueError:
             fare_one_bombed = True
     assert fare_one_bombed
+
+
+def test_missing_treatment(X_y):
+    X, y = X_y
+    X = X.copy()
+    missing_mask = np.random.uniform(0, 1, size=X.shape)
+    X = X.mask(missing_mask < 0.3)
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=10,
+        l2=1,
+        min_leaf_weight=1,
+        create_missing_branch=True,
+        allow_missing_splits=False,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        base_score=0.5,
+        missing_node_treatment="AverageLeafWeight",
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    contribus_weight = fmod.predict_contributions(X, method="weight")
+    assert contribus_weight.shape[1] == X.shape[1] + 1
+    assert np.allclose(contribus_weight.sum(1), fmod_preds)
+    assert np.allclose(contribus_weight[:, :-1][X.isna()], 0, atol=0.0000001)
+    assert (contribus_weight[:, :-1][X.isna()] == 0).all()
+    assert (X.isna().sum().sum()) > 0
+
+    contribus_average = fmod.predict_contributions(X, method="average")
+    assert contribus_average.shape[1] == X.shape[1] + 1
+    # Wont be exactly zero because of floating point error.
+    assert np.allclose(contribus_average[:, :-1][X.isna()], 0, atol=0.0000001)
+    assert np.allclose(contribus_weight.sum(1), fmod_preds)
+    assert (X.isna().sum().sum()) > 0
+
+    # Even the contributions should be approximately the same.
+    assert np.allclose(contribus_average, contribus_weight, atol=0.0000001)
+
+
+def test_missing_treatment_split_further(X_y):
+    X, y = X_y
+    X = X.copy()
+    missing_mask = np.random.uniform(0, 1, size=X.shape)
+    X = X.mask(missing_mask < 0.3)
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=10,
+        l2=1,
+        min_leaf_weight=1,
+        create_missing_branch=True,
+        allow_missing_splits=True,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        base_score=0.5,
+        missing_node_treatment="AverageLeafWeight",
+        terminate_missing_features=["pclass", "fare"],
+    )
+
+    [pclass_idx] = [i for i, f in enumerate(X.columns) if f == "pclass"]
+    [fare_idx] = [i for i, f in enumerate(X.columns) if f == "fare"]
+
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    contribus_weight = fmod.predict_contributions(X, method="weight")
+
+    # For the features that we terminate missing, these features should have a contribution
+    # of zero.
+    assert (contribus_weight[:, pclass_idx][X["pclass"].isna()] == 0).all()
+    assert (contribus_weight[:, fare_idx][X["fare"].isna()] == 0).all()
+
+    # For the others it might not be zero.
+    all_others = [i for i in range(X.shape[1]) if i not in [fare_idx, pclass_idx]]
+    assert (contribus_weight[:, all_others][X.iloc[:, all_others].isna()] != 0).any()
+    assert (contribus_weight[:, all_others][X.iloc[:, all_others].isna()] != 0).any()
+
+    contribus_average = fmod.predict_contributions(X, method="average")
+    assert np.allclose(contribus_weight.sum(1), fmod_preds)
+    assert np.allclose(contribus_average, contribus_weight, atol=0.0000001)
