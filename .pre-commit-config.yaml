@@ -18,4 +18,3 @@ repos:
   rev: v0.0.277
   hooks:
     - id: ruff
-      args: [py-forust]
