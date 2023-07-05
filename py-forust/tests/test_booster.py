@@ -1,5 +1,4 @@
 import json
-from pickletools import markobject
 from typing import Tuple
 
 import numpy as np
@@ -526,7 +525,6 @@ def test_booster_to_xgboosts_with_contributions(X_y):
         base_score=0.5,
     )
     xmod.fit(X, y)
-    xmod_preds = xmod.predict(X, output_margin=True)
     import xgboost as xgb
 
     xmod_contribs = xmod.get_booster().predict(
@@ -621,6 +619,8 @@ def test_booster_metadata(X_y, tmp_path):
             assert isinstance(c_v, forust.CrateGradientBooster)
         else:
             assert v == c_v
+    fmod_loaded_preds = loaded.predict(X)
+    assert np.allclose(fmod_preds, fmod_loaded_preds)
 
 
 def test_early_stopping_rounds(X_y, tmp_path):
@@ -820,7 +820,7 @@ def test_booster_terminate_missing_features(X_y):
     for tree in json.loads(fmod.json_dump())["trees"]:
         try:
             check_feature_split(pclass_idx, tree["nodes"], 0)
-        except ValueError as e:
+        except ValueError:
             pclass_one_bombed = True
     assert pclass_one_bombed
 
@@ -828,7 +828,7 @@ def test_booster_terminate_missing_features(X_y):
     for tree in json.loads(fmod.json_dump())["trees"]:
         try:
             check_feature_split(fare_idx, tree["nodes"], 0)
-        except ValueError as e:
+        except ValueError:
             fare_one_bombed = True
     assert fare_one_bombed
 
@@ -908,7 +908,7 @@ def test_missing_treatment_split_further(X_y):
     assert (contribus_weight[:, fare_idx][X["fare"].isna()] == 0).all()
 
     # For the others it might not be zero.
-    all_others = [i for i in range(X.shape[1]) if not i in [fare_idx, pclass_idx]]
+    all_others = [i for i in range(X.shape[1]) if i not in [fare_idx, pclass_idx]]
     assert (contribus_weight[:, all_others][X.iloc[:, all_others].isna()] != 0).any()
     assert (contribus_weight[:, all_others][X.iloc[:, all_others].isna()] != 0).any()
 
