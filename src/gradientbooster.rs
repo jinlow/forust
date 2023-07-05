@@ -57,9 +57,7 @@ pub enum MissingNodeTreatment {
     None,
     /// Assign the weight of the missing node to that of the parent.
     AssignToParent,
-    /// Assign the weight of the missing node to be the weighted averaged of all
-    /// of the leaves reachable by the left and right node. This method
-    /// is only valid if `allow_missing_splits` is `False`.
+    /// After training each tree, starting from the bottom of the tree, assign the missing node weight to the weighted average of the left and right child nodes. Next assign the parent to the weighted average of the children nodes. This is performed recursively up through the entire tree. This is performed as a post processing step on each tree as when it is trained, and prior to updating the predictions for which to train the next tree.
     AverageLeafWeight,
 }
 
@@ -352,11 +350,6 @@ impl GradientBooster {
     }
 
     fn validate_parameters(&self) -> Result<(), ForustError> {
-        // if let MissingNodeTreatment::AverageLeafWeight = self.missing_node_treatment {
-        //     if !self.create_missing_branch || self.allow_missing_splits {
-        //         return Err(ForustError::InvalidParameter(String::from("missing_node_treatment"), String::from("'None' or 'AssignToParent' when either 'create_missing_branch' and 'allow_missing_split' are true or 'create_missing_branch' is false"), String::from("AllowAverageLeafWeight")));
-        //     }
-        // }
         validate_positive_float_field!(self.learning_rate);
         validate_positive_float_field!(self.l2);
         validate_positive_float_field!(self.gamma);
@@ -549,7 +542,6 @@ impl GradientBooster {
                 }
             }
             if let MissingNodeTreatment::AverageLeafWeight = self.missing_node_treatment {
-                // tree.update_missing_weights();
                 tree.update_average_missing_nodes(0);
             }
             self.trees.push(tree);
