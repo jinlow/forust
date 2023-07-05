@@ -432,7 +432,7 @@ impl Tree {
         let node = &self.nodes[i];
         let mut w = node.weight_value as f64;
         if node.is_leaf {
-            w as f64
+            w
         } else {
             let left_node = &self.nodes[node.left_child];
             let right_node = &self.nodes[node.right_child];
@@ -449,41 +449,54 @@ impl Tree {
         }
     }
 
-    pub fn update_missing_weights(&mut self) {
-        // Update the weights of the missing nodes to be
-        // equal to the weighted average of the left and right
-        // nodes. This should probably be put in the splitter
-        // from a design standpoint, but will put here just for
-        // testing.
-        let mut update_buffer: VecDeque<usize> = VecDeque::new();
-        update_buffer.push_front(0);
-        while let Some(i) = update_buffer.pop_back() {
-            let node = &self.nodes[i];
-            if node.is_leaf || !node.has_missing_branch() {
-                continue;
-            }
-            let left = node.left_child;
-            let left_hessian = self.nodes[left].hessian_sum as f64;
-            let left_avg_weight = self.get_average_leaf_weights(left);
+    pub fn update_average_missing_nodes(&mut self, node_idx: usize) -> f64 {
+        let node = &self.nodes[node_idx];
 
-            let right = node.right_child;
-            let right_hessian = self.nodes[right].hessian_sum as f64;
-            let right_avg_weight = self.get_average_leaf_weights(right);
-
-            let missing = node.missing_node;
-            let current_node = node.num;
-
-            if let Some(m) = self.nodes.get_mut(missing) {
-                let update = ((right_avg_weight * right_hessian + left_avg_weight * left_hessian)
-                    / (left_hessian + right_hessian)) as f32;
-                m.weight_value = update;
-                if let Some(sm) = self.nodes.get_mut(current_node) {
-                    sm.weight_value = update;
-                }
-            }
-            update_buffer.push_back(left);
-            update_buffer.push_back(right);
+        if node.is_leaf {
+            return node.weight_value as f64;
         }
+
+        let right = node.right_child;
+        let left = node.left_child;
+        let current_node = node.num;
+        let missing = node.missing_node;
+
+        let right_hessian = self.nodes[right].hessian_sum as f64;
+        let right_avg_weight = self.update_average_missing_nodes(right);
+
+        let left_hessian = self.nodes[left].hessian_sum as f64;
+        let left_avg_weight = self.update_average_missing_nodes(left);
+
+        // This way this process supports missing branches that terminate (and will neutralize)
+        // and then if missing is split further those values will have non-zero contributions.
+        let (missing_hessian, missing_avg_weight, missing_leaf) = if self.nodes[missing].is_leaf {
+            (0., 0., true)
+        } else {
+            (
+                self.nodes[missing].hessian_sum as f64,
+                self.update_average_missing_nodes(missing),
+                false,
+            )
+        };
+
+        let update = (right_avg_weight * right_hessian
+            + left_avg_weight * left_hessian
+            + missing_avg_weight * missing_hessian)
+            / (left_hessian + right_hessian + missing_hessian);
+
+        // Update current node, and the missing value
+        if let Some(n) = self.nodes.get_mut(current_node) {
+            n.weight_value = update as f32;
+        }
+        // Only update the missing node if it's a leaf, otherwise we will auto-update
+        // them via the recursion called earlier.
+        if missing_leaf {
+            if let Some(m) = self.nodes.get_mut(missing) {
+                m.weight_value = update as f32;
+            }
+        }
+
+        update
     }
 
     fn calc_feature_node_stats<F>(

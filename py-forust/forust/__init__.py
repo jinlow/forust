@@ -262,7 +262,7 @@ class GradientBooster:
             missing_node_treatment (str, optional): Method for selecting the `weight` for the missing node, if `create_missing_branch` is set to `True`. Defaults to "AssignToParent". Valid options are:
                 - "None": Calculate missing node weight values without any constraints.
                 - "AssignToParent": Assign the weight of the missing node to that of the parent.
-                - "AverageLeafWeight": Assign the weight of the missing node to be the weighted averaged of all of the leaves reachable by the left and right node. This method is only valid if `allow_missing_splits` is `False`.
+                - "AverageLeafWeight": Assign the weight of the missing node to be the weighted averaged of all of the leaves reachable by the left and right node. The leaf weights are then distributed up through the tree. This ensures that the contributions for missing values will always be zero if the "weight" contribution method is used, and the missing node is terminated.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.

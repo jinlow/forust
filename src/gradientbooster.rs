@@ -352,11 +352,11 @@ impl GradientBooster {
     }
 
     fn validate_parameters(&self) -> Result<(), ForustError> {
-        if let MissingNodeTreatment::AverageLeafWeight = self.missing_node_treatment {
-            if !self.create_missing_branch || self.allow_missing_splits {
-                return Err(ForustError::InvalidParameter(String::from("missing_node_treatment"), String::from("'None' or 'AssignToParent' when either 'create_missing_branch' and 'allow_missing_split' are true or 'create_missing_branch' is false"), String::from("AllowAverageLeafWeight")));
-            }
-        }
+        // if let MissingNodeTreatment::AverageLeafWeight = self.missing_node_treatment {
+        //     if !self.create_missing_branch || self.allow_missing_splits {
+        //         return Err(ForustError::InvalidParameter(String::from("missing_node_treatment"), String::from("'None' or 'AssignToParent' when either 'create_missing_branch' and 'allow_missing_split' are true or 'create_missing_branch' is false"), String::from("AllowAverageLeafWeight")));
+        //     }
+        // }
         validate_positive_float_field!(self.learning_rate);
         validate_positive_float_field!(self.l2);
         validate_positive_float_field!(self.gamma);
@@ -549,7 +549,8 @@ impl GradientBooster {
                 }
             }
             if let MissingNodeTreatment::AverageLeafWeight = self.missing_node_treatment {
-                tree.update_missing_weights();
+                // tree.update_missing_weights();
+                tree.update_average_missing_nodes(0);
             }
             self.trees.push(tree);
             (grad, hess) = calc_grad_hess(y, &yhat, sample_weight);
