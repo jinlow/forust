@@ -10,7 +10,7 @@ use crate::objective::{
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
-use crate::utils::validate_positive_float_field;
+use crate::utils::{odds, validate_positive_float_field};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rayon::prelude::*;
@@ -34,6 +34,7 @@ pub enum ContributionsMethod {
     BranchDifference,
     MidpointDifference,
     ModeDifference,
+    ProbabilityChange,
 }
 
 /// Method to calculate variable importance.
@@ -597,6 +598,13 @@ impl GradientBooster {
     ) -> Vec<f64> {
         match method {
             ContributionsMethod::Average => self.predict_contributions_average(data, parallel),
+            ContributionsMethod::ProbabilityChange => {
+                match self.objective_type {
+                    ObjectiveType::LogLoss => {},
+                    _ => panic!("ProbabilityChange contributions method is only valid when LogLoss objective is used.")
+                }
+                self.predict_contributions_probability_change(data, parallel)
+            }
             _ => self.predict_contributions_tree_alone(data, parallel, method),
         }
     }
@@ -629,7 +637,7 @@ impl GradientBooster {
                 Tree::predict_contributions_row_midpoint_difference
             }
             ContributionsMethod::ModeDifference => Tree::predict_contributions_row_mode_difference,
-            ContributionsMethod::Average => unreachable!(),
+            ContributionsMethod::Average | ContributionsMethod::ProbabilityChange => unreachable!(),
         };
         // Clean this up..
         // materializing a row, and then passing that to all of the
@@ -725,6 +733,57 @@ impl GradientBooster {
                 });
         }
 
+        contribs
+    }
+
+    fn predict_contributions_probability_change(
+        &self,
+        data: &Matrix<f64>,
+        parallel: bool,
+    ) -> Vec<f64> {
+        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
+        let bias_idx = data.cols + 1;
+        contribs
+            .iter_mut()
+            .skip(bias_idx - 1)
+            .step_by(bias_idx)
+            .for_each(|v| *v += odds(self.base_score));
+
+        if parallel {
+            data.index
+                .par_iter()
+                .zip(contribs.par_chunks_mut(data.cols + 1))
+                .for_each(|(row, c)| {
+                    let r_ = data.get_row(*row);
+                    self.get_prediction_trees()
+                        .iter()
+                        .fold(self.base_score, |acc, t| {
+                            t.predict_contributions_row_probability_change(
+                                &r_,
+                                c,
+                                &self.missing,
+                                acc,
+                            )
+                        });
+                });
+        } else {
+            data.index
+                .iter()
+                .zip(contribs.chunks_mut(data.cols + 1))
+                .for_each(|(row, c)| {
+                    let r_ = data.get_row(*row);
+                    self.get_prediction_trees()
+                        .iter()
+                        .fold(self.base_score, |acc, t| {
+                            t.predict_contributions_row_probability_change(
+                                &r_,
+                                c,
+                                &self.missing,
+                                acc,
+                            )
+                        });
+                });
+        }
         contribs
     }
 

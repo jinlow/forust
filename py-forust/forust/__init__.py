@@ -27,6 +27,9 @@ CONTRIBUTION_METHODS = {
     "mode-difference": "ModeDifference",
     "modedifference": "ModeDifference",
     "ModeDifference": "ModeDifference",
+    "ProbabilityChange": "ProbabilityChange",
+    "probabilitychange": "ProbabilityChange",
+    "probability-change": "ProbabilityChange",
 }
 
 SAMPLE_METHODS = {
@@ -496,7 +499,7 @@ class GradientBooster:
         )
 
     def predict_contributions(
-        self, X: FrameLike, method: str = "average", parallel: Union[bool, None] = None
+        self, X: FrameLike, method: str = "Average", parallel: Union[bool, None] = None
     ) -> np.ndarray:
         """Predict with the fitted booster on new data, returning the feature
         contribution matrix. The last column is the bias term.
@@ -510,11 +513,12 @@ class GradientBooster:
             X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
             method (str, optional): Method to calculate the contributions, available options are:
 
-                - "average": If this option is specified, the average internal node values are calculated, this is equivalent to the `approx_contribs` parameter in XGBoost.
+                - "Average": If this option is specified, the average internal node values are calculated, this is equivalent to the `approx_contribs` parameter in XGBoost.
                 - "weight": This method will use the internal leaf weights, to calculate the contributions. This is the same as what is described by Saabas [here](https://blog.datadive.net/interpreting-random-forests/).
-                - "branch-difference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the other non-missing branch. This method does not have the property where the contributions summed is equal to the final prediction of the model.
-                - "midpoint-difference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the mid-point between the right and left node weighted by the cover of each node. This method does not have the property where the contributions summed is equal to the final prediction of the model.
-                - "mode-difference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the node with the largest cover (the mode node). This method does not have the property where the contributions summed is equal to the final prediction of the model.
+                - "BranchDifference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the other non-missing branch. This method does not have the property where the contributions summed is equal to the final prediction of the model.
+                - "MidpointDifference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the mid-point between the right and left node weighted by the cover of each node. This method does not have the property where the contributions summed is equal to the final prediction of the model.
+                - "ModeDifference": This method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the node with the largest cover (the mode node). This method does not have the property where the contributions summed is equal to the final prediction of the model.
+                - "ProbabilityChange": This method is only valid when the objective type is set to "LogLoss". This method will calculate contributions as the change in a records probability of being 1 moving from a parent node to a child node. The sum of the returned contributions matrix, will be equal to the probability a record will be 1. For example, given a model, `model.predict_contributions(X, method="ProbabilityChange") == 1 / (1 + np.exp(-model.predict(X)))`
             parallel (Union[bool, None], optional): Optionally specify if the predict
                 function should run in parallel on multiple threads. If `None` is
                 passed, the `parallel` attribute of the booster will be used.
@@ -531,7 +535,7 @@ class GradientBooster:
             flat_data=flat_data,
             rows=rows,
             cols=cols,
-            method=CONTRIBUTION_METHODS[method],
+            method=CONTRIBUTION_METHODS.get(method, method),
             parallel=parallel_,
         )
         return np.reshape(contributions, (rows, cols + 1))

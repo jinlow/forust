@@ -92,6 +92,12 @@ pub fn constrained_weight(
     }
 }
 
+/// Convert Log odds to probability
+#[inline]
+pub fn odds(v: f64) -> f64 {
+    1. / (1. + (-v).exp())
+}
+
 /// Calculate the gain given the gradient and hessian of the node.
 #[inline]
 pub fn gain(l2: &f32, gradient_sum: f32, hessian_sum: f32) -> f32 {
