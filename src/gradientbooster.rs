@@ -10,7 +10,7 @@ use crate::objective::{
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
-use crate::utils::validate_positive_float_field;
+use crate::utils::{odds, validate_positive_float_field};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rayon::prelude::*;
@@ -29,11 +29,18 @@ pub enum GrowPolicy {
 
 #[derive(Serialize, Deserialize)]
 pub enum ContributionsMethod {
+    /// This method will use the internal leaf weights, to calculate the contributions. This is the same as what is described by Saabas [here](https://blog.datadive.net/interpreting-random-forests/).
     Weight,
+    /// If this option is specified, the average internal node values are calculated, this is equivalent to the `approx_contribs` parameter in XGBoost.
     Average,
+    /// This method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the other non-missing branch. This method does not have the property where the contributions summed is equal to the final prediction of the model.
     BranchDifference,
+    /// This method will calculate contributions by subtracting the weight of the node the record will travel down by the mid-point between the right and left node weighted by the cover of each node. This method does not have the property where the contributions summed is equal to the final prediction of the model.
     MidpointDifference,
+    /// This method will calculate contributions by subtracting the weight of the node the record will travel down by the weight of the node with the largest cover (the mode node). This method does not have the property where the contributions summed is equal to the final prediction of the model.
     ModeDifference,
+    /// This method is only valid when the objective type is set to "LogLoss". This method will calculate contributions as the change in a records probability of being 1 moving from a parent node to a child node. The sum of the returned contributions matrix, will be equal to the probability a record will be 1. For example, given a model, `model.predict_contributions(X, method="ProbabilityChange") == 1 / (1 + np.exp(-model.predict(X)))`
+    ProbabilityChange,
 }
 
 /// Method to calculate variable importance.
@@ -59,6 +66,8 @@ pub enum MissingNodeTreatment {
     AssignToParent,
     /// After training each tree, starting from the bottom of the tree, assign the missing node weight to the weighted average of the left and right child nodes. Next assign the parent to the weighted average of the children nodes. This is performed recursively up through the entire tree. This is performed as a post processing step on each tree after it is built, and prior to updating the predictions for which to train the next tree.
     AverageLeafWeight,
+    /// Set the missing node to be equal to the weighted average weight of the left and the right nodes.
+    AverageNodeWeight,
 }
 
 /// Gradient Booster object
@@ -597,6 +606,13 @@ impl GradientBooster {
     ) -> Vec<f64> {
         match method {
             ContributionsMethod::Average => self.predict_contributions_average(data, parallel),
+            ContributionsMethod::ProbabilityChange => {
+                match self.objective_type {
+                    ObjectiveType::LogLoss => {},
+                    _ => panic!("ProbabilityChange contributions method is only valid when LogLoss objective is used.")
+                }
+                self.predict_contributions_probability_change(data, parallel)
+            }
             _ => self.predict_contributions_tree_alone(data, parallel, method),
         }
     }
@@ -629,7 +645,7 @@ impl GradientBooster {
                 Tree::predict_contributions_row_midpoint_difference
             }
             ContributionsMethod::ModeDifference => Tree::predict_contributions_row_mode_difference,
-            ContributionsMethod::Average => unreachable!(),
+            ContributionsMethod::Average | ContributionsMethod::ProbabilityChange => unreachable!(),
         };
         // Clean this up..
         // materializing a row, and then passing that to all of the
@@ -725,6 +741,57 @@ impl GradientBooster {
                 });
         }
 
+        contribs
+    }
+
+    fn predict_contributions_probability_change(
+        &self,
+        data: &Matrix<f64>,
+        parallel: bool,
+    ) -> Vec<f64> {
+        let mut contribs = vec![0.; (data.cols + 1) * data.rows];
+        let bias_idx = data.cols + 1;
+        contribs
+            .iter_mut()
+            .skip(bias_idx - 1)
+            .step_by(bias_idx)
+            .for_each(|v| *v += odds(self.base_score));
+
+        if parallel {
+            data.index
+                .par_iter()
+                .zip(contribs.par_chunks_mut(data.cols + 1))
+                .for_each(|(row, c)| {
+                    let r_ = data.get_row(*row);
+                    self.get_prediction_trees()
+                        .iter()
+                        .fold(self.base_score, |acc, t| {
+                            t.predict_contributions_row_probability_change(
+                                &r_,
+                                c,
+                                &self.missing,
+                                acc,
+                            )
+                        });
+                });
+        } else {
+            data.index
+                .iter()
+                .zip(contribs.chunks_mut(data.cols + 1))
+                .for_each(|(row, c)| {
+                    let r_ = data.get_row(*row);
+                    self.get_prediction_trees()
+                        .iter()
+                        .fold(self.base_score, |acc, t| {
+                            t.predict_contributions_row_probability_change(
+                                &r_,
+                                c,
+                                &self.missing,
+                                acc,
+                            )
+                        });
+                });
+        }
         contribs
     }
 

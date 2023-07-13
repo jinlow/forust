@@ -7,7 +7,7 @@ use crate::partial_dependence::tree_partial_dependence;
 use crate::sampler::SampleMethod;
 use crate::splitter::Splitter;
 use crate::utils::fast_f64_sum;
-use crate::utils::{gain, weight};
+use crate::utils::{gain, odds, weight};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BinaryHeap, HashMap, VecDeque};
@@ -142,6 +142,34 @@ impl Tree {
 
         // Any final post processing required.
         splitter.clean_up_splits(self);
+    }
+
+    pub fn predict_contributions_row_probability_change(
+        &self,
+        row: &[f64],
+        contribs: &mut [f64],
+        missing: &f64,
+        current_logodds: f64,
+    ) -> f64 {
+        contribs[contribs.len() - 1] +=
+            odds(current_logodds + self.nodes[0].weight_value as f64) - odds(current_logodds);
+        let mut node_idx = 0;
+        let mut lo = current_logodds;
+        loop {
+            let node = &self.nodes[node_idx];
+            let node_odds = odds(node.weight_value as f64 + current_logodds);
+            if node.is_leaf {
+                lo += node.weight_value as f64;
+                break;
+            }
+            // Get change of weight given child's weight.
+            let child_idx = node.get_child_idx(&row[node.split_feature], missing);
+            let child_odds = odds(self.nodes[child_idx].weight_value as f64 + current_logodds);
+            let delta = child_odds - node_odds;
+            contribs[node.split_feature] += delta;
+            node_idx = child_idx;
+        }
+        lo
     }
 
     // Branch average difference predictions

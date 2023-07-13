@@ -11,6 +11,10 @@ import forust
 from forust import GradientBooster
 
 
+def loggodds_to_odds(v):
+    return 1 / (1 + np.exp(-v))
+
+
 @pytest.fixture
 def X_y() -> Tuple[pd.DataFrame, pd.Series]:
     df = pd.read_csv("../resources/titanic.csv")
@@ -511,6 +515,10 @@ def test_booster_to_xgboosts_with_contributions(X_y):
     assert not np.allclose(contribs_difference.sum(1), fmod_preds)
     assert not np.allclose(contribs_difference, contribs_average)
 
+    contribs_proba = fmod.predict_contributions(X, method="ProbabilityChange")
+    assert np.allclose(contribs_proba.sum(1), loggodds_to_odds(fmod_preds))
+    assert not np.allclose(contribs_proba, contribs_average)
+
     xmod = XGBClassifier(
         n_estimators=100,
         learning_rate=0.3,
@@ -531,6 +539,7 @@ def test_booster_to_xgboosts_with_contributions(X_y):
         xgb.DMatrix(X), approx_contribs=True, pred_contribs=True
     )
     assert np.allclose(contribs_average, xmod_contribs, atol=0.000001)
+    assert np.allclose(fmod_preds, xmod.predict(X, output_margin=True), atol=0.00001)
 
 
 def test_missing_branch_with_contributions(X_y):
@@ -555,6 +564,16 @@ def test_missing_branch_with_contributions(X_y):
     fmod_miss_leaf_conts = fmod_miss_leaf.predict_contributions(X)
     assert np.allclose(fmod_miss_leaf_conts.sum(1), fmod_miss_leaf_preds)
 
+    fmod_miss_leaf_conts = fmod_miss_leaf.predict_contributions(X, method="weight")
+    assert np.allclose(fmod_miss_leaf_conts.sum(1), fmod_miss_leaf_preds)
+
+    fmod_miss_leaf_conts = fmod_miss_leaf.predict_contributions(
+        X, method="probability-change"
+    )
+    assert np.allclose(
+        fmod_miss_leaf_conts.sum(1), loggodds_to_odds(fmod_miss_leaf_preds)
+    )
+
     fmod_miss_branch = GradientBooster(
         iterations=100,
         learning_rate=0.3,
@@ -574,6 +593,16 @@ def test_missing_branch_with_contributions(X_y):
     fmod_miss_branch_conts = fmod_miss_branch.predict_contributions(X)
     assert np.allclose(fmod_miss_branch_conts.sum(1), fmod_miss_branch_preds)
     assert not np.allclose(fmod_miss_branch_preds, fmod_miss_leaf_preds)
+
+    fmod_miss_branch_conts = fmod_miss_branch.predict_contributions(X, method="weight")
+    assert np.allclose(fmod_miss_branch_conts.sum(1), fmod_miss_branch_preds)
+
+    fmod_miss_branch_conts = fmod_miss_branch.predict_contributions(
+        X, method="probability-change"
+    )
+    assert np.allclose(
+        fmod_miss_branch_conts.sum(1), loggodds_to_odds(fmod_miss_branch_preds)
+    )
 
 
 def test_booster_metadata(X_y, tmp_path):
@@ -762,7 +791,7 @@ def test_booster_to_xgboosts_with_base_score_squared_loss(X_y):
 def test_booster_terminate_missing_features(X_y):
     X, y = X_y
     X = X.copy()
-    missing_mask = np.random.uniform(0, 1, size=X.shape)
+    missing_mask = np.random.default_rng(0).uniform(0, 1, size=X.shape)
     X = X.mask(missing_mask < 0.3)
     fmod = GradientBooster(
         iterations=100,
@@ -836,7 +865,7 @@ def test_booster_terminate_missing_features(X_y):
 def test_missing_treatment(X_y):
     X, y = X_y
     X = X.copy()
-    missing_mask = np.random.uniform(0, 1, size=X.shape)
+    missing_mask = np.random.default_rng(0).uniform(0, 1, size=X.shape)
     X = X.mask(missing_mask < 0.3)
     fmod = GradientBooster(
         iterations=100,
@@ -876,7 +905,7 @@ def test_missing_treatment(X_y):
 def test_missing_treatment_split_further(X_y):
     X, y = X_y
     X = X.copy()
-    missing_mask = np.random.uniform(0, 1, size=X.shape)
+    missing_mask = np.random.default_rng(0).uniform(0, 1, size=X.shape)
     X = X.mask(missing_mask < 0.3)
     fmod = GradientBooster(
         iterations=100,
@@ -915,3 +944,70 @@ def test_missing_treatment_split_further(X_y):
     contribus_average = fmod.predict_contributions(X, method="average")
     assert np.allclose(contribus_weight.sum(1), fmod_preds)
     assert np.allclose(contribus_average, contribus_weight, atol=0.0000001)
+
+
+def test_AverageNodeWeight_missing_node_treatment(X_y):
+    X, y = X_y
+    X = X.copy()
+    missing_mask = np.random.default_rng(0).uniform(0, 1, size=X.shape)
+    X = X.mask(missing_mask < 0.3)
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=10,
+        l2=1,
+        min_leaf_weight=0,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        initialize_base_score=True,
+        allow_missing_splits=True,
+        create_missing_branch=True,
+        terminate_missing_features=["pclass", "fare"],
+        missing_node_treatment="AverageNodeWeight",
+    )
+    fmod.fit(X, y=y)
+
+    def check_missing_is_average(tree: dict, n: int, learning_rate: float = 0.3):
+        node = tree[n]
+        if node["is_leaf"]:
+            return
+        missing_weight = tree[node["missing_node"]]["weight_value"]
+        left = tree[node["left_child"]]
+        right = tree[node["right_child"]]
+
+        weighted_weight = (
+            (left["weight_value"] * left["hessian_sum"])
+            + (right["weight_value"] * right["hessian_sum"])
+        ) / (left["hessian_sum"] + right["hessian_sum"])
+
+        assert np.isclose(missing_weight, weighted_weight)
+
+        check_missing_is_average(tree, node["missing_node"])
+        check_missing_is_average(tree, node["left_child"])
+        check_missing_is_average(tree, node["right_child"])
+
+    # Does pclass never get split out?
+    for tree in json.loads(fmod.json_dump())["trees"]:
+        check_missing_is_average(tree["nodes"], 0)
+
+    fmod = GradientBooster(
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="SquaredLoss",
+        nbins=500,
+        parallel=True,
+        initialize_base_score=True,
+        allow_missing_splits=True,
+        create_missing_branch=True,
+        # terminate_missing_features=["pclass"]
+    )
+    fmod.fit(X, y=y)
+
+    with pytest.raises(AssertionError):
+        for tree in json.loads(fmod.json_dump())["trees"]:
+            check_missing_is_average(tree["nodes"], 0)
