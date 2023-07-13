@@ -267,6 +267,7 @@ class GradientBooster:
                 - "None": Calculate missing node weight values without any constraints.
                 - "AssignToParent": Assign the weight of the missing node to that of the parent.
                 - "AverageLeafWeight": After training each tree, starting from the bottom of the tree, assign the missing node weight to the weighted average of the left and right child nodes. Next assign the parent to the weighted average of the children nodes. This is performed recursively up through the entire tree. This is performed as a post processing step on each tree after it is built, and prior to updating the predictions for which to train the next tree.
+                - "AverageNodeWeight": Set the missing node to be equal to the weighted average weight of the left and the right nodes.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.

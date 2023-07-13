@@ -390,7 +390,7 @@ impl Splitter for MissingBranchSplitter {
             ),
             // Calculate the local leaf average for now, after training the tree.
             // Recursively assign to the leaf weights underneath.
-            MissingNodeTreatment::AverageLeafWeight => {
+            MissingNodeTreatment::AverageLeafWeight | MissingNodeTreatment::AverageNodeWeight => {
                 (right_weight * right_hessian + left_weight * left_hessian)
                     / (right_hessian + left_hessian)
             }
