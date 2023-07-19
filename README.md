@@ -156,5 +156,5 @@ To save and subsequently load a trained booster, the `save_booster` and `load_bo
 trained_model.save_booster("model_path.json")
 
 # To load a model from a json path.
-loaded_model = GradientBooster.load_model("model_path.json")
+loaded_model = GradientBooster.load_booster("model_path.json")
 ```
