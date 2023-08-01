@@ -189,6 +189,7 @@ class GradientBooster:
         initialize_base_score: bool = False,
         terminate_missing_features: Iterable[Any] | None = None,
         missing_node_treatment: str = "AssignToParent",
+        verbose: bool = False,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -344,6 +345,7 @@ class GradientBooster:
             initialize_base_score=initialize_base_score,
             terminate_missing_features=set(),
             missing_node_treatment=missing_node_treatment,
+            verbose=verbose,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints

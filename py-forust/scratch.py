@@ -1,3 +1,50 @@
+import numpy as np
+import pandas as pd
+
+from forust import GradientBooster
+
+df_full = pd.read_parquet(
+    "C:/Users/inloja01/projects/test-data/application_train_proc.parquet"
+)
+
+drop_cols = df_full.dtypes.pipe(lambda x: x[x.eq("object")]).index
+df = df_full.drop(columns=drop_cols)
+# For now we will just start off testing with a sample of the data to speed things up.
+df = df.sample(20_000, random_state=123)
+X = df.drop(columns=["target"]).astype(np.float32).fillna(-99999)
+y = df["target"].astype(np.float32)
+
+
+rng = np.random.default_rng(0)
+sign_flip = rng.choice([1, -1], size=X.shape[1], p=[0.9, 0.1])
+monotonicity = (
+    np.sign(df.drop(columns=["target"]).apply(lambda x: x.corr(df["target"])))
+    .fillna(1)
+    .mul(sign_flip)
+    .astype(int)
+    .to_dict()
+)
+
+
+forust_params = {
+    "base_score": 0.5,
+    "learning_rate": 0.04,
+    "max_leaves": 8,
+    "missing": -99999,
+    # "subsample": 0.85,
+    "seed": 0,
+    "allow_missing_splits": True,
+    "create_missing_branch": True,
+    "monotone_constraints": {col: monotonicity[col] for col in X.columns},
+    # "missing_node_treatment": "AverageLeafWeight",
+}
+
+
+fmod = GradientBooster(**forust_params, iterations=100, verbose=True)
+
+fmod.fit(X, y)
+
+
 # # import pandas as pd
 # # import numpy as np
 # # from forust import rust_bin_matrix
