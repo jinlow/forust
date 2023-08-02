@@ -978,6 +978,7 @@ mod tests {
     use crate::node::SplittableNode;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use crate::utils::gain;
+    use create::utils::weight;
     use std::fs;
     #[test]
     fn test_best_feature_split() {
