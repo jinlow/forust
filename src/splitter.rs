@@ -8,7 +8,7 @@ use crate::node::SplittableNode;
 use crate::tree::Tree;
 use crate::utils::{
     constrained_weight, cull_gain, gain_given_weight, pivot_on_split,
-    pivot_on_split_exclude_missing, weight,
+    pivot_on_split_exclude_missing,
 };
 
 #[derive(Debug)]
@@ -383,10 +383,13 @@ impl Splitter for MissingBranchSplitter {
 
         // Set weight based on the missing node treatment.
         let missing_weight = match self.missing_node_treatment {
-            MissingNodeTreatment::AssignToParent => weight(
+            MissingNodeTreatment::AssignToParent => constrained_weight(
                 &self.get_l2(),
                 missing_gradient + left_gradient + right_gradient,
                 missing_hessian + left_hessian + right_hessian,
+                lower_bound,
+                upper_bound,
+                constraint,
             ),
             // Calculate the local leaf average for now, after training the tree.
             // Recursively assign to the leaf weights underneath.
@@ -394,7 +397,14 @@ impl Splitter for MissingBranchSplitter {
                 (right_weight * right_hessian + left_weight * left_hessian)
                     / (right_hessian + left_hessian)
             }
-            MissingNodeTreatment::None => weight(&self.get_l2(), missing_gradient, missing_hessian),
+            MissingNodeTreatment::None => constrained_weight(
+                &self.get_l2(),
+                missing_gradient,
+                missing_hessian,
+                lower_bound,
+                upper_bound,
+                constraint,
+            ),
         };
         let missing_gain = gain_given_weight(
             &self.get_l2(),
@@ -799,10 +809,13 @@ impl Splitter for MissingImputerSplitter {
             );
 
             // The gain if missing went right
-            let missing_right_weight = weight(
+            let missing_right_weight = constrained_weight(
                 &self.l2,
                 right_gradient + missing_gradient,
                 right_hessian + missing_hessian,
+                lower_bound,
+                upper_bound,
+                constraint,
             );
             // The gain is missing went right
             let missing_right_gain = gain_given_weight(
@@ -965,6 +978,7 @@ mod tests {
     use crate::node::SplittableNode;
     use crate::objective::{LogLoss, ObjectiveFunction};
     use crate::utils::gain;
+    use crate::utils::weight;
     use std::fs;
     #[test]
     fn test_best_feature_split() {
@@ -987,7 +1001,6 @@ mod tests {
             allow_missing_splits: true,
             constraints_map: ConstraintMap::new(),
         };
-        // println!("{:?}", hists);
         let mut n = SplittableNode::new(
             0,
             // vec![0, 1, 2, 3, 4, 5, 6],
@@ -1003,7 +1016,6 @@ mod tests {
             f32::INFINITY,
         );
         let s = splitter.best_feature_split(&mut n, 0).unwrap();
-        println!("{:?}", s);
         assert_eq!(s.split_value, 4.0);
         assert_eq!(s.left_node.cover, 0.75);
         assert_eq!(s.right_node.cover, 1.0);
@@ -1085,8 +1097,6 @@ mod tests {
         let hessian_sum = hess.iter().copied().sum();
         let root_gain = gain(&splitter.l2, gradient_sum, hessian_sum);
         let root_weight = weight(&splitter.l2, gradient_sum, hessian_sum);
-        // let gain_given_weight = splitter.gain_given_weight(gradient_sum, hessian_sum, root_weight);
-        // println!("gain: {}, weight: {}, gain from weight: {}", root_gain, root_weight, gain_given_weight);
         let data = Matrix::new(&data_vec, 891, 5);
 
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
