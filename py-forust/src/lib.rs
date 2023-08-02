@@ -440,6 +440,8 @@ fn percentiles<'py>(
 /// A Python module implemented in Rust.
 #[pymodule]
 fn forust(_py: Python, m: &PyModule) -> PyResult<()> {
+    pyo3_log::init();
+
     m.add_function(wrap_pyfunction!(print_matrix, m)?)?;
     m.add_function(wrap_pyfunction!(percentiles, m)?)?;
     m.add_class::<GradientBooster>()?;

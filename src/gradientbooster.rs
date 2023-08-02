@@ -10,14 +10,13 @@ use crate::objective::{
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
-use crate::utils::{odds, validate_positive_float_field};
-use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+use crate::utils::{fmt_vec_output, odds, validate_positive_float_field};
+use log::info;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write;
 use std::fs;
 
 pub type EvaluationData<'a> = (Matrix<'a, f64>, &'a [f64], &'a [f64]);
@@ -470,17 +469,6 @@ impl GradientBooster {
             self.base_score = calc_init_callables(&self.objective_type)(y, sample_weight);
         }
 
-        let progress_bar = if self.verbose {
-            let pb = ProgressBar::new(self.iterations as u64);
-            pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {len}/{human_len} ({eta})")
-                .unwrap()
-                .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
-                .progress_chars("#>-"));
-            Some(pb)
-        } else {
-            None
-        };
-
         let mut yhat = vec![self.base_score; y.len()];
 
         let calc_grad_hess = gradient_hessian_callables(&self.objective_type);
@@ -559,6 +547,9 @@ impl GradientBooster {
                                         // Previous value was better.
                                         if let Some(best_iteration) = self.best_iteration {
                                             if i - best_iteration >= early_stopping_rounds {
+                                                if self.verbose {
+                                                    info!("Stopping early at iteration {} with metric value {}", i, m)
+                                                }
                                                 break;
                                             }
                                         }
@@ -568,8 +559,14 @@ impl GradientBooster {
                             };
                         }
                     }
-
                     metrics.push(m);
+                }
+                if self.verbose {
+                    info!(
+                        "Iteration {} evaluation data values: {}",
+                        i,
+                        fmt_vec_output(&metrics)
+                    );
                 }
                 if let Some(history) = &mut self.evaluation_history {
                     history.append_row(metrics);
@@ -577,12 +574,9 @@ impl GradientBooster {
             }
             self.trees.push(tree);
             (grad, hess) = calc_grad_hess(y, &yhat, sample_weight);
-            if let Some(pb) = &progress_bar {
-                pb.set_position(i as u64);
+            if self.verbose {
+                info!("Completed iteration {} of {}", i, self.iterations);
             }
-        }
-        if let Some(pb) = progress_bar {
-            pb.finish_with_message("training finished");
         }
         Ok(())
     }

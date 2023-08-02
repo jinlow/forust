@@ -15,3 +15,4 @@ numpy = "0.19.0"
 ndarray = "0.15.1"
 serde_plain = { version = "1.0" }
 serde = { version = "1.0" }
+pyo3-log = "0.8.3"
