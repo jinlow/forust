@@ -269,6 +269,7 @@ class GradientBooster:
                 - "AssignToParent": Assign the weight of the missing node to that of the parent.
                 - "AverageLeafWeight": After training each tree, starting from the bottom of the tree, assign the missing node weight to the weighted average of the left and right child nodes. Next assign the parent to the weighted average of the children nodes. This is performed recursively up through the entire tree. This is performed as a post processing step on each tree after it is built, and prior to updating the predictions for which to train the next tree.
                 - "AverageNodeWeight": Set the missing node to be equal to the weighted average weight of the left and the right nodes.
+            verbose (bool, optional): If true, output will be logged while the model is being fit, this info can be interacted with directly with the python [`logging`](https://docs.python.org/3/howto/logging.html) module. For an example of how to utilize the logging information see the example [here](/#logging-output).
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -677,7 +678,7 @@ class GradientBooster:
     def calculate_feature_importance(
         self, method: str = "Gain", normalize: bool = True
     ) -> dict[int, float] | dict[str, float]:
-        """Feature importance values can be calculated with the `calculate_feature_importance` method. This function will return a dictionary of the features and their importances. It should be noted that if a feature was never used for splitting it will not be returned in importance dictionary.
+        """Feature importance values can be calculated with the `calculate_feature_importance` method. This function will return a dictionary of the features and their importance values. It should be noted that if a feature was never used for splitting it will not be returned in importance dictionary.
 
         Args:
             method (str, optional): Variable importance method. Defaults to "Gain". Valid options are:
