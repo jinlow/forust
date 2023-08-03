@@ -15,6 +15,20 @@ pub fn items_to_strings(items: Vec<&str>) -> String {
     s
 }
 
+pub fn fmt_vec_output<T: FloatData<T>>(v: &[T]) -> String {
+    let mut res = String::new();
+    let last = v.len() - 1;
+    if last == 0 {
+        return format!("{:.4}", v[0]);
+    }
+    for n in &v[..last] {
+        res.push_str(format!("{:.4}", n).as_str());
+        res.push_str(", ");
+    }
+    res.push_str(format!("{:.4}", &v[last]).as_str());
+    res
+}
+
 // Validation
 pub fn validate_positive_float_parameter<T: FloatData<T>>(
     value: T,

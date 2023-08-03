@@ -10,13 +10,15 @@ use crate::objective::{
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
-use crate::utils::{odds, validate_positive_float_field};
+use crate::utils::{fmt_vec_output, odds, validate_positive_float_field};
+use log::info;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+
 pub type EvaluationData<'a> = (Matrix<'a, f64>, &'a [f64], &'a [f64]);
 pub type TrainingEvaluationData<'a> = (&'a Matrix<'a, f64>, &'a [f64], &'a [f64], Vec<f64>);
 type ImportanceFn = fn(&Tree, &mut HashMap<usize, (f32, usize)>);
@@ -160,6 +162,9 @@ pub struct GradientBooster {
     /// How the missing nodes weights should be treated at training time.
     #[serde(default = "default_missing_node_treatment")]
     pub missing_node_treatment: MissingNodeTreatment,
+    /// Should the model be trained showing output.
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -206,6 +211,10 @@ fn default_missing_node_treatment() -> MissingNodeTreatment {
     MissingNodeTreatment::AssignToParent
 }
 
+fn default_verbose() -> bool {
+    false
+}
+
 fn parse_missing<'de, D>(d: D) -> Result<f64, D::Error>
 where
     D: Deserializer<'de>,
@@ -242,6 +251,7 @@ impl Default for GradientBooster {
             false,
             HashSet::new(),
             MissingNodeTreatment::AssignToParent,
+            false,
         )
         .unwrap()
     }
@@ -316,6 +326,7 @@ impl GradientBooster {
         initialize_base_score: bool,
         terminate_missing_features: HashSet<usize>,
         missing_node_treatment: MissingNodeTreatment,
+        verbose: bool,
     ) -> Result<Self, ForustError> {
         let (base_score_, initialize_base_score_) = match base_score {
             Some(v) => (v, initialize_base_score),
@@ -351,6 +362,7 @@ impl GradientBooster {
             best_iteration: None,
             prediction_iteration: None,
             missing_node_treatment,
+            verbose,
             trees: Vec::new(),
             metadata: HashMap::new(),
         };
@@ -535,6 +547,9 @@ impl GradientBooster {
                                         // Previous value was better.
                                         if let Some(best_iteration) = self.best_iteration {
                                             if i - best_iteration >= early_stopping_rounds {
+                                                if self.verbose {
+                                                    info!("Stopping early at iteration {} with metric value {}", i, m)
+                                                }
                                                 break;
                                             }
                                         }
@@ -544,8 +559,14 @@ impl GradientBooster {
                             };
                         }
                     }
-
                     metrics.push(m);
+                }
+                if self.verbose {
+                    info!(
+                        "Iteration {} evaluation data values: {}",
+                        i,
+                        fmt_vec_output(&metrics)
+                    );
                 }
                 if let Some(history) = &mut self.evaluation_history {
                     history.append_row(metrics);
@@ -553,6 +574,9 @@ impl GradientBooster {
             }
             self.trees.push(tree);
             (grad, hess) = calc_grad_hess(y, &yhat, sample_weight);
+            if self.verbose {
+                info!("Completed iteration {} of {}", i, self.iterations);
+            }
         }
         Ok(())
     }
