@@ -78,7 +78,7 @@ impl GradientBooster {
         initialize_base_score,
         terminate_missing_features,
         missing_node_treatment,
-        verbose,
+        log_iterations,
     ))]
     pub fn new(
         objective_type: &str,
@@ -107,7 +107,7 @@ impl GradientBooster {
         initialize_base_score: bool,
         terminate_missing_features: HashSet<usize>,
         missing_node_treatment: &str,
-        verbose: bool,
+        log_iterations: usize,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = to_value_error(serde_plain::from_str(objective_type))?;
@@ -149,7 +149,7 @@ impl GradientBooster {
             initialize_base_score,
             terminate_missing_features,
             missing_node_treatment_,
-            verbose,
+            log_iterations,
         );
         Ok(GradientBooster {
             booster: to_value_error(booster)?,
@@ -398,7 +398,7 @@ impl GradientBooster {
                 "missing_node_treatment",
                 missing_node_treatment_.to_object(py),
             ),
-            ("verbose", self.booster.verbose.to_object(py)),
+            ("log_iterations", self.booster.log_iterations.to_object(py)),
         ];
         let dict = key_vals.into_py_dict(py);
         Ok(dict.to_object(py))

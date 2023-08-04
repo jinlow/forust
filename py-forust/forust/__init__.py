@@ -189,7 +189,7 @@ class GradientBooster:
         initialize_base_score: bool = False,
         terminate_missing_features: Iterable[Any] | None = None,
         missing_node_treatment: str = "AssignToParent",
-        verbose: bool = False,
+        log_iterations: int = 0,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -269,7 +269,7 @@ class GradientBooster:
                 - "AssignToParent": Assign the weight of the missing node to that of the parent.
                 - "AverageLeafWeight": After training each tree, starting from the bottom of the tree, assign the missing node weight to the weighted average of the left and right child nodes. Next assign the parent to the weighted average of the children nodes. This is performed recursively up through the entire tree. This is performed as a post processing step on each tree after it is built, and prior to updating the predictions for which to train the next tree.
                 - "AverageNodeWeight": Set the missing node to be equal to the weighted average weight of the left and the right nodes.
-            verbose (bool, optional): If true, output will be logged while the model is being fit, this info can be interacted with directly with the python [`logging`](https://docs.python.org/3/howto/logging.html) module. For an example of how to utilize the logging information see the example [here](/#logging-output).
+            log_iterations (bool, optional): Setting to a value (N) other than zero will result in information being logged about ever N iterations, info can be interacted with directly with the python [`logging`](https://docs.python.org/3/howto/logging.html) module. For an example of how to utilize the logging information see the example [here](/#logging-output).
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -346,7 +346,7 @@ class GradientBooster:
             initialize_base_score=initialize_base_score,
             terminate_missing_features=set(),
             missing_node_treatment=missing_node_treatment,
-            verbose=verbose,
+            log_iterations=log_iterations,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -441,10 +441,10 @@ class GradientBooster:
             evaluation_data_ = []
             for eval_ in evaluation_data:
                 if len(eval_) == 3:
-                    eval_X, eval_y, eval_w = eval_
+                    eval_X, eval_y, eval_w = eval_  # type: ignore
                     eval_w_ = _convert_input_array(eval_w)
                 else:
-                    eval_X, eval_y = eval_
+                    eval_X, eval_y = eval_  # type: ignore
                     eval_w_ = np.ones(eval_X.shape[0], dtype="float64")
 
                 features_, eval_flat_data, eval_rows, eval_cols = _convert_input_frame(
@@ -469,7 +469,7 @@ class GradientBooster:
             cols=cols,
             y=y_,
             sample_weight=sample_weight_,
-            evaluation_data=evaluation_data_,
+            evaluation_data=evaluation_data_,  # type: ignore
         )
 
     def _validate_features(self, features: list[str]):
