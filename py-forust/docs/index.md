@@ -31,7 +31,7 @@ fmod.fit(X, y, evaluation_data=[(X, y)])
 # INFO:forust_ml.gradientbooster:Completed iteration 2 of 10
 ```
 
-The log output can also be captured in a file also using the `logging.basicConfig()`.
+The log output can also be captured in a file also using the `logging.basicConfig()` `filename` option.
 
 ```python
 import logging
