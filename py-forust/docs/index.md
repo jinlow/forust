@@ -13,14 +13,14 @@ The `GradientBooster` class is currently the only public facing class in the pac
 
 ## Logging output
 
-Info is logged while the model is being trained if the `verbose` parameter is set to `True` while fitting the booster. The logs can be printed to stdout while training like so.
+Info is logged while the model is being trained if the `log_iterations` parameter is set to a value greater than `0` while fitting the booster. The logs can be printed to stdout while training like so.
 
 ```python
 import logging
 logging.basicConfig()
 logging.getLogger().setLevel(logging.INFO)
 
-fmod = GradientBooster(verbose=True)
+fmod = GradientBooster(log_iterations=1)
 fmod.fit(X, y, evaluation_data=[(X, y)])
 
 # INFO:forust_ml.gradientbooster:Iteration 0 evaluation data values: 0.2828
@@ -38,6 +38,6 @@ import logging
 logging.basicConfig(filename="training-info.log")
 logging.getLogger().setLevel(logging.INFO)
 
-fmod = GradientBooster(verbose=True)
+fmod = GradientBooster(log_iterations=10)
 fmod.fit(X, y, evaluation_data=[(X, y)])
 ```

@@ -163,8 +163,8 @@ pub struct GradientBooster {
     #[serde(default = "default_missing_node_treatment")]
     pub missing_node_treatment: MissingNodeTreatment,
     /// Should the model be trained showing output.
-    #[serde(default = "default_verbose")]
-    pub verbose: bool,
+    #[serde(default = "default_log_iterations")]
+    pub log_iterations: usize,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -211,8 +211,8 @@ fn default_missing_node_treatment() -> MissingNodeTreatment {
     MissingNodeTreatment::AssignToParent
 }
 
-fn default_verbose() -> bool {
-    false
+fn default_log_iterations() -> usize {
+    0
 }
 
 fn parse_missing<'de, D>(d: D) -> Result<f64, D::Error>
@@ -251,7 +251,7 @@ impl Default for GradientBooster {
             false,
             HashSet::new(),
             MissingNodeTreatment::AssignToParent,
-            false,
+            0,
         )
         .unwrap()
     }
@@ -298,6 +298,8 @@ impl GradientBooster {
     /// * `evaluation_metric` - Define the evaluation metric to record at each iterations.
     /// * `early_stopping_rounds` - Number of rounds that must
     /// * `initialize_base_score` - If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
+    /// * `missing_node_treatment` - specify how missing nodes should be handled during training.
+    /// * `log_iterations` - Setting to a value (N) other than zero will result in information being logged about ever N iterations.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         objective_type: ObjectiveType,
@@ -326,7 +328,7 @@ impl GradientBooster {
         initialize_base_score: bool,
         terminate_missing_features: HashSet<usize>,
         missing_node_treatment: MissingNodeTreatment,
-        verbose: bool,
+        log_iterations: usize,
     ) -> Result<Self, ForustError> {
         let (base_score_, initialize_base_score_) = match base_score {
             Some(v) => (v, initialize_base_score),
@@ -362,7 +364,7 @@ impl GradientBooster {
             best_iteration: None,
             prediction_iteration: None,
             missing_node_treatment,
-            verbose,
+            log_iterations,
             trees: Vec::new(),
             metadata: HashMap::new(),
         };
@@ -493,6 +495,11 @@ impl GradientBooster {
         let mut best_metric: Option<f64> = None;
 
         for i in 0..self.iterations {
+            let verbose = if self.log_iterations == 0 {
+                false
+            } else {
+                i % self.log_iterations == 0
+            };
             // We will eventually use the excluded index.
             let (chosen_index, _excluded_index) =
                 self.sample_index(&mut rng, &data.index, &mut grad, &mut hess);
@@ -547,7 +554,8 @@ impl GradientBooster {
                                         // Previous value was better.
                                         if let Some(best_iteration) = self.best_iteration {
                                             if i - best_iteration >= early_stopping_rounds {
-                                                if self.verbose {
+                                                // If any logging is requested, print this message.
+                                                if self.log_iterations > 0 {
                                                     info!("Stopping early at iteration {} with metric value {}", i, m)
                                                 }
                                                 break;
@@ -561,7 +569,7 @@ impl GradientBooster {
                     }
                     metrics.push(m);
                 }
-                if self.verbose {
+                if verbose {
                     info!(
                         "Iteration {} evaluation data values: {}",
                         i,
@@ -574,9 +582,15 @@ impl GradientBooster {
             }
             self.trees.push(tree);
             (grad, hess) = calc_grad_hess(y, &yhat, sample_weight);
-            if self.verbose {
+            if verbose {
                 info!("Completed iteration {} of {}", i, self.iterations);
             }
+        }
+        if self.log_iterations > 0 {
+            info!(
+                "Finished training booster with {} iterations.",
+                self.trees.len()
+            );
         }
         Ok(())
     }
