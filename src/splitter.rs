@@ -39,6 +39,18 @@ pub enum MissingInfo {
     Branch(NodeInfo),
 }
 
+/// Splitter trait used to find the best split for a new node.
+/// The following steps are taken.
+/// - Method `split_node` is the main entry point. Returns a vector of nodes.
+/// - Match on the `best_split` method, if this returns None, this node doesn't
+///   have a valid split.
+///     - Loops over each feature calling `best_feature_split`. Checking each features
+///       best splits gain, pics the feature split with the maximum gain.
+///         - `best_feature_split` loops over each unique bin value of the feature.
+///             - calls `evaluate_split` on each feature level which is being considered as a split
+///               candidate?
+///     - if `best_split` returns some real split into, then the `handle_split_info` method is called,
+///       this creates the node vector to be returned.
 pub trait Splitter {
     fn get_constraint(&self, feature: &usize) -> Option<&Constraint>;
     // fn get_allow_missing_splits(&self) -> bool;
