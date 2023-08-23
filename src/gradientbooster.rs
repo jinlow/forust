@@ -165,8 +165,9 @@ pub struct GradientBooster {
     /// Should the model be trained showing output.
     #[serde(default = "default_log_iterations")]
     pub log_iterations: usize,
-    #[serde(default = "default_force_children_to_contain_parent")]
-    pub force_children_to_contain_parent: bool,
+    /// Should the children nodes contain the parent node in their bounds, setting this to true, will result in no children being created that result in the higher and lower child values both being greater than, or less than the parent weight.
+    #[serde(default = "default_force_children_to_bound_parent")]
+    pub force_children_to_bound_parent: bool,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -216,7 +217,7 @@ fn default_missing_node_treatment() -> MissingNodeTreatment {
 fn default_log_iterations() -> usize {
     0
 }
-fn default_force_children_to_contain_parent() -> bool {
+fn default_force_children_to_bound_parent() -> bool {
     false
 }
 
@@ -335,7 +336,7 @@ impl GradientBooster {
         terminate_missing_features: HashSet<usize>,
         missing_node_treatment: MissingNodeTreatment,
         log_iterations: usize,
-        force_children_to_contain_parent: bool,
+        force_children_to_bound_parent: bool,
     ) -> Result<Self, ForustError> {
         let (base_score_, initialize_base_score_) = match base_score {
             Some(v) => (v, initialize_base_score),
@@ -372,7 +373,7 @@ impl GradientBooster {
             prediction_iteration: None,
             missing_node_treatment,
             log_iterations,
-            force_children_to_contain_parent,
+            force_children_to_bound_parent,
             trees: Vec::new(),
             metadata: HashMap::new(),
         };
@@ -419,7 +420,7 @@ impl GradientBooster {
                 constraints_map,
                 terminate_missing_features: self.terminate_missing_features.clone(),
                 missing_node_treatment: self.missing_node_treatment,
-                force_children_to_contain_parent: self.force_children_to_contain_parent,
+                force_children_to_bound_parent: self.force_children_to_bound_parent,
             };
             self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
         } else {

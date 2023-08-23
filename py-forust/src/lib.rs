@@ -79,7 +79,7 @@ impl GradientBooster {
         terminate_missing_features,
         missing_node_treatment,
         log_iterations,
-        force_children_to_contain_parent,
+        force_children_to_bound_parent,
     ))]
     pub fn new(
         objective_type: &str,
@@ -109,7 +109,7 @@ impl GradientBooster {
         terminate_missing_features: HashSet<usize>,
         missing_node_treatment: &str,
         log_iterations: usize,
-        force_children_to_contain_parent: bool,
+        force_children_to_bound_parent: bool,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = to_value_error(serde_plain::from_str(objective_type))?;
@@ -152,7 +152,7 @@ impl GradientBooster {
             terminate_missing_features,
             missing_node_treatment_,
             log_iterations,
-            force_children_to_contain_parent,
+            force_children_to_bound_parent,
         );
         Ok(GradientBooster {
             booster: to_value_error(booster)?,
@@ -403,8 +403,8 @@ impl GradientBooster {
             ),
             ("log_iterations", self.booster.log_iterations.to_object(py)),
             (
-                "force_children_to_contain_parent",
-                self.booster.force_children_to_contain_parent.to_object(py),
+                "force_children_to_bound_parent",
+                self.booster.force_children_to_bound_parent.to_object(py),
             ),
         ];
         let dict = key_vals.into_py_dict(py);

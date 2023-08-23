@@ -248,7 +248,7 @@ pub struct MissingBranchSplitter {
     pub constraints_map: ConstraintMap,
     pub terminate_missing_features: HashSet<usize>,
     pub missing_node_treatment: MissingNodeTreatment,
-    pub force_children_to_contain_parent: bool,
+    pub force_children_to_bound_parent: bool,
 }
 
 impl MissingBranchSplitter {
@@ -365,7 +365,7 @@ impl Splitter for MissingBranchSplitter {
             constraint,
         );
 
-        if self.force_children_to_contain_parent {
+        if self.force_children_to_bound_parent {
             (left_weight, right_weight) = bound_to_parent(parent_weight, left_weight, right_weight);
             assert!(between(lower_bound, upper_bound, left_weight));
             assert!(between(lower_bound, upper_bound, right_weight));
