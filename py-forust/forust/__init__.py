@@ -44,6 +44,7 @@ class BoosterType(Protocol):
     monotone_constraints: dict[int, int]
     prediction_iteration: None | int
     best_iteration: None | int
+    base_score: float
     terminate_missing_features: set[int]
 
     def fit(
@@ -363,7 +364,8 @@ class GradientBooster:
         self.l2 = l2
         self.gamma = gamma
         self.min_leaf_weight = min_leaf_weight
-        self.base_score = base_score
+        # Use booster getter, as it's more dynamic
+        # self.base_score = base_score
         self.nbins = nbins
         self.parallel = parallel
         self.allow_missing_splits = allow_missing_splits
@@ -556,7 +558,7 @@ class GradientBooster:
 
         Args:
             iteration (int): Iteration number to use, this will use all trees, up to this
-                index.
+                index. Setting this to 10, would result in trees 0 through 9 used for predictions.
         """
         self.booster.prediction_iteration = iteration
 
@@ -847,6 +849,29 @@ class GradientBooster:
         """
         r, v, d = self.booster.get_evaluation_history()
         return d.reshape((r, v))
+
+    @property
+    def best_iteration(self) -> int | None:
+        """Get the best iteration if `early_stopping_rounds` was used when fitting.
+
+        Returns:
+            int | None: The best iteration, or None if `early_stopping_rounds` wasn't used.
+        """
+        return self.booster.best_iteration
+
+    @property
+    def base_score(self) -> float:
+        """Base score used as initial prediction value"""
+        return self.booster.base_score
+
+    @property
+    def prediction_iteration(self) -> int | None:
+        """The prediction_iteration that will be used when predicting, up to this many trees will be used.
+
+        Returns:
+            int | None: Int if this is set, otherwise, None, in which case all trees will be used.
+        """
+        return self.booster.prediction_iteration
 
     def get_best_iteration(self) -> int | None:
         """Get the best iteration if `early_stopping_rounds` was used when fitting.

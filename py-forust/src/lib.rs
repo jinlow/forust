@@ -179,8 +179,18 @@ impl GradientBooster {
     }
 
     #[getter]
+    fn prediction_iteration(&self) -> PyResult<Option<usize>> {
+        Ok(self.booster.prediction_iteration)
+    }
+
+    #[getter]
     fn best_iteration(&self) -> PyResult<Option<usize>> {
         Ok(self.booster.best_iteration)
+    }
+
+    #[getter]
+    fn base_score(&self) -> PyResult<f64> {
+        Ok(self.booster.base_score)
     }
 
     pub fn fit(
