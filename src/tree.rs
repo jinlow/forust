@@ -83,7 +83,8 @@ impl Tree {
             f32::INFINITY,
         );
         // Add the first node to the tree nodes.
-        self.nodes.push(root_node.as_node());
+        self.nodes
+            .push(root_node.as_node(splitter.get_learning_rate()));
         let mut n_leaves = 1;
 
         let mut growable: Box<dyn Grower> = match grow_policy {
@@ -132,7 +133,7 @@ impl Tree {
                 n_leaves += n_new_nodes;
                 n_nodes += n_new_nodes;
                 for n in new_nodes {
-                    self.nodes.push(n.as_node());
+                    self.nodes.push(n.as_node(splitter.get_learning_rate()));
                     if !n.is_missing_leaf {
                         growable.add_node(n)
                     }

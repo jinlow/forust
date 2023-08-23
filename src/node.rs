@@ -184,10 +184,10 @@ impl SplittableNode {
         self.missing_node = missing_child;
         self.is_leaf = false;
     }
-    pub fn as_node(&self) -> Node {
+    pub fn as_node(&self, learning_rate: f32) -> Node {
         Node {
             num: self.num,
-            weight_value: self.weight_value,
+            weight_value: self.weight_value * learning_rate,
             hessian_sum: self.hessian_sum,
             depth: self.depth,
             missing_node: self.missing_node,

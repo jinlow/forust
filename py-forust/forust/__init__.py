@@ -190,6 +190,7 @@ class GradientBooster:
         terminate_missing_features: Iterable[Any] | None = None,
         missing_node_treatment: str = "AssignToParent",
         log_iterations: int = 0,
+        force_children_to_contain_parent: bool = False,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -347,6 +348,7 @@ class GradientBooster:
             terminate_missing_features=set(),
             missing_node_treatment=missing_node_treatment,
             log_iterations=log_iterations,
+            force_children_to_contain_parent=force_children_to_contain_parent,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -377,6 +379,8 @@ class GradientBooster:
         self.initialize_base_score = initialize_base_score
         self.terminate_missing_features = terminate_missing_features_
         self.missing_node_treatment = missing_node_treatment
+        self.log_iterations = log_iterations
+        self.force_children_to_contain_parent = force_children_to_contain_parent
 
     def fit(
         self,
