@@ -44,6 +44,7 @@ class BoosterType(Protocol):
     monotone_constraints: dict[int, int]
     prediction_iteration: None | int
     best_iteration: None | int
+    base_score: float
     terminate_missing_features: set[int]
 
     def fit(
@@ -190,6 +191,7 @@ class GradientBooster:
         terminate_missing_features: Iterable[Any] | None = None,
         missing_node_treatment: str = "AssignToParent",
         log_iterations: int = 0,
+        force_children_to_bound_parent: bool = False,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -270,6 +272,7 @@ class GradientBooster:
                 - "AverageLeafWeight": After training each tree, starting from the bottom of the tree, assign the missing node weight to the weighted average of the left and right child nodes. Next assign the parent to the weighted average of the children nodes. This is performed recursively up through the entire tree. This is performed as a post processing step on each tree after it is built, and prior to updating the predictions for which to train the next tree.
                 - "AverageNodeWeight": Set the missing node to be equal to the weighted average weight of the left and the right nodes.
             log_iterations (bool, optional): Setting to a value (N) other than zero will result in information being logged about ever N iterations, info can be interacted with directly with the python [`logging`](https://docs.python.org/3/howto/logging.html) module. For an example of how to utilize the logging information see the example [here](/#logging-output).
+            force_children_to_bound_parent (bool, optional): Setting this parameter to `True` will restrict chilren nodes, so that they always contain the parent node inside of their range. Without setting this it's possible that both, the left and the right nodes could be greater, than or less than, the parent node. Defaults to `False`.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -347,6 +350,7 @@ class GradientBooster:
             terminate_missing_features=set(),
             missing_node_treatment=missing_node_treatment,
             log_iterations=log_iterations,
+            force_children_to_bound_parent=force_children_to_bound_parent,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -360,7 +364,8 @@ class GradientBooster:
         self.l2 = l2
         self.gamma = gamma
         self.min_leaf_weight = min_leaf_weight
-        self.base_score = base_score
+        # Use booster getter, as it's more dynamic
+        # self.base_score = base_score
         self.nbins = nbins
         self.parallel = parallel
         self.allow_missing_splits = allow_missing_splits
@@ -377,6 +382,8 @@ class GradientBooster:
         self.initialize_base_score = initialize_base_score
         self.terminate_missing_features = terminate_missing_features_
         self.missing_node_treatment = missing_node_treatment
+        self.log_iterations = log_iterations
+        self.force_children_to_bound_parent = force_children_to_bound_parent
 
     def fit(
         self,
@@ -551,7 +558,7 @@ class GradientBooster:
 
         Args:
             iteration (int): Iteration number to use, this will use all trees, up to this
-                index.
+                index. Setting this to 10, would result in trees 0 through 9 used for predictions.
         """
         self.booster.prediction_iteration = iteration
 
@@ -842,6 +849,29 @@ class GradientBooster:
         """
         r, v, d = self.booster.get_evaluation_history()
         return d.reshape((r, v))
+
+    @property
+    def best_iteration(self) -> int | None:
+        """Get the best iteration if `early_stopping_rounds` was used when fitting.
+
+        Returns:
+            int | None: The best iteration, or None if `early_stopping_rounds` wasn't used.
+        """
+        return self.booster.best_iteration
+
+    @property
+    def base_score(self) -> float:
+        """Base score used as initial prediction value"""
+        return self.booster.base_score
+
+    @property
+    def prediction_iteration(self) -> int | None:
+        """The prediction_iteration that will be used when predicting, up to this many trees will be used.
+
+        Returns:
+            int | None: Int if this is set, otherwise, None, in which case all trees will be used.
+        """
+        return self.booster.prediction_iteration
 
     def get_best_iteration(self) -> int | None:
         """Get the best iteration if `early_stopping_rounds` was used when fitting.

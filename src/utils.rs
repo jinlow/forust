@@ -106,6 +106,54 @@ pub fn constrained_weight(
     }
 }
 
+/// Test if v is contained within the range i and j
+#[inline]
+pub fn between(i: f32, j: f32, v: f32) -> bool {
+    if i > j {
+        (i >= v) && (v >= j)
+    } else {
+        (i <= v) && (v <= j)
+    }
+}
+
+#[inline]
+pub fn bound_to_parent(parent_weight: f32, left_weight: f32, right_weight: f32) -> (f32, f32) {
+    if between(left_weight, right_weight, parent_weight) {
+        (left_weight, right_weight)
+    } else {
+        // If we are here, we know, the parent weight is above or bellow
+        // the right and left weights range, because of the between check.
+        if left_weight > right_weight {
+            // Here is what it looks like on the number line if we are here
+            // right...left
+            // Is the parent above the range?
+            // i.e. right...left...parent?
+            if left_weight < parent_weight {
+                (parent_weight, right_weight)
+            } else {
+                // Otherwise if we are here, it must be outside of the range on the other side..
+                // i.e. parent...right...left
+                // In which case make parent equal right.
+                (left_weight, parent_weight)
+            }
+        } else {
+            // Here is what the number line looks like at this point...
+            // left_weight..right_weight
+            // Is the parent above the range?
+            // i.e. left...right...parent?
+            if right_weight < parent_weight {
+                // In which case set right equal to parent.
+                (left_weight, parent_weight)
+            } else {
+                // Is the parent bellow the range?
+                // i.e. parent...left...right...
+                // In which case set the left equal to the parent.
+                (parent_weight, right_weight)
+            }
+        }
+    }
+}
+
 /// Convert Log odds to probability
 #[inline]
 pub fn odds(v: f64) -> f64 {

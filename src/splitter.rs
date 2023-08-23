@@ -7,7 +7,7 @@ use crate::histogram::HistogramMatrix;
 use crate::node::SplittableNode;
 use crate::tree::Tree;
 use crate::utils::{
-    constrained_weight, cull_gain, gain_given_weight, pivot_on_split,
+    between, bound_to_parent, constrained_weight, cull_gain, gain_given_weight, pivot_on_split,
     pivot_on_split_exclude_missing,
 };
 
@@ -87,6 +87,7 @@ pub trait Splitter {
         missing_hessian: f32,
         lower_bound: f32,
         upper_bound: f32,
+        parent_weight: f32,
         constraint: Option<&Constraint>,
     ) -> Option<(NodeInfo, NodeInfo, MissingInfo)>;
 
@@ -112,18 +113,18 @@ pub trait Splitter {
             let right_gradient = node.gradient_sum - cuml_grad - missing.gradient_sum;
             let right_hessian = node.hessian_sum - cuml_hess - missing.hessian_sum;
 
-            let (mut left_node_info, mut right_node_info, mut missing_info) = match self
-                .evaluate_split(
-                    left_gradient,
-                    left_hessian,
-                    right_gradient,
-                    right_hessian,
-                    missing.gradient_sum,
-                    missing.hessian_sum,
-                    node.lower_bound,
-                    node.upper_bound,
-                    constraint,
-                ) {
+            let (mut left_node_info, mut right_node_info, missing_info) = match self.evaluate_split(
+                left_gradient,
+                left_hessian,
+                right_gradient,
+                right_hessian,
+                missing.gradient_sum,
+                missing.hessian_sum,
+                node.lower_bound,
+                node.upper_bound,
+                node.weight_value,
+                constraint,
+            ) {
                 None => {
                     cuml_grad += bin.gradient_sum;
                     cuml_hess += bin.hessian_sum;
@@ -170,12 +171,7 @@ pub trait Splitter {
             };
             left_node_info.bounds = left_bounds;
             right_node_info.bounds = right_bounds;
-            // Apply shrinkage at this point...
-            left_node_info.weight *= self.get_learning_rate();
-            right_node_info.weight *= self.get_learning_rate();
-            if let MissingInfo::Branch(info) | MissingInfo::Leaf(info) = &mut missing_info {
-                info.weight *= self.get_learning_rate();
-            }
+
             // If split gain is NaN, one of the sides is empty, do not allow
             // this split.
             let split_gain = if split_gain.is_nan() { 0.0 } else { split_gain };
@@ -252,6 +248,7 @@ pub struct MissingBranchSplitter {
     pub constraints_map: ConstraintMap,
     pub terminate_missing_features: HashSet<usize>,
     pub missing_node_treatment: MissingNodeTreatment,
+    pub force_children_to_bound_parent: bool,
 }
 
 impl MissingBranchSplitter {
@@ -339,6 +336,7 @@ impl Splitter for MissingBranchSplitter {
         missing_hessian: f32,
         lower_bound: f32,
         upper_bound: f32,
+        parent_weight: f32,
         constraint: Option<&Constraint>,
     ) -> Option<(NodeInfo, NodeInfo, MissingInfo)> {
         // If there is no info right, or there is no
@@ -350,7 +348,7 @@ impl Splitter for MissingBranchSplitter {
             return None;
         }
 
-        let left_weight = constrained_weight(
+        let mut left_weight = constrained_weight(
             &self.l2,
             left_gradient,
             left_hessian,
@@ -358,7 +356,7 @@ impl Splitter for MissingBranchSplitter {
             upper_bound,
             constraint,
         );
-        let right_weight = constrained_weight(
+        let mut right_weight = constrained_weight(
             &self.l2,
             right_gradient,
             right_hessian,
@@ -366,6 +364,12 @@ impl Splitter for MissingBranchSplitter {
             upper_bound,
             constraint,
         );
+
+        if self.force_children_to_bound_parent {
+            (left_weight, right_weight) = bound_to_parent(parent_weight, left_weight, right_weight);
+            assert!(between(lower_bound, upper_bound, left_weight));
+            assert!(between(lower_bound, upper_bound, right_weight));
+        }
 
         let left_gain = gain_given_weight(&self.l2, left_gradient, left_hessian, left_weight);
         let right_gain = gain_given_weight(&self.l2, right_gradient, right_hessian, right_weight);
@@ -726,6 +730,7 @@ impl Splitter for MissingImputerSplitter {
         missing_hessian: f32,
         lower_bound: f32,
         upper_bound: f32,
+        _parent_weight: f32,
         constraint: Option<&Constraint>,
     ) -> Option<(NodeInfo, NodeInfo, MissingInfo)> {
         // If there is no info right, or there is no
