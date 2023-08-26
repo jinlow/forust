@@ -4,10 +4,10 @@
 # Requires toml package
 import toml
 
-ct = toml.load("../cargo.toml")
+ct = toml.load("Cargo.toml")
 
 del ct["dev-dependencies"]
 del ct["bench"]
 
-with open("../cargo.toml", "w") as file:
+with open("Cargo.toml", "w") as file:
     toml.dump(ct, file)
