@@ -8,13 +8,13 @@ jobs:
         pyversion: ["3.8", "3.9", "3.10", "3.11"]
     runs-on: "windows-latest"
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Install latests stable Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           override: true
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
@@ -32,7 +32,7 @@ jobs:
         with:
           command: test
       - name: Build Wheels with maturin
-        uses: messense/maturin-action@v1
+        uses: PyO3/maturin-action@v1
         with:
           target: x86_64
           command: build
@@ -52,7 +52,7 @@ jobs:
           path: dist
       - if: "startsWith(github.ref, 'refs/tags/')"
         name: Publish Wheels
-        uses: messense/maturin-action@v1
+        uses: PyO3/maturin-action@v1
         with:
           command: publish
           args: --username ${{ secrets.PYPI_USERNAME }} --password ${{ secrets.PYPI_PASSWORD }} --interpreter python --skip-existing --manifest-path py-forust/Cargo.toml
@@ -63,13 +63,13 @@ jobs:
         pyversion: ["3.8", "3.9", "3.10", "3.11"]
     runs-on: "macos-latest"
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Install latests stable Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           override: true
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
@@ -87,7 +87,7 @@ jobs:
         with:
           command: test
       - name: Build Wheels with maturin
-        uses: messense/maturin-action@v1
+        uses: PyO3/maturin-action@v1
         with:
           target: x86_64
           command: build
@@ -107,7 +107,7 @@ jobs:
           path: dist
       - if: "startsWith(github.ref, 'refs/tags/')"
         name: Publish Wheels
-        uses: messense/maturin-action@v1
+        uses: PyO3/maturin-action@v1
         with:
           command: publish
           target: x86_64
@@ -120,13 +120,13 @@ jobs:
         pyversion: ["3.8", "3.9", "3.10", "3.11"]
         # target: [x86_64, i686]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Install latests stable Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           override: true
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
@@ -144,7 +144,7 @@ jobs:
         with:
           command: test
       - name: Build Wheels with maturin
-        uses: messense/maturin-action@v1
+        uses: PyO3/maturin-action@v1
         with:
           target: x86_64
           manylinux: auto
@@ -165,7 +165,7 @@ jobs:
           path: dist
       - if: "startsWith(github.ref, 'refs/tags/')"
         name: Publish Wheels
-        uses: messense/maturin-action@v1
+        uses: PyO3/maturin-action@v1
         with:
           command: publish
           target: x86_64
@@ -175,13 +175,13 @@ jobs:
   cargo-build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Install latests stable Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           override: true
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.10"
           architecture: x64
