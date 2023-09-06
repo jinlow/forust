@@ -531,6 +531,9 @@ impl GradientBooster {
 
             self.update_predictions_inplace(&mut yhat, &tree, data);
 
+            // This will always be false, unless early stopping rounds are used.
+            let mut stop_early = false;
+
             // Update Evaluation data, if it's needed.
             if let Some(eval_sets) = &mut evaluation_sets {
                 if self.evaluation_history.is_none() {
@@ -568,7 +571,7 @@ impl GradientBooster {
                                                 if self.log_iterations > 0 {
                                                     info!("Stopping early at iteration {} with metric value {}", i, m)
                                                 }
-                                                break;
+                                                stop_early = true;
                                             }
                                         }
                                         Some(v)
@@ -588,6 +591,9 @@ impl GradientBooster {
                 }
                 if let Some(history) = &mut self.evaluation_history {
                     history.append_row(metrics);
+                }
+                if stop_early {
+                    break;
                 }
             }
             self.trees.push(tree);

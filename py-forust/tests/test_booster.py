@@ -681,12 +681,29 @@ def test_early_stopping_rounds(X_y, tmp_path):
     best_iteration = fmod.get_best_iteration()
     assert best_iteration is not None
     assert best_iteration < history.shape[0]
+
     fmod.set_prediction_iteration(4)
     new_preds = fmod.predict(X)
     assert not np.allclose(new_preds, preds)
     fmod.save_booster(mod_path)
     loaded = GradientBooster.load_booster(mod_path)
     assert np.allclose(loaded.predict(X), new_preds)
+
+
+def test_early_stopping_with_dev(X_y):
+    X, y = X_y
+
+    val = y.index.to_series().isin(y.sample(frac=0.25, random_state=0))
+
+    model = GradientBooster(log_iterations=1, early_stopping_rounds=4, iterations=100)
+    model.fit(
+        X.loc[~val, :], y.loc[~val], evaluation_data=[(X.loc[val, :], y.loc[val])]
+    )
+
+    # Did we actually stop?
+    n_trees = json.loads(model.json_dump())["trees"]
+    assert len(n_trees) == model.get_best_iteration() + 4
+    assert model.get_best_iteration() < 99
 
 
 def test_goss_sampling_method(X_y):
