@@ -1,4 +1,4 @@
-name: Test and Deploy
+name: Cargo Build Publish
 on: [workflow_dispatch]
 
 jobs:
