@@ -467,6 +467,10 @@ class GradientBooster:
                         eval_w_,
                     )
                 )
+            if len(evaluation_data_) > 1:
+                warnings.warn(
+                    "Multiple evaluation datasets passed, only the first one will be used to determine early stopping."
+                )
         else:
             evaluation_data_ = None
 
