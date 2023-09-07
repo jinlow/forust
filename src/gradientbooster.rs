@@ -504,6 +504,9 @@ impl GradientBooster {
 
         let mut best_metric: Option<f64> = None;
 
+        // This will always be false, unless early stopping rounds are used.
+        let mut stop_early = false;
+
         for i in 0..self.iterations {
             let verbose = if self.log_iterations == 0 {
                 false
@@ -530,9 +533,6 @@ impl GradientBooster {
             );
 
             self.update_predictions_inplace(&mut yhat, &tree, data);
-
-            // This will always be false, unless early stopping rounds are used.
-            let mut stop_early = false;
 
             // Update Evaluation data, if it's needed.
             if let Some(eval_sets) = &mut evaluation_sets {
@@ -592,11 +592,14 @@ impl GradientBooster {
                 if let Some(history) = &mut self.evaluation_history {
                     history.append_row(metrics);
                 }
-                if stop_early {
-                    break;
-                }
             }
             self.trees.push(tree);
+
+            // Did we trigger the early stopping rounds criteria?
+            if stop_early {
+                break;
+            }
+
             (grad, hess) = calc_grad_hess(y, &yhat, sample_weight);
             if verbose {
                 info!("Completed iteration {} of {}", i, self.iterations);

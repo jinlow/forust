@@ -702,7 +702,41 @@ def test_early_stopping_with_dev(X_y):
 
     # Did we actually stop?
     n_trees = json.loads(model.json_dump())["trees"]
-    assert len(n_trees) == model.get_best_iteration() + 4
+    # Didn't improve for 4 rounds, and one more triggered it.
+    assert len(n_trees) == model.get_best_iteration() + 5
+    assert len(n_trees) == model.get_evaluation_history().shape[0]
+    assert model.get_best_iteration() < 99
+
+
+def test_early_stopping_with_dev_val(X_y):
+    X, y = X_y
+
+    val = y.index.to_series().isin(y.sample(frac=0.25, random_state=0))
+
+    w = np.random.default_rng(0).uniform(0.5, 1.0, size=val.sum())
+
+    model = GradientBooster(log_iterations=1, early_stopping_rounds=4, iterations=100)
+
+    with pytest.warns(UserWarning, match="Multiple evaluation datasets"):
+        model.fit(
+            X.loc[~val, :],
+            y.loc[~val],
+            evaluation_data=[
+                (X.loc[val, :], y.loc[val]),
+                (X.loc[val, :], y.loc[val], w),
+                (X.loc[~val, :], y.loc[~val]),
+            ],
+        )
+
+    # the weight is being used.
+    history = model.get_evaluation_history()
+    assert history[2, 0] != history[2, 1]
+
+    # Did we actually stop?
+    n_trees = json.loads(model.json_dump())["trees"]
+    # Didn't improve for 4 rounds, and one more triggered it.
+    assert len(n_trees) == model.get_best_iteration() + 5
+    assert len(n_trees) == model.get_evaluation_history().shape[0]
     assert model.get_best_iteration() < 99
 
 
