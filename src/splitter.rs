@@ -512,7 +512,7 @@ impl Splitter for MissingBranchSplitter {
         let n_right = total_recs - split_idx;
         let n_left = total_recs - n_right - missing_split_idx;
         let n_missing = total_recs - (n_right + n_left);
-        let max_ = match vec![n_missing, n_left, n_right]
+        let max_ = match [n_missing, n_left, n_right]
             .iter()
             .enumerate()
             .max_by(|(_, i), (_, j)| i.cmp(j))

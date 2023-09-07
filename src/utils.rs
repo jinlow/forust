@@ -17,15 +17,16 @@ pub fn items_to_strings(items: Vec<&str>) -> String {
 
 pub fn fmt_vec_output<T: FloatData<T>>(v: &[T]) -> String {
     let mut res = String::new();
-    let last = v.len() - 1;
-    if last == 0 {
-        return format!("{:.4}", v[0]);
+    if let Some(last) = v.len().checked_sub(1) {
+        if last == 0 {
+            return format!("{:.4}", v[0]);
+        }
+        for n in &v[..last] {
+            res.push_str(format!("{:.4}", n).as_str());
+            res.push_str(", ");
+        }
+        res.push_str(format!("{:.4}", &v[last]).as_str());
     }
-    for n in &v[..last] {
-        res.push_str(format!("{:.4}", n).as_str());
-        res.push_str(", ");
-    }
-    res.push_str(format!("{:.4}", &v[last]).as_str());
     res
 }
 
@@ -931,5 +932,13 @@ mod tests {
         // println!("Sum Result: {}", vec.iter().sum::<f32>());
         // println!("Multiplication Results {}", vec[0] * (records as f32));
         // println!("f64_sum Results {}", f64_sum(&vec));
+    }
+
+    #[test]
+    fn test_fmt_vec_output() {
+        let v = Vec::<f32>::new();
+        assert_eq!(fmt_vec_output(&v), String::from(""));
+        let v: Vec<f32> = vec![0.1, 1.0];
+        assert_eq!(fmt_vec_output(&v), String::from("0.1000, 1.0000"));
     }
 }

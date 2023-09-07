@@ -531,10 +531,7 @@ impl Display for Tree {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut print_buffer: Vec<usize> = vec![0];
         let mut r = String::new();
-        while !print_buffer.is_empty() {
-            // This will always be populated, because we confirm
-            // that the buffer is not empty.
-            let idx = print_buffer.pop().unwrap();
+        while let Some(idx) = print_buffer.pop() {
             let node = &self.nodes[idx];
             if node.is_leaf {
                 r += format!("{}{}\n", "      ".repeat(node.depth).as_str(), node).as_str();
