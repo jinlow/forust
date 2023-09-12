@@ -133,17 +133,12 @@ pub trait Splitter {
                 Some(v) => v,
             };
 
-            // TODO!
-            // Should we be doing this?
-            // or should missing gain not factor in at
-            // all to the split gain?
-            let missing_gain = match &missing_info {
-                MissingInfo::Branch(v) | MissingInfo::Leaf(v) => v.gain,
-                _ => 0.0,
-            };
-            let split_gain = (left_node_info.gain + right_node_info.gain + missing_gain
-                - node.gain_value)
-                - self.get_gamma();
+            let split_gain = node.get_split_gain(
+                &left_node_info,
+                &right_node_info,
+                &missing_info,
+                self.get_gamma(),
+            );
 
             // Check monotonicity holds
             let split_gain = cull_gain(
