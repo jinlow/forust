@@ -8,7 +8,8 @@ from typing import Any, Iterable, Protocol, Union, cast
 import numpy as np
 import pandas as pd
 
-from .forust import GradientBooster as CrateGradientBooster  # type: ignore
+from forust.forust import GradientBooster as CrateGradientBooster  # type: ignore
+from forust.serialize import BaseSerializer, CommonSerializer, NumpySerializer
 
 ArrayLike = Union[pd.Series, np.ndarray]
 FrameLike = Union[pd.DataFrame, np.ndarray]
@@ -159,7 +160,12 @@ class GradientBooster:
     # this is useful for parameters that should be
     # attempted to be loaded in and set
     # as attributes on the booster after it is loaded.
-    meta_data_attributes = ["feature_names_in_", "n_features_"]
+    meta_data_attributes: dict[str, BaseSerializer] = {
+        "feature_names_in_": CommonSerializer(),
+        "n_features_": CommonSerializer(),
+        "feature_importance_method": CommonSerializer(),
+        "feature_importances_": NumpySerializer(),
+    }
 
     def __init__(
         self,
@@ -189,8 +195,9 @@ class GradientBooster:
         early_stopping_rounds: int | None = None,
         initialize_base_score: bool = False,
         terminate_missing_features: Iterable[Any] | None = None,
-        missing_node_treatment: str = "AssignToParent",
+        missing_node_treatment: str = "None",
         log_iterations: int = 0,
+        feature_importance_method: str = "Gain",
         force_children_to_bound_parent: bool = False,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
@@ -265,14 +272,15 @@ class GradientBooster:
                 iterations of training, otherwise training will be cut short.
             initialize_base_score (bool, optional): If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
             terminate_missing_features (set[Any], optional): An optional iterable of features (either strings, or integer values specifying the feature indices if numpy arrays are used for fitting), for which the missing node will always be terminated, even if `allow_missing_splits` is set to true. This value is only valid if `create_missing_branch` is also True.
-            missing_node_treatment (str, optional): Method for selecting the `weight` for the missing node, if `create_missing_branch` is set to `True`. Defaults to "AssignToParent". Valid options are:
+            missing_node_treatment (str, optional): Method for selecting the `weight` for the missing node, if `create_missing_branch` is set to `True`. Defaults to "None". Valid options are:
 
                 - "None": Calculate missing node weight values without any constraints.
                 - "AssignToParent": Assign the weight of the missing node to that of the parent.
                 - "AverageLeafWeight": After training each tree, starting from the bottom of the tree, assign the missing node weight to the weighted average of the left and right child nodes. Next assign the parent to the weighted average of the children nodes. This is performed recursively up through the entire tree. This is performed as a post processing step on each tree after it is built, and prior to updating the predictions for which to train the next tree.
                 - "AverageNodeWeight": Set the missing node to be equal to the weighted average weight of the left and the right nodes.
             log_iterations (bool, optional): Setting to a value (N) other than zero will result in information being logged about ever N iterations, info can be interacted with directly with the python [`logging`](https://docs.python.org/3/howto/logging.html) module. For an example of how to utilize the logging information see the example [here](/#logging-output).
-            force_children_to_bound_parent (bool, optional): Setting this parameter to `True` will restrict chilren nodes, so that they always contain the parent node inside of their range. Without setting this it's possible that both, the left and the right nodes could be greater, than or less than, the parent node. Defaults to `False`.
+            feature_importance_method (str, optional): The feature importance method type that will be used to calculate the `feature_importances_` attribute on the booster.
+            force_children_to_bound_parent (bool, optional): Setting this parameter to `True` will restrict children nodes, so that they always contain the parent node inside of their range. Without setting this it's possible that both, the left and the right nodes could be greater, than or less than, the parent node. Defaults to `False`.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -383,6 +391,7 @@ class GradientBooster:
         self.terminate_missing_features = terminate_missing_features_
         self.missing_node_treatment = missing_node_treatment
         self.log_iterations = log_iterations
+        self.feature_importance_method = feature_importance_method
         self.force_children_to_bound_parent = force_children_to_bound_parent
 
     def fit(
@@ -805,18 +814,14 @@ class GradientBooster:
             feature_map = {f: i for i, f in enumerate(X.columns)}
             return set(feature_map[f] for f in self.terminate_missing_features)
 
-    def insert_metadata(self, key: str, value: Any):
+    def insert_metadata(self, key: str, value: str):
         """Insert data into the models metadata, this will be saved on the booster object.
 
         Args:
             key (str): Key to give the inserted value in the metadata.
-            value (str): Value to assign the the key.
+            value (str): String value to assign to the key.
         """  # noqa: E501
-        if isinstance(value, str):
-            value_ = f"'{value}'"
-        else:
-            value_ = str(value)
-        self.booster.insert_metadata(key=key, value=value_)
+        self.booster.insert_metadata(key=key, value=value)
 
     def get_metadata(self, key: Any) -> Any:
         """Get the value associated with a given key, on the boosters metadata.
@@ -829,6 +834,14 @@ class GradientBooster:
         """
         v = self.booster.get_metadata(key=key)
         return literal_eval(node_or_string=v)
+
+    def _set_metadata_attributes(self, key: str, value: Any) -> None:
+        value_ = self.meta_data_attributes[key].serialize(value)
+        self.insert_metadata(key=key, value=value_)
+
+    def _get_metadata_attributes(self, key: str) -> Any:
+        value = self.get_metadata(key)
+        return self.meta_data_attributes[key].deserialize(value)
 
     def get_evaluation_history(self) -> np.ndarray | None:
         """Get the results of the `evaluation_metric` calculated

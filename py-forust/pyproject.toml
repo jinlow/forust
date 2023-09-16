@@ -33,3 +33,6 @@ sdist-include = ["LICENSE", "README.md"]
 [tool.ruff]
 # Never enforce `E501` (line length violations).
 ignore = ["E501"]
+
+[tool.isort]
+profile = "black"
