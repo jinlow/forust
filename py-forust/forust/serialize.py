@@ -4,7 +4,7 @@ import json
 from abc import ABC, abstractmethod
 from ast import literal_eval
 from dataclasses import dataclass
-from typing import Generic, TypeVar, Union
+from typing import Dict, Generic, List, Tuple, TypeVar, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -38,9 +38,9 @@ class BaseSerializer(ABC, Generic[T]):
 
 CommonScaler = Union[int, float, str]
 CommonItem = Union[
-    tuple[CommonScaler],
-    list[CommonScaler],
-    dict[CommonScaler, CommonScaler],
+    Tuple[CommonScaler, ...],
+    List[CommonScaler],
+    Dict[CommonScaler, CommonScaler],
     CommonScaler,
 ]
 
