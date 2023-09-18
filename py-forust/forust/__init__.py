@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 import warnings
-from ast import literal_eval
 from typing import Any, Iterable, Protocol, Union, cast
 
 import numpy as np
@@ -426,10 +425,10 @@ class GradientBooster:
 
         features_, flat_data, rows, cols = _convert_input_frame(X)
         self.n_features_ = cols
-        self.insert_metadata("n_features_", self.n_features_)
+        self._set_metadata_attributes("n_features_", self.n_features_)
         if len(features_) > 0:
             self.feature_names_in_ = features_
-            self.insert_metadata("feature_names_in_", self.feature_names_in_)
+            self._set_metadata_attributes("feature_names_in_", self.feature_names_in_)
 
         y_ = _convert_input_array(y)
 
@@ -780,7 +779,7 @@ class GradientBooster:
         c.booster = booster
         for m in c.meta_data_attributes:
             try:
-                m_ = c.get_metadata(m)
+                m_ = c._get_metadata_attributes(m)
                 setattr(c, m, m_)
             except KeyError:
                 pass
@@ -823,7 +822,7 @@ class GradientBooster:
         """  # noqa: E501
         self.booster.insert_metadata(key=key, value=value)
 
-    def get_metadata(self, key: Any) -> Any:
+    def get_metadata(self, key: str) -> str:
         """Get the value associated with a given key, on the boosters metadata.
 
         Args:
@@ -833,7 +832,7 @@ class GradientBooster:
             str: Value associated with the provided key in the boosters metadata.
         """
         v = self.booster.get_metadata(key=key)
-        return literal_eval(node_or_string=v)
+        return v
 
     def _set_metadata_attributes(self, key: str, value: Any) -> None:
         value_ = self.meta_data_attributes[key].serialize(value)
