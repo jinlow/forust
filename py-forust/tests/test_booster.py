@@ -450,6 +450,7 @@ def test_booster_to_xgboosts_with_contributions_missing_branch_methods(X_y):
         nbins=500,
         parallel=True,
         base_score=0.5,
+        missing_node_treatment="AssignToParent",
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
