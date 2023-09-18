@@ -4,7 +4,7 @@ import json
 from abc import ABC, abstractmethod
 from ast import literal_eval
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -13,7 +13,7 @@ T = TypeVar("T")
 
 
 class BaseSerializer(ABC, Generic[T]):
-    def __call__(self, obj: T | str) -> T | str:
+    def __call__(self, obj: Union[T, str]) -> Union[T, str]:
         """Serializer is callable, if it's a string we are deserializing, anything else we are serializing. For the string serializer, this works as well, because both serialize and deserialize just return itself.
 
         Args:
@@ -36,13 +36,13 @@ class BaseSerializer(ABC, Generic[T]):
         ...
 
 
-CommonScaler = int | float | str
-CommonItem = (
-    tuple[CommonScaler]
-    | list[CommonScaler]
-    | dict[CommonScaler, CommonScaler]
-    | CommonScaler
-)
+CommonScaler = Union[int, float, str]
+CommonItem = Union[
+    tuple[CommonScaler],
+    list[CommonScaler],
+    dict[CommonScaler, CommonScaler],
+    CommonScaler,
+]
 
 
 class CommonSerializer(BaseSerializer[CommonItem]):
