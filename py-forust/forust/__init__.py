@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from forust.forust import GradientBooster as CrateGradientBooster  # type: ignore
-from forust.serialize import BaseSerializer, CommonSerializer, NumpySerializer
+from forust.serialize import BaseSerializer, ObjectSerializer, ScalerSerializer
 
 ArrayLike = Union[pd.Series, np.ndarray]
 FrameLike = Union[pd.DataFrame, np.ndarray]
@@ -58,7 +58,7 @@ class BoosterType(Protocol):
         | list[tuple[FrameLike, ArrayLike, None | ArrayLike]] = None,
         parallel: bool = True,
     ):
-        ...
+        """Fit method"""
 
     def predict(
         self,
@@ -67,7 +67,7 @@ class BoosterType(Protocol):
         cols: int,
         parallel: bool = True,
     ) -> np.ndarray:
-        ...
+        """predict method"""
 
     def predict_contributions(
         self,
@@ -77,50 +77,50 @@ class BoosterType(Protocol):
         method: str,
         parallel: bool = True,
     ) -> np.ndarray:
-        ...
+        """method"""
 
     def value_partial_dependence(
         self,
         feature: int,
         value: float,
     ) -> float:
-        ...
+        """pass"""
 
     def calculate_feature_importance(
         self,
         method: str,
         normalize: bool,
     ) -> dict[int, float]:
-        ...
+        """pass"""
 
     def text_dump(self) -> list[str]:
-        ...
+        """pass"""
 
     @classmethod
     def load_booster(cls, path: str) -> BoosterType:
-        ...
+        """pass"""
 
     def save_booster(self, path: str):
-        ...
+        """pass"""
 
     @classmethod
     def from_json(cls, json_str: str) -> BoosterType:
-        ...
+        """pass"""
 
     def json_dump(self) -> str:
-        ...
+        """pass"""
 
     def get_params(self) -> dict[str, Any]:
-        ...
+        """pass"""
 
     def insert_metadata(self, key: str, value: str) -> None:
-        ...
+        """pass"""
 
     def get_metadata(self, key: str) -> str:
-        ...
+        """pass"""
 
     def get_evaluation_history(self) -> tuple[int, int, np.ndarray]:
-        ...
+        """pass"""
 
 
 def _convert_input_frame(X: FrameLike) -> tuple[list[str], np.ndarray, int, int]:
@@ -160,10 +160,9 @@ class GradientBooster:
     # attempted to be loaded in and set
     # as attributes on the booster after it is loaded.
     meta_data_attributes: dict[str, BaseSerializer] = {
-        "feature_names_in_": CommonSerializer(),
-        "n_features_": CommonSerializer(),
-        "feature_importance_method": CommonSerializer(),
-        "feature_importances_": NumpySerializer(),
+        "feature_names_in_": ObjectSerializer(),
+        "n_features_": ScalerSerializer(),
+        "feature_importance_method": ScalerSerializer(),
     }
 
     def __init__(
@@ -521,6 +520,16 @@ class GradientBooster:
             parallel=parallel_,
         )
 
+    @property
+    def feature_importances_(self) -> np.ndarray:
+        vals = self.calculate_feature_importance(
+            method=self.feature_importance_method, normalize=True
+        )
+        if hasattr(self, "feature_names_in_"):
+            return np.array([vals.get(ft, 0.0) for ft in self.feature_names_in_])
+        else:
+            return np.array([vals.get(ft, 0.0) for ft in range(self.n_features_)])
+
     def predict_contributions(
         self, X: FrameLike, method: str = "Average", parallel: Union[bool, None] = None
     ) -> np.ndarray:
@@ -781,6 +790,16 @@ class GradientBooster:
             try:
                 m_ = c._get_metadata_attributes(m)
                 setattr(c, m, m_)
+                # If "feature_names_in_" is present, we know a
+                # pandas dataframe was used for fitting, in this case
+                # get back the original monotonicity map, with the
+                # feature names as keys.
+                if m == "feature_names_in_":
+                    if c.monotone_constraints is not None:
+                        c.monotone_constraints = {
+                            ft: c.monotone_constraints[i]
+                            for i, ft in enumerate(c.feature_names_in_)
+                        }
             except KeyError:
                 pass
         return c

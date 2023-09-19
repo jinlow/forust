@@ -4,7 +4,7 @@ import json
 from abc import ABC, abstractmethod
 from ast import literal_eval
 from dataclasses import dataclass
-from typing import Dict, Generic, List, Tuple, TypeVar, Union
+from typing import Dict, Generic, List, TypeVar, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -36,25 +36,33 @@ class BaseSerializer(ABC, Generic[T]):
         ...
 
 
-CommonScaler = Union[int, float, str]
-CommonItem = Union[
-    Tuple[CommonScaler, ...],
-    List[CommonScaler],
-    Dict[CommonScaler, CommonScaler],
-    CommonScaler,
-]
+Scaler = Union[int, float, str]
 
 
-class CommonSerializer(BaseSerializer[CommonItem]):
-    def serialize(self, obj: CommonItem) -> str:
+class ScalerSerializer(BaseSerializer[Scaler]):
+    def serialize(self, obj: Scaler) -> str:
         if isinstance(obj, str):
             obj_ = f"'{obj}'"
         else:
             obj_ = str(obj)
         return obj_
 
-    def deserialize(self, obj_repr: str) -> CommonItem:
+    def deserialize(self, obj_repr: str) -> Scaler:
         return literal_eval(node_or_string=obj_repr)
+
+
+ObjectItem = Union[
+    List[Scaler],
+    Dict[str, Scaler],
+]
+
+
+class ObjectSerializer(BaseSerializer[ObjectItem]):
+    def serialize(self, obj: ObjectItem) -> str:
+        return json.dumps(obj)
+
+    def deserialize(self, obj_repr: str) -> ObjectItem:
+        return json.loads(obj_repr)
 
 
 @dataclass
