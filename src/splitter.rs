@@ -396,14 +396,22 @@ impl Splitter for MissingBranchSplitter {
                 (right_weight * right_hessian + left_weight * left_hessian)
                     / (right_hessian + left_hessian)
             }
-            MissingNodeTreatment::None => constrained_weight(
-                &self.get_l2(),
-                missing_gradient,
-                missing_hessian,
-                lower_bound,
-                upper_bound,
-                constraint,
-            ),
+            MissingNodeTreatment::None => {
+                // If there are no missing records, just default
+                // to the parent weight.
+                if missing_hessian == 0. || missing_gradient == 0. {
+                    parent_weight
+                } else {
+                    constrained_weight(
+                        &self.get_l2(),
+                        missing_gradient,
+                        missing_hessian,
+                        lower_bound,
+                        upper_bound,
+                        constraint,
+                    )
+                }
+            }
         };
         let missing_gain = gain_given_weight(
             &self.get_l2(),
