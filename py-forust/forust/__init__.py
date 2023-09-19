@@ -392,6 +392,10 @@ class GradientBooster:
         self.feature_importance_method = feature_importance_method
         self.force_children_to_bound_parent = force_children_to_bound_parent
 
+        self._set_metadata_attributes(
+            "feature_importance_method", feature_importance_method
+        )
+
     def fit(
         self,
         X: FrameLike,
