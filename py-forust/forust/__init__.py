@@ -433,14 +433,7 @@ class GradientBooster:
 
         if sample_weight is None:
             sample_weight = np.ones(y_.shape, dtype="float64")
-        sample_weight_ = (
-            sample_weight.to_numpy()
-            if isinstance(sample_weight, pd.Series)
-            else sample_weight
-        )
-
-        if not np.issubdtype(sample_weight_.dtype, "float64"):
-            sample_weight_ = sample_weight_.astype("float64", copy=False)
+        sample_weight_ = _convert_input_array(sample_weight)
 
         # Convert the monotone constraints into the form needed
         # by the rust code.

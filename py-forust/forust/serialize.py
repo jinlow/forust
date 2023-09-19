@@ -13,27 +13,13 @@ T = TypeVar("T")
 
 
 class BaseSerializer(ABC, Generic[T]):
-    def __call__(self, obj: Union[T, str]) -> Union[T, str]:
-        """Serializer is callable, if it's a string we are deserializing, anything else we are serializing. For the string serializer, this works as well, because both serialize and deserialize just return itself.
-
-        Args:
-            obj (T | str): Object either to serialize, or deserialize.
-
-        Returns:
-            T | str: Object that is either serialized or deserialized.
-        """
-        if isinstance(obj, str):
-            return self.deserialize(obj)
-        else:
-            return self.serialize(obj)
-
     @abstractmethod
     def serialize(self, obj: T) -> str:
-        ...
+        """serialize method - should take an object and return a string"""
 
     @abstractmethod
     def deserialize(self, obj_repr: str) -> T:
-        ...
+        """deserialize method - should take a string and return original object"""
 
 
 Scaler = Union[int, float, str]
@@ -80,4 +66,8 @@ class NumpySerializer(BaseSerializer[npt.NDArray]):
 
     def deserialize(self, obj_repr: str) -> npt.NDArray:
         data = NumpyData(**json.loads(obj_repr))
-        return np.array(data.array, dtype=data.dtype, shape=data.shape)  # type: ignore
+        a = np.array(data.array, dtype=data.dtype)  # type: ignore
+        if len(data.shape) == 1:
+            return a
+        else:
+            return a.reshape(data.shape)
