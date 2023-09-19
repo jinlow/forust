@@ -54,6 +54,52 @@ def test_booster_to_xgboosts(X_y):
     assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
 
 
+def test_booster_from_numpy(X_y):
+    X, y = X_y
+    X = X.astype("float32").astype("float64")
+    fmod1 = GradientBooster(
+        base_score=0.5,
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1.0,
+        gamma=0,
+        objective_type="LogLoss",
+    )
+    fmod1.fit(X, y=y)
+    fmod1_preds = fmod1.predict(X)
+
+    fmod2 = GradientBooster(
+        base_score=0.5,
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1.0,
+        gamma=0,
+        objective_type="LogLoss",
+    )
+    fmod2.fit(X, y=y)
+    fmod2_preds = fmod2.predict(X.to_numpy())
+
+    fmod3 = GradientBooster(
+        base_score=0.5,
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1.0,
+        gamma=0,
+        objective_type="LogLoss",
+    )
+    fmod3.fit(X.to_numpy().astype("float32"), y=y)
+    fmod3_preds = fmod3.predict(X)
+
+    assert np.allclose(fmod1_preds, fmod2_preds)
+    assert np.allclose(fmod2_preds, fmod3_preds, atol=0.00001)
+
+
 def test_booster_to_xgboosts_with_missing(X_y):
     X, y = X_y
     X = X
@@ -137,6 +183,14 @@ def test_importance(X_y):
     x_imp = xmod.get_booster().get_score(importance_type="total_cover")
     f_imp = fmod.calculate_feature_importance(method="TotalCover", normalize=False)
     assert all([np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys()])
+
+    f_imp = fmod.calculate_feature_importance(method="Gain", normalize=True)
+    assert all(
+        [
+            f_imp.get(ft, 0.0) == cf
+            for ft, cf in zip(fmod.feature_names_in_, fmod.feature_importances_)
+        ]
+    )
 
 
 def test_booster_to_xgboosts_with_missing_sl(X_y):
@@ -359,7 +413,7 @@ def test_booster_saving(X_y, tmp_path):
     assert all(fmod_preds == fmod_loaded.predict(X))
 
 
-def test_booster_saving_with_montone_constraints(X_y, tmp_path):
+def test_booster_saving_with_monotone_constraints(X_y, tmp_path):
     # squared loss
     f64_model_path = tmp_path / "modelf64_sl.json"
     X, y = X_y
@@ -384,6 +438,24 @@ def test_booster_saving_with_montone_constraints(X_y, tmp_path):
     assert fmod_loaded.feature_names_in_ == fmod.feature_names_in_
     assert fmod_loaded.feature_names_in_ == X.columns.to_list()
     assert all(fmod_preds == fmod_loaded.predict(X))
+    assert all(
+        [
+            fmod.monotone_constraints[ft] == fmod_loaded.monotone_constraints[ft]
+            for ft in fmod_loaded.feature_names_in_
+        ]
+    )
+    assert all(
+        [
+            fmod.monotone_constraints[ft] == fmod_loaded.monotone_constraints[ft]
+            for ft in fmod.feature_names_in_
+        ]
+    )
+    assert all(
+        [
+            fmod.monotone_constraints[ft] == fmod_loaded.monotone_constraints[ft]
+            for ft in mono_.keys()
+        ]
+    )
 
     # LogLoss
     f64_model_path = tmp_path / "modelf64_ll.json"
@@ -450,6 +522,7 @@ def test_booster_to_xgboosts_with_contributions_missing_branch_methods(X_y):
         nbins=500,
         parallel=True,
         base_score=0.5,
+        missing_node_treatment="AssignToParent",
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
