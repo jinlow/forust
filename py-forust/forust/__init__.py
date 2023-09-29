@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import sys
 import warnings
 from typing import Any, Iterable, Protocol, Union, cast
@@ -9,6 +10,11 @@ import pandas as pd
 
 from forust.forust import GradientBooster as CrateGradientBooster  # type: ignore
 from forust.serialize import BaseSerializer, ObjectSerializer, ScalerSerializer
+
+
+class UnimplementedWarning(Warning):
+    """Warning to throw when users try and adjust base score"""
+
 
 ArrayLike = Union[pd.Series, np.ndarray]
 FrameLike = Union[pd.DataFrame, np.ndarray]
@@ -176,7 +182,7 @@ class GradientBooster:
         l2: float = 1.0,
         gamma: float = 0.0,
         min_leaf_weight: float = 1.0,
-        base_score: float | None = None,
+        base_score: float = 0.5,
         nbins: int = 256,
         parallel: bool = True,
         allow_missing_splits: bool = True,
@@ -191,7 +197,7 @@ class GradientBooster:
         grow_policy: str = "DepthWise",
         evaluation_metric: str | None = None,
         early_stopping_rounds: int | None = None,
-        initialize_base_score: bool = False,
+        initialize_base_score: bool = True,
         terminate_missing_features: Iterable[Any] | None = None,
         missing_node_treatment: str = "None",
         log_iterations: int = 0,
@@ -217,7 +223,9 @@ class GradientBooster:
                 Valid values are 0 to infinity. Defaults to 0.0.
             min_leaf_weight (float, optional): Minimum sum of the hessian values of the loss function
                 required to be in a node. Defaults to 1.0.
-            base_score (float, optional): The initial prediction value of the model. If set to None the parameter `initialize_base_score` will automatically be set to True, in which case the base score will be chosen based on the objective function at fit time. Defaults to None.
+            base_score (float, optional): The initial prediction value of the model. If `initialize_base_score`
+                is set to True the `base_score` will automatically be will be chosen based on the objective
+                function at fit time. Defaults to 0.5.
             nbins (int, optional): Number of bins to calculate to partition the data. Setting this to
                 a smaller number, will result in faster training time, while potentially sacrificing
                 accuracy. If there are more bins, than unique values in a column, all unique values
@@ -324,10 +332,17 @@ class GradientBooster:
             else sample_method_
         )
         terminate_missing_features_ = (
-            set()
-            if terminate_missing_features is None
-            else set(terminate_missing_features)
+            set() if terminate_missing_features is None else terminate_missing_features
         )
+
+        if (base_score != 0.5) and initialize_base_score:
+            warnings.warn(
+                "It appears as if you are modifying the `base_score` value, but "
+                + "`initialize_base_score` is set to True. The `base_score` will be"
+                + " calculated at `fit` time. If this it not the desired behavior, set"
+                + " `initialize_base_score` to False.",
+            )
+
         booster = CrateGradientBooster(
             objective_type=objective_type,
             iterations=iterations,
@@ -370,8 +385,9 @@ class GradientBooster:
         self.l2 = l2
         self.gamma = gamma
         self.min_leaf_weight = min_leaf_weight
-        # Use booster getter, as it's more dynamic
-        # self.base_score = base_score
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.base_score = base_score
         self.nbins = nbins
         self.parallel = parallel
         self.allow_missing_splits = allow_missing_splits
@@ -381,6 +397,7 @@ class GradientBooster:
         self.missing = missing
         self.create_missing_branch = create_missing_branch
         self.sample_method = sample_method
+        self.grow_policy = grow_policy
         self.top_rate = top_rate
         self.other_rate = other_rate
         self.evaluation_metric = evaluation_metric
@@ -487,6 +504,10 @@ class GradientBooster:
             evaluation_data=evaluation_data_,  # type: ignore
         )
 
+        # Once it's been fit, reset the `base_score`
+        # this will account for the fact that's it's adjusted after fit.
+        self.base_score = self.booster.base_score
+
     def _validate_features(self, features: list[str]):
         if len(features) > 0 and hasattr(self, "feature_names_in_"):
             if features != self.feature_names_in_:
@@ -523,8 +544,10 @@ class GradientBooster:
             method=self.feature_importance_method, normalize=True
         )
         if hasattr(self, "feature_names_in_"):
+            vals = cast(dict[str, float], vals)
             return np.array([vals.get(ft, 0.0) for ft in self.feature_names_in_])
         else:
+            vals = cast(dict[int, float], vals)
             return np.array([vals.get(ft, 0.0) for ft in range(self.n_features_)])
 
     def predict_contributions(
@@ -652,9 +675,8 @@ class GradientBooster:
             ```
             <img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/pdp_plot_age_mono.png">
         """
-        is_dataframe = isinstance(X, pd.DataFrame)
         if isinstance(feature, str):
-            if not is_dataframe:
+            if not isinstance(X, pd.DataFrame):
                 raise ValueError(
                     "If `feature` is a string, then the object passed as `X` must be a pandas DataFrame."
                 )
@@ -673,7 +695,7 @@ class GradientBooster:
                 [feature_idx] = [i for i, v in enumerate(X.columns) if v == feature]
         elif isinstance(feature, int):
             feature_idx = feature
-            if is_dataframe:
+            if isinstance(X, pd.DataFrame):
                 values = X.iloc[:, feature].unique()
             else:
                 values = X[:, feature]
@@ -781,7 +803,9 @@ class GradientBooster:
         booster = CrateGradientBooster.load_booster(str(path))
 
         params = booster.get_params()
-        c = cls(**params)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            c = cls(**params)
         c.booster = booster
         for m in c.meta_data_attributes:
             try:
@@ -824,7 +848,7 @@ class GradientBooster:
         X: Union[pd.DataFrame, np.ndarray],
     ) -> set[int]:
         if isinstance(X, np.ndarray):
-            return self.terminate_missing_features
+            return set(self.terminate_missing_features)
         else:
             feature_map = {f: i for i, f in enumerate(X.columns)}
             return set(feature_map[f] for f in self.terminate_missing_features)
@@ -892,11 +916,6 @@ class GradientBooster:
         return self.booster.best_iteration
 
     @property
-    def base_score(self) -> float:
-        """Base score used as initial prediction value"""
-        return self.booster.base_score
-
-    @property
     def prediction_iteration(self) -> int | None:
         """The prediction_iteration that will be used when predicting, up to this many trees will be used.
 
@@ -912,3 +931,9 @@ class GradientBooster:
             int | None: The best iteration, or None if `early_stopping_rounds` wasn't used.
         """
         return self.booster.best_iteration
+
+    # Functions for scikit-learn compatibility, will feel out adding these manually,
+    # and then if that feels too unwieldy will add scikit-learn as a dependency.
+    def get_params(self, deep=True):
+        args = inspect.getfullargspec(GradientBooster).kwonlyargs
+        return {param: getattr(self, param) for param in args}

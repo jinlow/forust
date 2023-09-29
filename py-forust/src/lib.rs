@@ -90,7 +90,7 @@ impl GradientBooster {
         l2: f32,
         gamma: f32,
         min_leaf_weight: f32,
-        base_score: Option<f64>,
+        base_score: f64,
         nbins: u16,
         parallel: bool,
         allow_missing_splits: bool,

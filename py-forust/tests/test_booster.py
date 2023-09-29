@@ -1,9 +1,11 @@
 import json
+import warnings
 from typing import Tuple
 
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import clone
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier, XGBRegressor
 
@@ -48,10 +50,65 @@ def test_booster_to_xgboosts(X_y):
         min_leaf_weight=1.0,
         gamma=0,
         objective_type="LogLoss",
+        initialize_base_score=False,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
     assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
+
+
+def test_sklearn_clone(X_y):
+    X, y = X_y
+    fmod = GradientBooster(
+        base_score=0.5,
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1.0,
+        gamma=0,
+        objective_type="LogLoss",
+        initialize_base_score=True,
+    )
+    fmod_cloned = clone(fmod)
+    fmod_cloned.fit(X, y=y)
+
+    fmod.fit(X, y=y)
+
+    # After it's fit it can still be cloned.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fmod_cloned_post_fit = clone(fmod)
+    fmod_cloned_post_fit.fit(X, y=y)
+
+    fmod_preds = fmod.predict(X)
+    fmod_cloned_preds = fmod_cloned.predict(X)
+    fmod_cloned_post_fit_preds = fmod_cloned_post_fit.predict(X)
+
+    assert np.allclose(fmod_preds, fmod_cloned_preds)
+    assert np.allclose(fmod_preds, fmod_cloned_post_fit_preds)
+
+
+def test_multuple_fit_calls(X_y):
+    X, y = X_y
+    fmod = GradientBooster(
+        base_score=0.5,
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1.0,
+        gamma=0,
+        objective_type="LogLoss",
+        initialize_base_score=True,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+
+    fmod.fit(X, y=y)
+    fmod_fit_again_preds = fmod.predict(X)
+
+    assert np.allclose(fmod_preds, fmod_fit_again_preds)
 
 
 def test_booster_from_numpy(X_y):
@@ -66,6 +123,7 @@ def test_booster_from_numpy(X_y):
         min_leaf_weight=1.0,
         gamma=0,
         objective_type="LogLoss",
+        initialize_base_score=False,
     )
     fmod1.fit(X, y=y)
     fmod1_preds = fmod1.predict(X)
@@ -79,6 +137,7 @@ def test_booster_from_numpy(X_y):
         min_leaf_weight=1.0,
         gamma=0,
         objective_type="LogLoss",
+        initialize_base_score=False,
     )
     fmod2.fit(X, y=y)
     fmod2_preds = fmod2.predict(X.to_numpy())
@@ -92,6 +151,7 @@ def test_booster_from_numpy(X_y):
         min_leaf_weight=1.0,
         gamma=0,
         objective_type="LogLoss",
+        initialize_base_score=False,
     )
     fmod3.fit(X.to_numpy().astype("float32"), y=y)
     fmod3_preds = fmod3.predict(X)
@@ -129,6 +189,7 @@ def test_booster_to_xgboosts_with_missing(X_y):
         objective_type="LogLoss",
         nbins=500,
         parallel=True,
+        initialize_base_score=False,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -162,6 +223,7 @@ def test_importance(X_y):
         objective_type="LogLoss",
         nbins=500,
         parallel=True,
+        initialize_base_score=False,
     )
     fmod.fit(X, y)
     x_imp = xmod.get_booster().get_score(importance_type="weight")
@@ -224,6 +286,7 @@ def test_booster_to_xgboosts_with_missing_sl(X_y):
         objective_type="SquaredLoss",
         nbins=500,
         parallel=True,
+        initialize_base_score=False,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -361,6 +424,7 @@ def test_booster_to_xgboosts_weighted(X_y):
         min_leaf_weight=1,
         gamma=0,
         objective_type="LogLoss",
+        initialize_base_score=False,
     )
     fmod.fit(X, y=y, sample_weight=w)
     fmod_preds = fmod.predict(X)
@@ -571,6 +635,7 @@ def test_booster_to_xgboosts_with_contributions(X_y):
         nbins=500,
         parallel=True,
         base_score=0.5,
+        initialize_base_score=False,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -678,7 +743,8 @@ def test_missing_branch_with_contributions(X_y):
     )
 
 
-def test_booster_metadata(X_y, tmp_path):
+@pytest.mark.parametrize("initialize_base_score", [True, False])
+def test_booster_metadata(X_y, tmp_path, initialize_base_score):
     f64_model_path = tmp_path / "modelf64_sl.json"
     X, y = X_y
     X = X
@@ -693,6 +759,7 @@ def test_booster_metadata(X_y, tmp_path):
         nbins=500,
         parallel=True,
         base_score=0.5,
+        initialize_base_score=initialize_base_score,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -707,6 +774,11 @@ def test_booster_metadata(X_y, tmp_path):
     with pytest.raises(KeyError):
         loaded.get_metadata("No-key")
 
+    # Make sure the base score is adjusted
+    assert fmod.base_score == loaded.base_score
+    if initialize_base_score:
+        assert loaded.base_score != 0.5
+
     loaded_dict = loaded.__dict__
     fmod_dict = fmod.__dict__
     assert sorted(loaded_dict.keys()) == sorted(fmod_dict.keys())
@@ -720,7 +792,7 @@ def test_booster_metadata(X_y, tmp_path):
         elif isinstance(v, forust.CrateGradientBooster):
             assert isinstance(c_v, forust.CrateGradientBooster)
         else:
-            assert v == c_v
+            assert v == c_v, k
     fmod_loaded_preds = loaded.predict(X)
     assert np.allclose(fmod_preds, fmod_loaded_preds)
 
