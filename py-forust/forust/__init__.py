@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import sys
 import warnings
-from typing import Any, Iterable, Protocol, Union, cast
+from typing import Any, Dict, Iterable, Protocol, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -544,10 +544,10 @@ class GradientBooster:
             method=self.feature_importance_method, normalize=True
         )
         if hasattr(self, "feature_names_in_"):
-            vals = cast(dict[str, float], vals)
+            vals = cast(Dict[str, float], vals)
             return np.array([vals.get(ft, 0.0) for ft in self.feature_names_in_])
         else:
-            vals = cast(dict[int, float], vals)
+            vals = cast(Dict[int, float], vals)
             return np.array([vals.get(ft, 0.0) for ft in range(self.n_features_)])
 
     def predict_contributions(
