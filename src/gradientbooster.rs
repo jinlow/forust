@@ -912,8 +912,15 @@ impl GradientBooster {
                 }
             })
             .collect::<HashMap<usize, f32>>();
+
         if normalize {
-            let total: f32 = importance.values().sum();
+            // To make deterministic, sort values and then sum.
+            // Otherwise we were getting them in different orders, and
+            // floating point error was creeping in.
+            let mut values: Vec<f32> = importance.values().copied().collect();
+            // We are OK to unwrap because we know we will never have missing.
+            values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let total: f32 = values.iter().sum();
             importance.iter().map(|(k, v)| (*k, v / total)).collect()
         } else {
             importance

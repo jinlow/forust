@@ -696,7 +696,7 @@ class GradientBooster:
         elif isinstance(feature, int):
             feature_idx = feature
             if isinstance(X, pd.DataFrame):
-                values = X.iloc[:, feature].unique()
+                values = X.iloc[:, feature].to_numpy()
             else:
                 values = X[:, feature]
         else:
