@@ -224,7 +224,7 @@ class GradientBooster:
             min_leaf_weight (float, optional): Minimum sum of the hessian values of the loss function
                 required to be in a node. Defaults to 1.0.
             base_score (float, optional): The initial prediction value of the model. If `initialize_base_score`
-                is set to True the `base_score` will automatically be will be chosen based on the objective
+                is set to True the `base_score` will automatically be updated based on the objective
                 function at fit time. Defaults to 0.5.
             nbins (int, optional): Number of bins to calculate to partition the data. Setting this to
                 a smaller number, will result in faster training time, while potentially sacrificing
@@ -276,7 +276,7 @@ class GradientBooster:
             early_stopping_rounds (int | None, optional): If this is specified, and an `evaluation_dataset` is passed
                 during fit, then an improvement in the `evaluation_metric` must be seen after at least this many
                 iterations of training, otherwise training will be cut short.
-            initialize_base_score (bool, optional): If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
+            initialize_base_score (bool, optional): If this is specified, the `base_score` will be calculated at fit time using the `sample_weight` and y data in accordance with the requested `objective_type`. This will result in the passed `base_score` value being overridden.
             terminate_missing_features (set[Any], optional): An optional iterable of features (either strings, or integer values specifying the feature indices if numpy arrays are used for fitting), for which the missing node will always be terminated, even if `allow_missing_splits` is set to true. This value is only valid if `create_missing_branch` is also True.
             missing_node_treatment (str, optional): Method for selecting the `weight` for the missing node, if `create_missing_branch` is set to `True`. Defaults to "None". Valid options are:
 
