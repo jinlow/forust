@@ -40,6 +40,7 @@ class ScalerSerializer(BaseSerializer[Scaler]):
 ObjectItem = Union[
     List[Scaler],
     Dict[str, Scaler],
+    Scaler,
 ]
 
 

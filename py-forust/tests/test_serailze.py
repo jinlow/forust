@@ -14,9 +14,11 @@ from forust.serialize import (
 scaler_values = [
     1,
     1.0,
+    1.00101,
     "a string",
     True,
     False,
+    None,
 ]
 
 
