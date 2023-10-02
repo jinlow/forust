@@ -38,9 +38,11 @@ jobs:
         run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Run Package Tests
         run: |
-          pip install pytest
+          pip install pytest, pytest-cov, black, ruff
           cd py-forust
-          pytest tests
+          ruff check .
+          black --check .
+          pytest --cov-fail-under=90 tests
           cd ..
       - name: Save Artifacts
         uses: actions/upload-artifact@v3
@@ -90,9 +92,11 @@ jobs:
         run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Run Package Tests
         run: |
-          pip install pytest
+          pip install pytest, pytest-cov, black, ruff
           cd py-forust
-          pytest tests
+          ruff check .
+          black --check .
+          pytest --cov-fail-under=90 tests
           cd ..
       - name: Save Artifacts
         uses: actions/upload-artifact@v3
@@ -145,9 +149,11 @@ jobs:
         run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Run Package Tests
         run: |
-          pip install pytest
+          pip install pytest, pytest-cov, black, ruff
           cd py-forust
-          pytest tests
+          ruff check .
+          black --check .
+          pytest --cov-fail-under=90 tests
           cd ..
       - name: Save Artifacts
         uses: actions/upload-artifact@v3
