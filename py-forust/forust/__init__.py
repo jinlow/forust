@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from forust.forust import GradientBooster as CrateGradientBooster  # type: ignore
-from forust.serialize import BaseSerializer, ObjectSerializer, ScalerSerializer
+from forust.serialize import BaseSerializer, ObjectSerializer
 
 
 class UnimplementedWarning(Warning):
@@ -167,8 +167,8 @@ class GradientBooster:
     # as attributes on the booster after it is loaded.
     meta_data_attributes: dict[str, BaseSerializer] = {
         "feature_names_in_": ObjectSerializer(),
-        "n_features_": ScalerSerializer(),
-        "feature_importance_method": ScalerSerializer(),
+        "n_features_": ObjectSerializer(),
+        "feature_importance_method": ObjectSerializer(),
     }
 
     def __init__(
