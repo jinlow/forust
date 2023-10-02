@@ -1,9 +1,14 @@
+from __future__ import annotations
+
+import itertools
 import json
+import warnings
 from typing import Tuple
 
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import clone
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier, XGBRegressor
 
@@ -48,10 +53,80 @@ def test_booster_to_xgboosts(X_y):
         min_leaf_weight=1.0,
         gamma=0,
         objective_type="LogLoss",
+        initialize_base_score=False,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
     assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
+
+
+def test_sklearn_clone(X_y):
+    X, y = X_y
+    fmod = GradientBooster(
+        base_score=0.5,
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1.0,
+        gamma=0,
+        objective_type="LogLoss",
+        initialize_base_score=True,
+    )
+    fmod_cloned = clone(fmod)
+    fmod_cloned.fit(X, y=y)
+
+    fmod.fit(X, y=y)
+
+    # After it's fit it can still be cloned.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fmod_cloned_post_fit = clone(fmod)
+    fmod_cloned_post_fit.fit(X, y=y)
+
+    fmod_preds = fmod.predict(X)
+    fmod_cloned_preds = fmod_cloned.predict(X)
+    fmod_cloned_post_fit_preds = fmod_cloned_post_fit.predict(X)
+
+    assert np.allclose(fmod_preds, fmod_cloned_preds)
+    assert np.allclose(fmod_preds, fmod_cloned_post_fit_preds)
+
+
+def test_multuple_fit_calls(X_y):
+    X, y = X_y
+    fmod = GradientBooster(
+        base_score=0.5,
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1.0,
+        gamma=0,
+        objective_type="LogLoss",
+        initialize_base_score=True,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+
+    fmod.fit(X, y=y)
+    fmod_fit_again_preds = fmod.predict(X)
+
+    assert np.allclose(fmod_preds, fmod_fit_again_preds)
+
+
+def test_different_data_passed(X_y):
+    X, y = X_y
+    fmod = GradientBooster(
+        objective_type="LogLoss",
+    )
+    fmod.fit(X, y=y)
+    fmod.predict(X)
+    with pytest.raises(ValueError, match="Columns mismatch"):
+        fmod.predict(X.iloc[:, 0:4])
+
+    with pytest.raises(ValueError, match="Columns mismatch"):
+        X_ = X.rename(columns=lambda x: x + "_wrong" if x == "age" else x)
+        fmod.predict(X_)
 
 
 def test_booster_from_numpy(X_y):
@@ -66,6 +141,7 @@ def test_booster_from_numpy(X_y):
         min_leaf_weight=1.0,
         gamma=0,
         objective_type="LogLoss",
+        initialize_base_score=False,
     )
     fmod1.fit(X, y=y)
     fmod1_preds = fmod1.predict(X)
@@ -79,6 +155,7 @@ def test_booster_from_numpy(X_y):
         min_leaf_weight=1.0,
         gamma=0,
         objective_type="LogLoss",
+        initialize_base_score=False,
     )
     fmod2.fit(X, y=y)
     fmod2_preds = fmod2.predict(X.to_numpy())
@@ -92,6 +169,7 @@ def test_booster_from_numpy(X_y):
         min_leaf_weight=1.0,
         gamma=0,
         objective_type="LogLoss",
+        initialize_base_score=False,
     )
     fmod3.fit(X.to_numpy().astype("float32"), y=y)
     fmod3_preds = fmod3.predict(X)
@@ -129,13 +207,15 @@ def test_booster_to_xgboosts_with_missing(X_y):
         objective_type="LogLoss",
         nbins=500,
         parallel=True,
+        initialize_base_score=False,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
     assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
 
 
-def test_importance(X_y):
+@pytest.mark.parametrize("is_numpy", [True, False])
+def test_importance(X_y: tuple[pd.DataFrame, pd.Series], is_numpy: bool):
     X, y = X_y
     X = X
     xmod = XGBClassifier(
@@ -150,7 +230,11 @@ def test_importance(X_y):
         tree_method="hist",
         max_bin=10000,
     )
-    xmod.fit(X, y)
+    if is_numpy:
+        X_ = X.to_numpy()
+    else:
+        X_ = X
+    xmod.fit(X_, y)
     fmod = GradientBooster(
         base_score=0.5,
         iterations=100,
@@ -162,35 +246,123 @@ def test_importance(X_y):
         objective_type="LogLoss",
         nbins=500,
         parallel=True,
+        initialize_base_score=False,
     )
-    fmod.fit(X, y)
+    fmod.fit(X_, y)
     x_imp = xmod.get_booster().get_score(importance_type="weight")
     f_imp = fmod.calculate_feature_importance(method="Weight", normalize=False)
-    assert all([f_imp[f] == x_imp[f] for f in x_imp.keys()])
+
+    def make_key(i: str | int, is_xgboost: bool, is_numpy) -> str | int:
+        if is_numpy:
+            if is_xgboost:
+                return f"f{i}"
+            else:
+                return i
+        else:
+            return i
+
+    assert all(
+        [
+            f_imp[make_key(f, False, is_numpy)] == x_imp[make_key(f, True, is_numpy)]
+            for f in f_imp.keys()
+        ]
+    )
 
     x_imp = xmod.get_booster().get_score(importance_type="gain")
     f_imp = fmod.calculate_feature_importance(method="Gain", normalize=False)
-    assert all([np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys()])
+    assert all(
+        [
+            np.allclose(
+                f_imp[make_key(f, False, is_numpy)], x_imp[make_key(f, True, is_numpy)]
+            )
+            for f in f_imp.keys()
+        ]
+    )
 
     x_imp = xmod.get_booster().get_score(importance_type="total_gain")
     f_imp = fmod.calculate_feature_importance(method="TotalGain", normalize=False)
-    assert all([np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys()])
+    assert all(
+        [
+            np.allclose(
+                f_imp[make_key(f, False, is_numpy)], x_imp[make_key(f, True, is_numpy)]
+            )
+            for f in f_imp.keys()
+        ]
+    )
 
     x_imp = xmod.get_booster().get_score(importance_type="cover")
     f_imp = fmod.calculate_feature_importance(method="Cover", normalize=False)
-    assert all([np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys()])
+    assert all(
+        [
+            np.allclose(
+                f_imp[make_key(f, False, is_numpy)], x_imp[make_key(f, True, is_numpy)]
+            )
+            for f in f_imp.keys()
+        ]
+    )
 
     x_imp = xmod.get_booster().get_score(importance_type="total_cover")
     f_imp = fmod.calculate_feature_importance(method="TotalCover", normalize=False)
-    assert all([np.allclose(f_imp[f], x_imp[f]) for f in x_imp.keys()])
-
-    f_imp = fmod.calculate_feature_importance(method="Gain", normalize=True)
     assert all(
         [
-            f_imp.get(ft, 0.0) == cf
-            for ft, cf in zip(fmod.feature_names_in_, fmod.feature_importances_)
+            np.allclose(
+                f_imp[make_key(f, False, is_numpy)], x_imp[make_key(f, True, is_numpy)]
+            )
+            for f in f_imp.keys()
         ]
     )
+
+
+test_args = itertools.product(
+    (True, False), ["Weight", "Cover", "Gain", "TotalGain", "TotalCover"]
+)
+
+
+@pytest.mark.parametrize("is_numpy,importance_method", test_args)
+def test_feature_importance_method_init(
+    X_y: tuple[pd.DataFrame, pd.Series], is_numpy: bool, importance_method: str
+) -> None:
+    X, y = X_y
+    fmod = GradientBooster(
+        base_score=0.5,
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        initialize_base_score=False,
+        feature_importance_method=importance_method,
+    )
+    if is_numpy:
+        X_ = X.to_numpy()
+    else:
+        X_ = X
+    fmod.fit(X_, y)
+
+    f_imp = fmod.calculate_feature_importance(method=importance_method, normalize=True)
+
+    # for ft, cf in zip(fmod.feature_names_in_, fmod.feature_importances_):
+    #     print(f_imp.get(ft, 0.0), cf)
+    #     print(f_imp.get(ft, 0.0) == cf)
+
+    if not is_numpy:
+        assert all(
+            [
+                f_imp.get(ft, 0.0) == cf
+                for ft, cf in zip(fmod.feature_names_in_, fmod.feature_importances_)
+            ]
+        )
+    else:
+        assert all(
+            [
+                f_imp.get(ft, 0.0) == cf
+                for ft, cf in zip(range(fmod.n_features_), fmod.feature_importances_)
+            ]
+        )
 
 
 def test_booster_to_xgboosts_with_missing_sl(X_y):
@@ -224,6 +396,7 @@ def test_booster_to_xgboosts_with_missing_sl(X_y):
         objective_type="SquaredLoss",
         nbins=500,
         parallel=True,
+        initialize_base_score=False,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -361,13 +534,14 @@ def test_booster_to_xgboosts_weighted(X_y):
         min_leaf_weight=1,
         gamma=0,
         objective_type="LogLoss",
+        initialize_base_score=False,
     )
     fmod.fit(X, y=y, sample_weight=w)
     fmod_preds = fmod.predict(X)
     assert np.allclose(fmod_preds, xmod_preds, atol=0.0001)
 
 
-def test_booster_saving(X_y, tmp_path):
+def test_booster_saving(X_y: tuple[pd.DataFrame, pd.Series], tmp_path):
     # squared loss
     f64_model_path = tmp_path / "modelf64_sl.json"
     X, y = X_y
@@ -413,7 +587,9 @@ def test_booster_saving(X_y, tmp_path):
     assert all(fmod_preds == fmod_loaded.predict(X))
 
 
-def test_booster_saving_with_monotone_constraints(X_y, tmp_path):
+def test_booster_saving_with_monotone_constraints(
+    X_y: tuple[pd.DataFrame, pd.Series], tmp_path
+):
     # squared loss
     f64_model_path = tmp_path / "modelf64_sl.json"
     X, y = X_y
@@ -505,6 +681,60 @@ def test_monotone_constraints(X_y):
         else:
             assert np.all(p_d[0:-1, 1] <= p_d[1:, 1])
 
+    for f, m in mono_.items():
+        p_d = fmod.partial_dependence(X, feature=f, samples=None)
+        p_d = p_d[~np.isnan(p_d[:, 0])]
+        if m < 0:
+            assert np.all(p_d[0:-1, 1] >= p_d[1:, 1])
+        else:
+            assert np.all(p_d[0:-1, 1] <= p_d[1:, 1])
+
+
+def test_partial_dependence_errors(X_y):
+    X, y = X_y
+    fmod = GradientBooster()
+    fmod.fit(X, y=y)
+    with pytest.raises(ValueError, match="If `feature` is a string, then"):
+        fmod.partial_dependence(X.to_numpy(), "pclass")
+
+    fmod = GradientBooster()
+    fmod.fit(X.to_numpy(), y=y)
+    with pytest.warns(
+        expected_warning=UserWarning, match="No feature names were provided at fit"
+    ):
+        res = fmod.partial_dependence(X, "pclass")
+
+    # This is the same as if we used a dataframe at fit.
+    fmod = GradientBooster()
+    fmod.fit(X, y=y)
+    assert np.allclose(fmod.partial_dependence(X, "pclass"), res)
+
+    fmod = GradientBooster()
+    fmod.fit(X, y=y)
+    pclass_n = next(i for i, ft in enumerate(X.columns) if ft == "pclass")
+    assert np.allclose(
+        fmod.partial_dependence(X, "pclass"), fmod.partial_dependence(X, pclass_n)
+    )
+    assert np.allclose(
+        fmod.partial_dependence(X, "pclass"),
+        fmod.partial_dependence(X.to_numpy(), pclass_n),
+    )
+
+    with pytest.raises(
+        ValueError, match="The parameter `feature` must be a string, or an int"
+    ):
+        fmod.partial_dependence(X, 1.0)
+
+
+def test_partial_dependence_exclude_missing(X_y):
+    X, y = X_y
+    fmod = GradientBooster()
+    fmod.fit(X, y)
+    res1 = fmod.partial_dependence(X, "age", samples=None)
+    res2 = fmod.partial_dependence(X, "age", samples=None, exclude_missing=False)
+    assert (res1.shape[0] + 1) == res2.shape[0]
+    assert np.allclose(res2[~np.isnan(res2[:, 0]), :], res1)
+
 
 def test_booster_to_xgboosts_with_contributions_missing_branch_methods(X_y):
     X, y = X_y
@@ -571,6 +801,7 @@ def test_booster_to_xgboosts_with_contributions(X_y):
         nbins=500,
         parallel=True,
         base_score=0.5,
+        initialize_base_score=False,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -678,7 +909,10 @@ def test_missing_branch_with_contributions(X_y):
     )
 
 
-def test_booster_metadata(X_y, tmp_path):
+@pytest.mark.parametrize("initialize_base_score", [True, False])
+def test_booster_metadata(
+    X_y: tuple[pd.DataFrame, pd.Series], tmp_path, initialize_base_score
+):
     f64_model_path = tmp_path / "modelf64_sl.json"
     X, y = X_y
     X = X
@@ -693,6 +927,7 @@ def test_booster_metadata(X_y, tmp_path):
         nbins=500,
         parallel=True,
         base_score=0.5,
+        initialize_base_score=initialize_base_score,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
@@ -707,6 +942,11 @@ def test_booster_metadata(X_y, tmp_path):
     with pytest.raises(KeyError):
         loaded.get_metadata("No-key")
 
+    # Make sure the base score is adjusted
+    assert fmod.base_score == loaded.base_score
+    if initialize_base_score:
+        assert loaded.base_score != 0.5
+
     loaded_dict = loaded.__dict__
     fmod_dict = fmod.__dict__
     assert sorted(loaded_dict.keys()) == sorted(fmod_dict.keys())
@@ -720,12 +960,12 @@ def test_booster_metadata(X_y, tmp_path):
         elif isinstance(v, forust.CrateGradientBooster):
             assert isinstance(c_v, forust.CrateGradientBooster)
         else:
-            assert v == c_v
+            assert v == c_v, k
     fmod_loaded_preds = loaded.predict(X)
     assert np.allclose(fmod_preds, fmod_loaded_preds)
 
 
-def test_early_stopping_rounds(X_y, tmp_path):
+def test_early_stopping_rounds(X_y: tuple[pd.DataFrame, pd.Series], tmp_path):
     X, y = X_y
     X = X
     fmod = GradientBooster(
@@ -752,15 +992,24 @@ def test_early_stopping_rounds(X_y, tmp_path):
     assert history is not None
     assert np.isclose(roc_auc_score(y, preds), history.max())
     best_iteration = fmod.get_best_iteration()
+    assert best_iteration == fmod.best_iteration
     assert best_iteration is not None
     assert best_iteration < history.shape[0]
 
+    assert fmod.prediction_iteration == (fmod.best_iteration + 1)
     fmod.set_prediction_iteration(4)
+    assert fmod.prediction_iteration == 4
     new_preds = fmod.predict(X)
     assert not np.allclose(new_preds, preds)
     fmod.save_booster(mod_path)
     loaded = GradientBooster.load_booster(mod_path)
     assert np.allclose(loaded.predict(X), new_preds)
+
+
+def test_text_dump(X_y):
+    fmod = GradientBooster()
+    fmod.fit(*X_y)
+    assert len(fmod.text_dump()) > 0
 
 
 def test_early_stopping_with_dev(X_y):

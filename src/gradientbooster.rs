@@ -239,7 +239,7 @@ impl Default for GradientBooster {
             1.,
             0.,
             1.,
-            None,
+            0.5,
             256,
             true,
             true,
@@ -254,7 +254,7 @@ impl Default for GradientBooster {
             GrowPolicy::DepthWise,
             None,
             None,
-            false,
+            true,
             HashSet::new(),
             MissingNodeTreatment::AssignToParent,
             0,
@@ -317,7 +317,7 @@ impl GradientBooster {
         l2: f32,
         gamma: f32,
         min_leaf_weight: f32,
-        base_score: Option<f64>,
+        base_score: f64,
         nbins: u16,
         parallel: bool,
         allow_missing_splits: bool,
@@ -338,10 +338,6 @@ impl GradientBooster {
         log_iterations: usize,
         force_children_to_bound_parent: bool,
     ) -> Result<Self, ForustError> {
-        let (base_score_, initialize_base_score_) = match base_score {
-            Some(v) => (v, initialize_base_score),
-            None => (0.5, true),
-        };
         let booster = GradientBooster {
             objective_type,
             iterations,
@@ -351,7 +347,7 @@ impl GradientBooster {
             l2,
             gamma,
             min_leaf_weight,
-            base_score: base_score_,
+            base_score,
             nbins,
             parallel,
             allow_missing_splits,
@@ -366,7 +362,7 @@ impl GradientBooster {
             grow_policy,
             evaluation_metric,
             early_stopping_rounds,
-            initialize_base_score: initialize_base_score_,
+            initialize_base_score,
             terminate_missing_features,
             evaluation_history: None,
             best_iteration: None,
@@ -467,6 +463,13 @@ impl GradientBooster {
         metric_callables(&metric)
     }
 
+    fn reset(&mut self) {
+        self.trees = Vec::new();
+        self.evaluation_history = None;
+        self.best_iteration = None;
+        self.prediction_iteration = None;
+    }
+
     fn fit_trees<T: Splitter>(
         &mut self,
         y: &[f64],
@@ -475,6 +478,12 @@ impl GradientBooster {
         splitter: &T,
         evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
+        // Is this a booster that has already been fit? If it is, reset the trees.
+        // In the future we could continue training.
+        if !self.trees.is_empty() {
+            self.reset()
+        }
+
         let mut rng = StdRng::seed_from_u64(self.seed);
 
         if self.initialize_base_score {
@@ -903,8 +912,15 @@ impl GradientBooster {
                 }
             })
             .collect::<HashMap<usize, f32>>();
+
         if normalize {
-            let total: f32 = importance.values().sum();
+            // To make deterministic, sort values and then sum.
+            // Otherwise we were getting them in different orders, and
+            // floating point error was creeping in.
+            let mut values: Vec<f32> = importance.values().copied().collect();
+            // We are OK to unwrap because we know we will never have missing.
+            values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let total: f32 = values.iter().sum();
             importance.iter().map(|(k, v)| (*k, v / total)).collect()
         } else {
             importance
