@@ -34,6 +34,7 @@ object_values = [
     ["a", "b", "c"],
     {"a": 1.0, "b": 2.0},
     {"a": "test", "b": "what"},
+    *scaler_values,
 ]
 
 
