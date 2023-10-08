@@ -1384,3 +1384,22 @@ def test_AverageNodeWeight_missing_node_treatment(X_y):
     with pytest.raises(AssertionError):
         for tree in json.loads(fmod.json_dump())["trees"]:
             check_missing_is_average(tree["nodes"], 0)
+
+
+def test_get_params(X_y):
+    X, y = X_y
+    r = 0.00001
+    fmod = GradientBooster(learning_rate=r)
+    assert fmod.get_params()["learning_rate"] == r
+    fmod.fit(X, y)
+    assert fmod.get_params()["learning_rate"] == r
+
+
+def test_set_params(X_y):
+    X, y = X_y
+    r = 0.00001
+    fmod = GradientBooster()
+    assert fmod.get_params()["learning_rate"] != r
+    assert fmod.set_params(learning_rate=r)
+    assert fmod.get_params()["learning_rate"] == r
+    fmod.fit(X, y)

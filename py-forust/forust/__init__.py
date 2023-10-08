@@ -422,7 +422,7 @@ class GradientBooster:
         | list[
             tuple[FrameLike, ArrayLike, ArrayLike] | tuple[FrameLike, ArrayLike]
         ] = None,
-    ):
+    ) -> GradientBooster:
         """Fit the gradient booster on a provided dataset.
 
         Args:
@@ -507,6 +507,7 @@ class GradientBooster:
         # Once it's been fit, reset the `base_score`
         # this will account for the fact that's it's adjusted after fit.
         self.base_score = self.booster.base_score
+        return self
 
     def _validate_features(self, features: list[str]):
         if len(features) > 0 and hasattr(self, "feature_names_in_"):
@@ -934,6 +935,25 @@ class GradientBooster:
 
     # Functions for scikit-learn compatibility, will feel out adding these manually,
     # and then if that feels too unwieldy will add scikit-learn as a dependency.
-    def get_params(self, deep=True):
+    def get_params(self, deep=True) -> dict[str, Any]:
+        """Get all of the parameters for the booster.
+
+        Args:
+            deep (bool, optional): This argument does nothing, and is simply here for scikit-learn compatibility.. Defaults to True.
+
+        Returns:
+            dict[str, Any]: The parameters of the booster.
+        """
         args = inspect.getfullargspec(GradientBooster).kwonlyargs
         return {param: getattr(self, param) for param in args}
+
+    def set_params(self, **params: Any) -> GradientBooster:
+        """Set the parameters of the booster, this has the same effect as reinstating the booster.
+
+        Returns:
+            GradientBooster: Booster with new parameters.
+        """
+        old_params = self.get_params()
+        old_params.update(params)
+        GradientBooster.__init__(self, **old_params)
+        return self
