@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 from sklearn.base import clone
 from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import GridSearchCV
 from xgboost import XGBClassifier, XGBRegressor
 
 import forust
@@ -1403,3 +1404,16 @@ def test_set_params(X_y):
     assert fmod.set_params(learning_rate=r)
     assert fmod.get_params()["learning_rate"] == r
     fmod.fit(X, y)
+
+
+def test_compat_gridsearch(X_y):
+    X, y = X_y
+    fmod = GradientBooster()
+    parameters = {"learning_rate": [0.1, 0.03], "subsample": [1.0, 0.8]}
+    clf = GridSearchCV(
+        fmod,
+        parameters,
+        scoring=lambda est, X, y: roc_auc_score(y, est.predict(X)),
+    )
+    clf.fit(X, y)
+    assert len(clf.cv_results_["mean_test_score"]) > 0
