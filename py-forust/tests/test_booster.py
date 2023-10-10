@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import pickle
 import warnings
 from typing import Tuple
 
@@ -542,119 +543,22 @@ def test_booster_to_xgboosts_weighted(X_y):
     assert np.allclose(fmod_preds, xmod_preds, atol=0.0001)
 
 
-def test_booster_saving(X_y: tuple[pd.DataFrame, pd.Series], tmp_path):
-    # squared loss
-    f64_model_path = tmp_path / "modelf64_sl.json"
-    X, y = X_y
-    X = X
-    fmod = GradientBooster(
-        iterations=100,
-        learning_rate=0.3,
-        max_depth=5,
-        l2=1,
-        min_leaf_weight=1,
-        gamma=1,
-        objective_type="SquaredLoss",
-        nbins=500,
-        parallel=True,
-    )
-    fmod.fit(X, y=y)
-    fmod_preds = fmod.predict(X)
-    fmod.save_booster(f64_model_path)
-    fmod_loaded = GradientBooster.load_booster(f64_model_path)
-    assert all(fmod_preds == fmod_loaded.predict(X))
-
-    # LogLoss
-    f64_model_path = tmp_path / "modelf64_ll.json"
-    X, y = X_y
-    X = X
-    fmod = GradientBooster(
-        iterations=100,
-        learning_rate=0.3,
-        max_depth=5,
-        l2=1,
-        min_leaf_weight=1,
-        gamma=1,
-        objective_type="LogLoss",
-        nbins=500,
-        parallel=True,
-    )
-    fmod.fit(X, y=y)
-    fmod_preds = fmod.predict(X)
-    fmod.save_booster(f64_model_path)
-    fmod_loaded = GradientBooster.load_booster(f64_model_path)
-    assert fmod_loaded.feature_names_in_ == fmod.feature_names_in_
-    assert fmod_loaded.feature_names_in_ == X.columns.to_list()
-    assert all(fmod_preds == fmod_loaded.predict(X))
+def pickle_booster(model: GradientBooster, path: str) -> None:
+    with open(path, "wb") as file:
+        pickle.dump(model, file)
 
 
-def test_booster_saving_with_monotone_constraints(
-    X_y: tuple[pd.DataFrame, pd.Series], tmp_path
-):
-    # squared loss
-    f64_model_path = tmp_path / "modelf64_sl.json"
-    X, y = X_y
-    X = X
-    mono_ = X.apply(lambda x: int(np.sign(x.corr(y)))).to_dict()
-    fmod = GradientBooster(
-        iterations=100,
-        learning_rate=0.3,
-        max_depth=5,
-        l2=1,
-        min_leaf_weight=1,
-        gamma=1,
-        objective_type="SquaredLoss",
-        nbins=500,
-        parallel=True,
-        monotone_constraints=mono_,
-    )
-    fmod.fit(X, y=y)
-    fmod_preds = fmod.predict(X)
-    fmod.save_booster(f64_model_path)
-    fmod_loaded = GradientBooster.load_booster(f64_model_path)
-    assert fmod_loaded.feature_names_in_ == fmod.feature_names_in_
-    assert fmod_loaded.feature_names_in_ == X.columns.to_list()
-    assert all(fmod_preds == fmod_loaded.predict(X))
-    assert all(
-        [
-            fmod.monotone_constraints[ft] == fmod_loaded.monotone_constraints[ft]
-            for ft in fmod_loaded.feature_names_in_
-        ]
-    )
-    assert all(
-        [
-            fmod.monotone_constraints[ft] == fmod_loaded.monotone_constraints[ft]
-            for ft in fmod.feature_names_in_
-        ]
-    )
-    assert all(
-        [
-            fmod.monotone_constraints[ft] == fmod_loaded.monotone_constraints[ft]
-            for ft in mono_.keys()
-        ]
-    )
+def unpickle_booster(path: str) -> GradientBooster:
+    with open(path, "rb") as file:
+        return pickle.load(file)
 
-    # LogLoss
-    f64_model_path = tmp_path / "modelf64_ll.json"
-    X, y = X_y
-    X = X
-    fmod = GradientBooster(
-        iterations=100,
-        learning_rate=0.3,
-        max_depth=5,
-        l2=1,
-        min_leaf_weight=1,
-        gamma=1,
-        objective_type="LogLoss",
-        nbins=500,
-        parallel=True,
-        monotone_constraints=mono_,
-    )
-    fmod.fit(X, y=y)
-    fmod_preds = fmod.predict(X)
-    fmod.save_booster(f64_model_path)
-    fmod_loaded = GradientBooster.load_booster(f64_model_path)
-    assert all(fmod_preds == fmod_loaded.predict(X))
+
+def save_booster(model: GradientBooster, path: str) -> None:
+    model.save_booster(path)
+
+
+def load_booster(path: str) -> GradientBooster:
+    return GradientBooster.load_booster(path)
 
 
 def test_monotone_constraints(X_y):
@@ -908,103 +812,6 @@ def test_missing_branch_with_contributions(X_y):
     assert np.allclose(
         fmod_miss_branch_conts.sum(1), loggodds_to_odds(fmod_miss_branch_preds)
     )
-
-
-@pytest.mark.parametrize("initialize_base_score", [True, False])
-def test_booster_metadata(
-    X_y: tuple[pd.DataFrame, pd.Series], tmp_path, initialize_base_score
-):
-    f64_model_path = tmp_path / "modelf64_sl.json"
-    X, y = X_y
-    X = X
-    fmod = GradientBooster(
-        iterations=100,
-        learning_rate=0.3,
-        max_depth=5,
-        l2=1,
-        min_leaf_weight=1,
-        gamma=1,
-        objective_type="SquaredLoss",
-        nbins=500,
-        parallel=True,
-        base_score=0.5,
-        initialize_base_score=initialize_base_score,
-    )
-    fmod.fit(X, y=y)
-    fmod_preds = fmod.predict(X)
-    fmod.save_booster(f64_model_path)
-    fmod.insert_metadata("test-info", "some-info")
-    assert fmod.get_metadata("test-info") == "some-info"
-    fmod.save_booster(f64_model_path)
-
-    loaded = GradientBooster.load_booster(f64_model_path)
-    assert loaded.get_metadata("test-info") == "some-info"
-
-    with pytest.raises(KeyError):
-        loaded.get_metadata("No-key")
-
-    # Make sure the base score is adjusted
-    assert fmod.base_score == loaded.base_score
-    if initialize_base_score:
-        assert loaded.base_score != 0.5
-
-    loaded_dict = loaded.__dict__
-    fmod_dict = fmod.__dict__
-    assert sorted(loaded_dict.keys()) == sorted(fmod_dict.keys())
-    for k, v in loaded_dict.items():
-        c_v = fmod_dict[k]
-        if isinstance(v, float):
-            if np.isnan(v):
-                assert np.isnan(c_v)
-            else:
-                assert np.allclose(v, c_v)
-        elif isinstance(v, forust.CrateGradientBooster):
-            assert isinstance(c_v, forust.CrateGradientBooster)
-        else:
-            assert v == c_v, k
-    fmod_loaded_preds = loaded.predict(X)
-    assert np.allclose(fmod_preds, fmod_loaded_preds)
-
-
-def test_early_stopping_rounds(X_y: tuple[pd.DataFrame, pd.Series], tmp_path):
-    X, y = X_y
-    X = X
-    fmod = GradientBooster(
-        iterations=200,
-        learning_rate=0.3,
-        max_depth=5,
-        l2=1,
-        min_leaf_weight=1,
-        gamma=1,
-        objective_type="LogLoss",
-        nbins=500,
-        parallel=True,
-        base_score=0.5,
-        early_stopping_rounds=2,
-        evaluation_metric="AUC",
-    )
-    fmod.fit(X, y, evaluation_data=[(X, y)])
-    preds = fmod.predict(X)
-    mod_path = tmp_path / "early_stopping_model.json"
-    fmod.save_booster(mod_path)
-    loaded = GradientBooster.load_booster(mod_path)
-    assert np.allclose(loaded.predict(X), preds)
-    history = fmod.get_evaluation_history()
-    assert history is not None
-    assert np.isclose(roc_auc_score(y, preds), history.max())
-    best_iteration = fmod.get_best_iteration()
-    assert best_iteration == fmod.best_iteration
-    assert best_iteration is not None
-    assert best_iteration < history.shape[0]
-
-    assert fmod.prediction_iteration == (fmod.best_iteration + 1)
-    fmod.set_prediction_iteration(4)
-    assert fmod.prediction_iteration == 4
-    new_preds = fmod.predict(X)
-    assert not np.allclose(new_preds, preds)
-    fmod.save_booster(mod_path)
-    loaded = GradientBooster.load_booster(mod_path)
-    assert np.allclose(loaded.predict(X), new_preds)
 
 
 def test_text_dump(X_y):
@@ -1417,3 +1224,230 @@ def test_compat_gridsearch(X_y):
     )
     clf.fit(X, y)
     assert len(clf.cv_results_["mean_test_score"]) > 0
+
+
+# All save and load methods
+@pytest.mark.parametrize(
+    "load_func,save_func",
+    [(unpickle_booster, pickle_booster), (load_booster, save_booster)],
+)
+class TestSaveLoadFunctions:
+    def test_early_stopping_rounds(
+        self, X_y: tuple[pd.DataFrame, pd.Series], tmp_path, load_func, save_func
+    ):
+        X, y = X_y
+        X = X
+        fmod = GradientBooster(
+            iterations=200,
+            learning_rate=0.3,
+            max_depth=5,
+            l2=1,
+            min_leaf_weight=1,
+            gamma=1,
+            objective_type="LogLoss",
+            nbins=500,
+            parallel=True,
+            base_score=0.5,
+            early_stopping_rounds=2,
+            evaluation_metric="AUC",
+        )
+        fmod.fit(X, y, evaluation_data=[(X, y)])
+        preds = fmod.predict(X)
+        mod_path = tmp_path / "early_stopping_model.json"
+        save_func(fmod, mod_path)
+        loaded = load_func(mod_path)
+        assert np.allclose(loaded.predict(X), preds)
+        history = fmod.get_evaluation_history()
+        assert history is not None
+        assert np.isclose(roc_auc_score(y, preds), history.max())
+        best_iteration = fmod.get_best_iteration()
+        assert best_iteration == fmod.best_iteration
+        assert best_iteration is not None
+        assert best_iteration < history.shape[0]
+
+        assert fmod.prediction_iteration == (fmod.best_iteration + 1)
+        fmod.set_prediction_iteration(4)
+        assert fmod.prediction_iteration == 4
+        new_preds = fmod.predict(X)
+        assert not np.allclose(new_preds, preds)
+        save_func(fmod, mod_path)
+        loaded = load_func(mod_path)
+        assert np.allclose(loaded.predict(X), new_preds)
+
+    @pytest.mark.parametrize(
+        "initialize_base_score",
+        [True, False],
+    )
+    def test_booster_metadata(
+        self,
+        X_y: tuple[pd.DataFrame, pd.Series],
+        tmp_path,
+        initialize_base_score,
+        load_func,
+        save_func,
+    ):
+        f64_model_path = tmp_path / "modelf64_sl.json"
+        X, y = X_y
+        X = X
+        fmod = GradientBooster(
+            iterations=100,
+            learning_rate=0.3,
+            max_depth=5,
+            l2=1,
+            min_leaf_weight=1,
+            gamma=1,
+            objective_type="SquaredLoss",
+            nbins=500,
+            parallel=True,
+            base_score=0.5,
+            initialize_base_score=initialize_base_score,
+        )
+        fmod.fit(X, y=y)
+        fmod_preds = fmod.predict(X)
+        save_func(fmod, f64_model_path)
+        fmod.insert_metadata("test-info", "some-info")
+        assert fmod.get_metadata("test-info") == "some-info"
+        save_func(fmod, f64_model_path)
+
+        loaded = load_func(f64_model_path)
+        assert loaded.get_metadata("test-info") == "some-info"
+
+        with pytest.raises(KeyError):
+            loaded.get_metadata("No-key")
+
+        # Make sure the base score is adjusted
+        assert fmod.base_score == loaded.base_score
+        if initialize_base_score:
+            assert loaded.base_score != 0.5
+
+        loaded_dict = loaded.__dict__
+        fmod_dict = fmod.__dict__
+        assert sorted(loaded_dict.keys()) == sorted(fmod_dict.keys())
+        for k, v in loaded_dict.items():
+            c_v = fmod_dict[k]
+            if isinstance(v, float):
+                if np.isnan(v):
+                    assert np.isnan(c_v)
+                else:
+                    assert np.allclose(v, c_v)
+            elif isinstance(v, forust.CrateGradientBooster):
+                assert isinstance(c_v, forust.CrateGradientBooster)
+            else:
+                assert v == c_v, k
+        fmod_loaded_preds = loaded.predict(X)
+        assert np.allclose(fmod_preds, fmod_loaded_preds)
+
+    def test_booster_saving(
+        self, X_y: tuple[pd.DataFrame, pd.Series], tmp_path, load_func, save_func
+    ):
+        # squared loss
+        f64_model_path = tmp_path / "modelf64_sl.json"
+        X, y = X_y
+        X = X
+        fmod = GradientBooster(
+            iterations=100,
+            learning_rate=0.3,
+            max_depth=5,
+            l2=1,
+            min_leaf_weight=1,
+            gamma=1,
+            objective_type="SquaredLoss",
+            nbins=500,
+            parallel=True,
+        )
+        fmod.fit(X, y=y)
+        fmod_preds = fmod.predict(X)
+        save_func(fmod, f64_model_path)
+        fmod_loaded = load_func(f64_model_path)
+        assert all(fmod_preds == fmod_loaded.predict(X))
+
+        # LogLoss
+        f64_model_path = tmp_path / "modelf64_ll.json"
+        X, y = X_y
+        X = X
+        fmod = GradientBooster(
+            iterations=100,
+            learning_rate=0.3,
+            max_depth=5,
+            l2=1,
+            min_leaf_weight=1,
+            gamma=1,
+            objective_type="LogLoss",
+            nbins=500,
+            parallel=True,
+        )
+        fmod.fit(X, y=y)
+        fmod_preds = fmod.predict(X)
+        save_func(fmod, f64_model_path)
+        fmod_loaded = load_func(f64_model_path)
+        assert fmod_loaded.feature_names_in_ == fmod.feature_names_in_
+        assert fmod_loaded.feature_names_in_ == X.columns.to_list()
+        assert all(fmod_preds == fmod_loaded.predict(X))
+
+    def test_booster_saving_with_monotone_constraints(
+        self, X_y: tuple[pd.DataFrame, pd.Series], tmp_path, load_func, save_func
+    ):
+        # squared loss
+        f64_model_path = tmp_path / "modelf64_sl.json"
+        X, y = X_y
+        X = X
+        mono_ = X.apply(lambda x: int(np.sign(x.corr(y)))).to_dict()
+        fmod = GradientBooster(
+            iterations=100,
+            learning_rate=0.3,
+            max_depth=5,
+            l2=1,
+            min_leaf_weight=1,
+            gamma=1,
+            objective_type="SquaredLoss",
+            nbins=500,
+            parallel=True,
+            monotone_constraints=mono_,
+        )
+        fmod.fit(X, y=y)
+        fmod_preds = fmod.predict(X)
+        save_func(fmod, f64_model_path)
+        fmod_loaded = load_func(f64_model_path)
+        assert fmod_loaded.feature_names_in_ == fmod.feature_names_in_
+        assert fmod_loaded.feature_names_in_ == X.columns.to_list()
+        assert all(fmod_preds == fmod_loaded.predict(X))
+        assert all(
+            [
+                fmod.monotone_constraints[ft] == fmod_loaded.monotone_constraints[ft]
+                for ft in fmod_loaded.feature_names_in_
+            ]
+        )
+        assert all(
+            [
+                fmod.monotone_constraints[ft] == fmod_loaded.monotone_constraints[ft]
+                for ft in fmod.feature_names_in_
+            ]
+        )
+        assert all(
+            [
+                fmod.monotone_constraints[ft] == fmod_loaded.monotone_constraints[ft]
+                for ft in mono_.keys()
+            ]
+        )
+
+        # LogLoss
+        f64_model_path = tmp_path / "modelf64_ll.json"
+        X, y = X_y
+        X = X
+        fmod = GradientBooster(
+            iterations=100,
+            learning_rate=0.3,
+            max_depth=5,
+            l2=1,
+            min_leaf_weight=1,
+            gamma=1,
+            objective_type="LogLoss",
+            nbins=500,
+            parallel=True,
+            monotone_constraints=mono_,
+        )
+        fmod.fit(X, y=y)
+        fmod_preds = fmod.predict(X)
+        save_func(fmod, f64_model_path)
+        fmod_loaded = load_func(f64_model_path)
+        assert all(fmod_preds == fmod_loaded.predict(X))

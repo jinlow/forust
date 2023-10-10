@@ -933,6 +933,22 @@ class GradientBooster:
         """
         return self.booster.best_iteration
 
+    # Make picklable with getstate and setstate
+    def __getstate__(self) -> dict[Any, Any]:
+        booster_json = self.json_dump()
+        # Delete booster
+        # Doing it like this, so it doesn't delete it globally.
+        res = {k: v for k, v in self.__dict__.items() if k != "booster"}
+        res["__booster_json_file__"] = booster_json
+        return res
+
+    def __setstate__(self, d: dict[Any, Any]) -> None:
+        # Load the booster object the pickled JSon string.
+        booster_object = CrateGradientBooster.from_json(d["__booster_json_file__"])
+        d["booster"] = booster_object
+        del d["__booster_json_file__"]
+        self.__dict__ = d
+
     # Functions for scikit-learn compatibility, will feel out adding these manually,
     # and then if that feels too unwieldy will add scikit-learn as a dependency.
     def get_params(self, deep=True) -> dict[str, Any]:
