@@ -40,6 +40,13 @@ pub enum MissingInfo {
 }
 
 pub trait Splitter {
+    /// When a split happens, how many leaves will the tree increase by?
+    /// For example, if a binary split happens, the split will increase the
+    /// number of leaves by 1, if a ternary split happens, the number of leaves will
+    /// increase by 2.
+    fn new_leaves_added(&self) -> usize {
+        1
+    }
     fn get_constraint(&self, feature: &usize) -> Option<&Constraint>;
     // fn get_allow_missing_splits(&self) -> bool;
     fn get_gamma(&self) -> f32;
@@ -247,6 +254,9 @@ pub struct MissingBranchSplitter {
 }
 
 impl MissingBranchSplitter {
+    pub fn new_leaves_added(&self) -> usize {
+        2
+    }
     pub fn update_average_missing_nodes(tree: &mut Tree, node_idx: usize) -> f64 {
         let node = &tree.nodes[node_idx];
 

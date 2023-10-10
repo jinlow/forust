@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import inspect
+import os
 import sys
+import tempfile
 import warnings
 from typing import Any, Dict, Iterable, Protocol, Union, cast
 
@@ -932,6 +934,28 @@ class GradientBooster:
             int | None: The best iteration, or None if `early_stopping_rounds` wasn't used.
         """
         return self.booster.best_iteration
+
+    # Make picklable with getstate and setstate
+    def __getstate__(self) -> dict[Any, Any]:
+        with tempfile.TemporaryDirectory() as archive:
+            booster_file = os.path.join(archive, "booster.json")
+            self.save_booster(booster_file)
+            with open(booster_file, "r") as file:
+                booster_json = file.read()
+        # Delete booster
+        res = {k: v for k, v in self.__dict__.items() if k != "booster"}
+        res["__booster_json_file__"] = booster_json
+        return res
+
+    def __setstate__(self, d: dict[Any, Any]) -> None:
+        # Load the booster object.
+        with tempfile.TemporaryDirectory() as archive:
+            booster_file = os.path.join(archive, "booster.json")
+            with open(booster_file, "w") as file:
+                file.write(d["__booster_json_file__"])
+            booster_object = CrateGradientBooster.load_booster(booster_file)
+        d["booster"] = booster_object
+        self.__dict__ = {k: v for k, v in d.items() if k != "__booster_json_file__"}
 
     # Functions for scikit-learn compatibility, will feel out adding these manually,
     # and then if that feels too unwieldy will add scikit-learn as a dependency.

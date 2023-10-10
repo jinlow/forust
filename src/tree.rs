@@ -94,7 +94,8 @@ impl Tree {
 
         growable.add_node(root_node);
         while !growable.is_empty() {
-            if n_leaves >= max_leaves {
+            // If this will push us over the max leaves parameter, break.
+            if (n_leaves + splitter.new_leaves_added()) > max_leaves {
                 break;
             }
             // We know there is a value here, because of how the
