@@ -943,6 +943,7 @@ class GradientBooster:
             with open(booster_file, "r") as file:
                 booster_json = file.read()
         # Delete booster
+        # Doing it like this, so it doesn't delete it globally.
         res = {k: v for k, v in self.__dict__.items() if k != "booster"}
         res["__booster_json_file__"] = booster_json
         return res
@@ -955,7 +956,8 @@ class GradientBooster:
                 file.write(d["__booster_json_file__"])
             booster_object = CrateGradientBooster.load_booster(booster_file)
         d["booster"] = booster_object
-        self.__dict__ = {k: v for k, v in d.items() if k != "__booster_json_file__"}
+        del d["__booster_json_file__"]
+        self.__dict__ = d
 
     # Functions for scikit-learn compatibility, will feel out adding these manually,
     # and then if that feels too unwieldy will add scikit-learn as a dependency.
