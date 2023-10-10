@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import inspect
-import os
 import sys
-import tempfile
 import warnings
 from typing import Any, Dict, Iterable, Protocol, Union, cast
 
@@ -937,11 +935,7 @@ class GradientBooster:
 
     # Make picklable with getstate and setstate
     def __getstate__(self) -> dict[Any, Any]:
-        with tempfile.TemporaryDirectory() as archive:
-            booster_file = os.path.join(archive, "booster.json")
-            self.save_booster(booster_file)
-            with open(booster_file, "r") as file:
-                booster_json = file.read()
+        booster_json = self.json_dump()
         # Delete booster
         # Doing it like this, so it doesn't delete it globally.
         res = {k: v for k, v in self.__dict__.items() if k != "booster"}
@@ -949,12 +943,8 @@ class GradientBooster:
         return res
 
     def __setstate__(self, d: dict[Any, Any]) -> None:
-        # Load the booster object.
-        with tempfile.TemporaryDirectory() as archive:
-            booster_file = os.path.join(archive, "booster.json")
-            with open(booster_file, "w") as file:
-                file.write(d["__booster_json_file__"])
-            booster_object = CrateGradientBooster.load_booster(booster_file)
+        # Load the booster object the pickled JSon string.
+        booster_object = CrateGradientBooster.from_json(d["__booster_json_file__"])
         d["booster"] = booster_object
         del d["__booster_json_file__"]
         self.__dict__ = d
