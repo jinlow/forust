@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import inspect
+import json
 import sys
 import warnings
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Protocol, Union, cast
 
 import numpy as np
@@ -11,10 +13,7 @@ import pandas as pd
 from forust.forust import GradientBooster as CrateGradientBooster  # type: ignore
 from forust.serialize import BaseSerializer, ObjectSerializer
 
-
-class UnimplementedWarning(Warning):
-    """Warning to throw when users try and adjust base score"""
-
+__all__ = ["GradientBooster"]
 
 ArrayLike = Union[pd.Series, np.ndarray]
 FrameLike = Union[pd.DataFrame, np.ndarray]
@@ -44,6 +43,23 @@ SAMPLE_METHODS = {
     "random": "Random",
     "Random": "Random",
 }
+
+
+@dataclass
+class Node:
+    """Dataclass representation of a node, this represents all of the fields present in a tree node."""
+
+    num: int
+    weight_value: float
+    hessian_sum: float
+    depth: int
+    split_value: float
+    split_feature: int | str
+    split_gain: float
+    missing_node: int
+    left_child: int
+    right_child: int
+    is_leaf: bool
 
 
 class BoosterType(Protocol):
@@ -973,3 +989,93 @@ class GradientBooster:
         old_params.update(params)
         GradientBooster.__init__(self, **old_params)
         return self
+
+    def get_node_lists(self, map_features_names: bool = True) -> list[list[Node]]:
+        """Return the tree structures representation as a list of python objects.
+
+        Args:
+            map_features_names (bool, optional): Should the feature names tried to be mapped to a string, if a pandas dataframe was used. Defaults to True.
+
+        Returns:
+            list[list[Node]]: A list of lists where each sub list is a tree, with all of it's respective nodes.
+
+        Example:
+            This can be run directly to get the tree structure as python objects.
+
+            ```python
+            fmod = GradientBooster(max_depth=2)
+            fmod.fit(X, y=y)
+
+            fmod.get_node_lists()[0]
+
+            # [Node(num=0, weight_value...,
+            # Node(num=1, weight_value...,
+            # Node(num=2, weight_value...,
+            # Node(num=3, weight_value...,
+            # Node(num=4, weight_value...,
+            # Node(num=5, weight_value...,
+            # Node(num=6, weight_value...,]
+            ```
+        """
+        model = json.loads(self.json_dump())["trees"]
+        feature_map: dict[int, str] | dict[int, int]
+        if map_features_names and hasattr(self, "feature_names_in_"):
+            feature_map = {i: ft for i, ft in enumerate(self.feature_names_in_)}
+        else:
+            feature_map = {i: i for i in range(self.n_features_)}
+
+        trees = []
+        for t in model:
+            tree = []
+            for n in t["nodes"]:
+                n["split_feature"] = feature_map[n["split_feature"]]
+                tree.append(Node(**n))
+            trees.append(tree)
+        return trees
+
+    def trees_to_dataframe(self) -> pd.DataFrame:
+        """Return the tree structure as a pandas DataFrame object.
+
+        Returns:
+            pd.DataFrame: Trees in a pandas dataframe.
+
+        Example:
+            This can be used directly to print out the tree structure as a pandas dataframe. The Leaf values will have the "Gain" column replaced with the weight value.
+
+            ```python
+            model.trees_to_dataframe().head()
+            ```
+
+            |    |   Tree |   Node | ID   | Feature   |   Split | Yes   | No   | Missing   |    Gain |    Cover |
+            |---:|-------:|-------:|:-----|:----------|--------:|:------|:-----|:----------|--------:|---------:|
+            |  0 |      0 |      0 | 0-0  | pclass    |  3      | 0-1   | 0-2  | 0-2       | 91.5083 | 209.388  |
+            |  1 |      0 |      1 | 0-1  | fare      | 13.7917 | 0-3   | 0-4  | 0-4       | 28.1855 |  94.0015 |
+        """
+
+        def node_to_row(
+            n: Node,
+            tree_n: int,
+        ) -> dict[str, Any]:
+            def _id(i: int) -> str:
+                return f"{tree_n}-{i}"
+
+            return dict(
+                Tree=tree_n,
+                Node=n.num,
+                ID=_id(n.num),
+                Feature="Leaf" if n.is_leaf else str(n.split_feature),
+                Split=None if n.is_leaf else n.split_value,
+                Yes=None if n.is_leaf else _id(n.left_child),
+                No=None if n.is_leaf else _id(n.right_child),
+                Missing=None if n.is_leaf else _id(n.missing_node),
+                Gain=n.weight_value if n.is_leaf else n.split_gain,
+                Cover=n.hessian_sum,
+            )
+
+        # Flatten list of lists using list comprehension
+        vals = [
+            node_to_row(n, i)
+            for i, tree in enumerate(self.get_node_lists())
+            for n in tree
+        ]
+        return pd.DataFrame.from_records(vals)
