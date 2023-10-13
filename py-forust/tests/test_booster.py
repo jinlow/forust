@@ -94,7 +94,7 @@ def test_sklearn_clone(X_y):
     assert np.allclose(fmod_preds, fmod_cloned_post_fit_preds)
 
 
-def test_multuple_fit_calls(X_y):
+def test_multiple_fit_calls(X_y):
     X, y = X_y
     fmod = GradientBooster(
         base_score=0.5,
@@ -214,6 +214,76 @@ def test_booster_to_xgboosts_with_missing(X_y):
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)
     assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
+
+
+def test_booster_to_xgboosts_trees_to_dataframe(X_y):
+    X, y = X_y
+    X = X
+    xmod = XGBClassifier(
+        n_estimators=50,
+        learning_rate=0.03,
+        max_depth=5,
+        reg_lambda=1,
+        min_child_weight=1,
+        gamma=1,
+        objective="binary:logitraw",
+        eval_metric="auc",
+        tree_method="hist",
+    )
+    xmod.fit(X, y)
+    xmod_preds = xmod.predict(X, output_margin=True)
+
+    fmod = GradientBooster(
+        base_score=0.5,
+        iterations=50,
+        learning_rate=0.03,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        parallel=True,
+        initialize_base_score=False,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
+    ftrees = fmod.trees_to_dataframe()
+    xtrees = xmod.get_booster().trees_to_dataframe()
+    assert ftrees.shape[0] == xtrees.shape[0]
+    assert (ftrees["Feature"] == "Leaf").sum() == (xtrees["Feature"] == "Leaf").sum()
+
+
+def test_get_node_list(X_y):
+    X, y = X_y
+    X = X
+    fmod = GradientBooster(
+        base_score=0.5,
+        iterations=50,
+        learning_rate=0.03,
+        max_depth=5,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        parallel=True,
+        initialize_base_score=False,
+    )
+    fmod.fit(X, y=y)
+    assert all(
+        [
+            isinstance(n.split_feature, int)
+            for i, tree in enumerate(fmod.get_node_lists(map_features_names=False))
+            for n in tree
+        ]
+    )
+    assert all(
+        [
+            isinstance(n.split_feature, str)
+            for i, tree in enumerate(fmod.get_node_lists(map_features_names=True))
+            for n in tree
+        ]
+    )
 
 
 @pytest.mark.parametrize("is_numpy", [True, False])
