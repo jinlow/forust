@@ -270,16 +270,20 @@ def test_get_node_list(X_y):
         initialize_base_score=False,
     )
     fmod.fit(X, y=y)
-    assert [
-        isinstance(n.split_feature, int)
-        for i, tree in enumerate(fmod.get_node_lists(map_features_names=False))
-        for n in tree
-    ]
-    assert [
-        isinstance(n.split_feature, int)
-        for i, tree in enumerate(fmod.get_node_lists(map_features_names=True))
-        for n in tree
-    ]
+    assert all(
+        [
+            isinstance(n.split_feature, int)
+            for i, tree in enumerate(fmod.get_node_lists(map_features_names=False))
+            for n in tree
+        ]
+    )
+    assert all(
+        [
+            isinstance(n.split_feature, str)
+            for i, tree in enumerate(fmod.get_node_lists(map_features_names=True))
+            for n in tree
+        ]
+    )
 
 
 @pytest.mark.parametrize("is_numpy", [True, False])
