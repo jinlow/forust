@@ -141,7 +141,7 @@ class BoosterType(Protocol):
     def get_metadata(self, key: str) -> str:
         """pass"""
 
-    def get_evaluation_history(self) -> tuple[int, int, np.ndarray]:
+    def get_evaluation_history(self) -> tuple[int, int, np.ndarray] | None:
         """pass"""
 
 
@@ -454,7 +454,7 @@ class GradientBooster:
                 An optional list of tuples, where each tuple should contain a dataset, and equal length
                 target array, and optional an equal length sample weight array. If this is provided
                 metric values will be calculated at each iteration of training. If `early_stopping_rounds` is
-                supplied, the first entry of this list will be used to determine if performance
+                supplied, the last entry of this list will be used to determine if performance
                 has improved over the last set of iterations, for which if no improvement is not seen
                 in `early_stopping_rounds` training will be cut short.
         """
@@ -506,7 +506,7 @@ class GradientBooster:
                 )
             if len(evaluation_data_) > 1:
                 warnings.warn(
-                    "Multiple evaluation datasets passed, only the first one will be used to determine early stopping."
+                    "Multiple evaluation datasets passed, only the last one will be used to determine early stopping."
                 )
         else:
             evaluation_data_ = None
@@ -920,7 +920,10 @@ class GradientBooster:
             #        [496.76933646]])
             ```
         """
-        r, v, d = self.booster.get_evaluation_history()
+        res = self.booster.get_evaluation_history()
+        if res is None:
+            return None
+        r, v, d = res
         return d.reshape((r, v))
 
     @property

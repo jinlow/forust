@@ -922,9 +922,10 @@ def test_early_stopping_with_dev_val(X_y):
             X.loc[~val, :],
             y.loc[~val],
             evaluation_data=[
-                (X.loc[val, :], y.loc[val]),
                 (X.loc[val, :], y.loc[val], w),
                 (X.loc[~val, :], y.loc[~val]),
+                # Last item is used for early stopping.
+                (X.loc[val, :], y.loc[val]),
             ],
         )
 
