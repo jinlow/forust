@@ -908,6 +908,17 @@ def test_early_stopping_with_dev(X_y):
     assert model.get_best_iteration() < 99
 
 
+def test_evaluation_history_none(X_y):
+    X, y = X_y
+
+    val = y.index.to_series().isin(y.sample(frac=0.25, random_state=0))
+
+    model = GradientBooster(iterations=100)
+    model.fit(X.loc[~val, :], y.loc[~val])
+
+    assert model.get_evaluation_history() is None
+
+
 def test_early_stopping_with_dev_val(X_y):
     X, y = X_y
 
