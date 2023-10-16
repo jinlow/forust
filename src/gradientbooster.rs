@@ -550,14 +550,16 @@ impl GradientBooster {
                         Some(RowMajorMatrix::new(Vec::new(), 0, eval_sets.len()));
                 }
                 let mut metrics: Vec<f64> = Vec::new();
+                let n_eval_sets = eval_sets.len();
                 for (eval_i, (data, y, w, yhat)) in eval_sets.iter_mut().enumerate() {
                     self.update_predictions_inplace(yhat, &tree, data);
                     let (metric_fn, maximize) = self.get_metric_fn();
                     let m = metric_fn(y, yhat, w);
-                    // If early stopping rounds are defined, and this is the first
-                    // eval dataset, check if we want to stop
-                    // or keep training.
-                    if eval_i == 0 {
+                    // If early stopping rounds are defined, and this is the last
+                    // eval dataset, check if we want to stop or keep training.
+                    // Updating to align with XGBoost, originally we were using the first
+                    // dataset, but switching to use the last.
+                    if (eval_i + 1) == n_eval_sets {
                         if let Some(early_stopping_rounds) = self.early_stopping_rounds {
                             // If best metric is undefined, this must be the first
                             // iteration...
