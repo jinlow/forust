@@ -114,11 +114,22 @@ pub trait Splitter {
         let elements = histogram.len();
         assert!(elements == histogram.len());
 
-        for (i, bin) in histogram[1..].iter().enumerate() {
+        for (i, bin) in histogram.iter().enumerate() {
             let left_gradient = cuml_grad;
             let left_hessian = cuml_hess;
             let right_gradient = node.gradient_sum - cuml_grad - missing.gradient_sum;
             let right_hessian = node.hessian_sum - cuml_hess - missing.hessian_sum;
+            // cuml_grad += bin.gradient_sum;
+            // cuml_hess += bin.hessian_sum;
+            if i > 0 {
+                // If i is zero, we are evaluating the missing bin...
+                cuml_grad += bin.gradient_sum;
+                cuml_hess += bin.hessian_sum;
+            // If this is the first bin, this is the missing bin.
+            // Is there even any missing data?
+            } else if missing.hessian_sum == 0. || missing.gradient_sum == 0. {
+                continue;
+            }
 
             let (mut left_node_info, mut right_node_info, missing_info) = match self.evaluate_split(
                 left_gradient,
@@ -133,8 +144,6 @@ pub trait Splitter {
                 constraint,
             ) {
                 None => {
-                    cuml_grad += bin.gradient_sum;
-                    cuml_hess += bin.hessian_sum;
                     continue;
                 }
                 Some(v) => v,
@@ -156,9 +165,6 @@ pub trait Splitter {
             );
 
             if split_gain <= 0.0 {
-                // Update for new value
-                cuml_grad += bin.gradient_sum;
-                cuml_hess += bin.hessian_sum;
                 continue;
             }
 
@@ -183,15 +189,12 @@ pub trait Splitter {
                     split_gain,
                     split_feature: feature,
                     split_value: bin.cut_value,
-                    split_bin: (i + 1) as u16,
+                    split_bin: i as u16,
                     left_node: left_node_info,
                     right_node: right_node_info,
                     missing_node: missing_info,
                 });
             }
-            // Update for new value
-            cuml_grad += bin.gradient_sum;
-            cuml_hess += bin.hessian_sum;
         }
         split_info
     }
