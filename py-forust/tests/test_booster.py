@@ -950,6 +950,7 @@ def test_early_stopping_with_dev_val(X_y):
     assert len(n_trees) == model.get_best_iteration() + 5
     assert len(n_trees) == model.get_evaluation_history().shape[0]
     assert model.get_best_iteration() < 99
+    assert model.number_of_trees == model.get_best_iteration() + 5
 
 
 def test_goss_sampling_method(X_y):

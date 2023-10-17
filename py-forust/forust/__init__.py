@@ -68,6 +68,7 @@ class BoosterType(Protocol):
     best_iteration: None | int
     base_score: float
     terminate_missing_features: set[int]
+    number_of_trees: int
 
     def fit(
         self,
@@ -943,6 +944,15 @@ class GradientBooster:
             int | None: Int if this is set, otherwise, None, in which case all trees will be used.
         """
         return self.booster.prediction_iteration
+
+    @property
+    def number_of_trees(self) -> int:
+        """The number of trees in the model.
+
+        Returns:
+            int: The total number of trees in the model.
+        """
+        return self.booster.number_of_trees
 
     def get_best_iteration(self) -> int | None:
         """Get the best iteration if `early_stopping_rounds` was used when fitting.

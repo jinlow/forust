@@ -26,8 +26,6 @@ pub fn calc_init_callables(objective_type: &ObjectiveType) -> fn(&[f64], &[f64])
 pub trait ObjectiveFunction {
     fn calc_loss(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32>;
     fn calc_grad_hess(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> (Vec<f32>, Vec<f32>);
-    fn calc_grad(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32>;
-    fn calc_hess(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32>;
     fn calc_init(y: &[f64], sample_weight: &[f64]) -> f64;
     fn default_metric() -> Metric;
 }
@@ -73,27 +71,27 @@ impl ObjectiveFunction for LogLoss {
             .unzip()
     }
 
-    #[inline]
-    fn calc_grad(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
-        y.iter()
-            .zip(yhat)
-            .zip(sample_weight)
-            .map(|((y_, yhat_), w_)| {
-                let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
-                ((yhat_ - *y_) * *w_) as f32
-            })
-            .collect()
-    }
-    #[inline]
-    fn calc_hess(_: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
-        yhat.iter()
-            .zip(sample_weight)
-            .map(|(yhat_, w_)| {
-                let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
-                (yhat_ * (f64::ONE - yhat_) * *w_) as f32
-            })
-            .collect()
-    }
+    // #[inline]
+    // fn calc_grad(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
+    //     y.iter()
+    //         .zip(yhat)
+    //         .zip(sample_weight)
+    //         .map(|((y_, yhat_), w_)| {
+    //             let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
+    //             ((yhat_ - *y_) * *w_) as f32
+    //         })
+    //         .collect()
+    // }
+    // #[inline]
+    // fn calc_hess(_: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
+    //     yhat.iter()
+    //         .zip(sample_weight)
+    //         .map(|(yhat_, w_)| {
+    //             let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
+    //             (yhat_ * (f64::ONE - yhat_) * *w_) as f32
+    //         })
+    //         .collect()
+    // }
     fn default_metric() -> Metric {
         Metric::LogLoss
     }
@@ -126,19 +124,19 @@ impl ObjectiveFunction for SquaredLoss {
         ytot / ntot
     }
 
-    #[inline]
-    fn calc_grad(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
-        y.iter()
-            .zip(yhat)
-            .zip(sample_weight)
-            .map(|((y_, yhat_), w_)| ((*yhat_ - *y_) * *w_) as f32)
-            .collect()
-    }
+    // #[inline]
+    // fn calc_grad(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
+    //     y.iter()
+    //         .zip(yhat)
+    //         .zip(sample_weight)
+    //         .map(|((y_, yhat_), w_)| ((*yhat_ - *y_) * *w_) as f32)
+    //         .collect()
+    // }
 
-    #[inline]
-    fn calc_hess(_: &[f64], _: &[f64], sample_weight: &[f64]) -> Vec<f32> {
-        sample_weight.iter().map(|v| *v as f32).collect()
-    }
+    // #[inline]
+    // fn calc_hess(_: &[f64], _: &[f64], sample_weight: &[f64]) -> Vec<f32> {
+    //     sample_weight.iter().map(|v| *v as f32).collect()
+    // }
     #[inline]
     fn calc_grad_hess(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> (Vec<f32>, Vec<f32>) {
         y.iter()
@@ -171,9 +169,9 @@ mod tests {
         let y = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
         let yhat1 = vec![-1.0, -1.0, -1.0, 1.0, 1.0, 1.0];
         let w = vec![1.; y.len()];
-        let g1 = LogLoss::calc_grad(&y, &yhat1, &w);
+        let (g1, _) = LogLoss::calc_grad_hess(&y, &yhat1, &w);
         let yhat2 = vec![0.0, 0.0, -1.0, 1.0, 0.0, 1.0];
-        let g2 = LogLoss::calc_grad(&y, &yhat2, &w);
+        let (g2, _) = LogLoss::calc_grad_hess(&y, &yhat2, &w);
         assert!(g1.iter().sum::<f32>() < g2.iter().sum::<f32>());
     }
 
@@ -182,9 +180,9 @@ mod tests {
         let y = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
         let yhat1 = vec![-1.0, -1.0, -1.0, 1.0, 1.0, 1.0];
         let w = vec![1.; y.len()];
-        let h1 = LogLoss::calc_hess(&y, &yhat1, &w);
+        let (_, h1) = LogLoss::calc_grad_hess(&y, &yhat1, &w);
         let yhat2 = vec![0.0, 0.0, -1.0, 1.0, 0.0, 1.0];
-        let h2 = LogLoss::calc_hess(&y, &yhat2, &w);
+        let (_, h2) = LogLoss::calc_grad_hess(&y, &yhat2, &w);
         assert!(h1.iter().sum::<f32>() < h2.iter().sum::<f32>());
     }
 

@@ -119,6 +119,8 @@ pub trait Splitter {
             let left_hessian = cuml_hess;
             let right_gradient = node.gradient_sum - cuml_grad - missing.gradient_sum;
             let right_hessian = node.hessian_sum - cuml_hess - missing.hessian_sum;
+            cuml_grad += bin.gradient_sum;
+            cuml_hess += bin.hessian_sum;
 
             let (mut left_node_info, mut right_node_info, missing_info) = match self.evaluate_split(
                 left_gradient,
@@ -133,8 +135,6 @@ pub trait Splitter {
                 constraint,
             ) {
                 None => {
-                    cuml_grad += bin.gradient_sum;
-                    cuml_hess += bin.hessian_sum;
                     continue;
                 }
                 Some(v) => v,
@@ -156,9 +156,6 @@ pub trait Splitter {
             );
 
             if split_gain <= 0.0 {
-                // Update for new value
-                cuml_grad += bin.gradient_sum;
-                cuml_hess += bin.hessian_sum;
                 continue;
             }
 
@@ -189,9 +186,6 @@ pub trait Splitter {
                     missing_node: missing_info,
                 });
             }
-            // Update for new value
-            cuml_grad += bin.gradient_sum;
-            cuml_hess += bin.hessian_sum;
         }
         split_info
     }
@@ -799,9 +793,9 @@ impl Splitter for MissingImputerSplitter {
         // Don't even worry about it, if there are no missing values
         // in this bin.
         if (missing_gradient != 0.0) || (missing_hessian != 0.0) {
+            // If
             // TODO: Consider making this safer, by casting to f64, summing, and then
             // back to f32...
-
             // The weight if missing went left
             let missing_left_weight = constrained_weight(
                 &self.l2,
@@ -843,10 +837,10 @@ impl Splitter for MissingImputerSplitter {
                 missing_right_weight,
             );
             // Confirm this wouldn't break monotonicity.
-            let missing_left_gain = cull_gain(
-                missing_left_gain,
-                missing_left_weight,
-                right_weight,
+            let missing_right_gain = cull_gain(
+                missing_right_gain,
+                left_weight,
+                missing_right_weight,
                 constraint,
             );
 
@@ -1005,8 +999,7 @@ mod tests {
         let y = vec![0., 0., 0., 1., 1., 0., 1.];
         let yhat = vec![0.; 7];
         let w = vec![1.; y.len()];
-        let grad = LogLoss::calc_grad(&y, &yhat, &w);
-        let hess = LogLoss::calc_hess(&y, &yhat, &w);
+        let (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
@@ -1049,8 +1042,7 @@ mod tests {
         let y = vec![0., 0., 0., 1., 1., 0., 1.];
         let yhat = vec![0.; 7];
         let w = vec![1.; y.len()];
-        let grad = LogLoss::calc_grad(&y, &yhat, &w);
-        let hess = LogLoss::calc_hess(&y, &yhat, &w);
+        let (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
 
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
@@ -1100,8 +1092,7 @@ mod tests {
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let yhat = vec![0.5; y.len()];
         let w = vec![1.; y.len()];
-        let grad = LogLoss::calc_grad(&y, &yhat, &w);
-        let hess = LogLoss::calc_hess(&y, &yhat, &w);
+        let (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
 
         let splitter = MissingImputerSplitter {
             l2: 1.0,
