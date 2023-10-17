@@ -193,10 +193,10 @@ impl GradientBooster {
         Ok(self.booster.base_score)
     }
 
-    // #[getter]
-    // fn number_of_trees(&self) -> PyResult<usize> {
-    //     Ok(self.booster.trees.len())
-    // }
+    #[getter]
+    fn number_of_trees(&self) -> PyResult<usize> {
+        Ok(self.booster.trees.len())
+    }
 
     pub fn fit(
         &mut self,
