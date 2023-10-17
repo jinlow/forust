@@ -114,22 +114,13 @@ pub trait Splitter {
         let elements = histogram.len();
         assert!(elements == histogram.len());
 
-        for (i, bin) in histogram.iter().enumerate() {
+        for (i, bin) in histogram[1..].iter().enumerate() {
             let left_gradient = cuml_grad;
             let left_hessian = cuml_hess;
             let right_gradient = node.gradient_sum - cuml_grad - missing.gradient_sum;
             let right_hessian = node.hessian_sum - cuml_hess - missing.hessian_sum;
-            // cuml_grad += bin.gradient_sum;
-            // cuml_hess += bin.hessian_sum;
-            if i > 0 {
-                // If i is zero, we are evaluating the missing bin...
-                cuml_grad += bin.gradient_sum;
-                cuml_hess += bin.hessian_sum;
-            // If this is the first bin, this is the missing bin.
-            // Is there even any missing data?
-            } else if missing.hessian_sum == 0. || missing.gradient_sum == 0. {
-                continue;
-            }
+            cuml_grad += bin.gradient_sum;
+            cuml_hess += bin.hessian_sum;
 
             let (mut left_node_info, mut right_node_info, missing_info) = match self.evaluate_split(
                 left_gradient,
@@ -189,7 +180,7 @@ pub trait Splitter {
                     split_gain,
                     split_feature: feature,
                     split_value: bin.cut_value,
-                    split_bin: i as u16,
+                    split_bin: (i + 1) as u16,
                     left_node: left_node_info,
                     right_node: right_node_info,
                     missing_node: missing_info,
@@ -802,9 +793,9 @@ impl Splitter for MissingImputerSplitter {
         // Don't even worry about it, if there are no missing values
         // in this bin.
         if (missing_gradient != 0.0) || (missing_hessian != 0.0) {
+            // If
             // TODO: Consider making this safer, by casting to f64, summing, and then
             // back to f32...
-
             // The weight if missing went left
             let missing_left_weight = constrained_weight(
                 &self.l2,
@@ -846,10 +837,10 @@ impl Splitter for MissingImputerSplitter {
                 missing_right_weight,
             );
             // Confirm this wouldn't break monotonicity.
-            let missing_left_gain = cull_gain(
-                missing_left_gain,
-                missing_left_weight,
-                right_weight,
+            let missing_right_gain = cull_gain(
+                missing_right_gain,
+                left_weight,
+                missing_right_weight,
                 constraint,
             );
 
