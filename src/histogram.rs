@@ -250,8 +250,7 @@ mod tests {
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let yhat = vec![0.5; y.len()];
         let w = vec![1.; y.len()];
-        let g = LogLoss::calc_grad(&y, &yhat, &w);
-        let h = LogLoss::calc_hess(&y, &yhat, &w);
+        let (g, h) = LogLoss::calc_grad_hess(&y, &yhat, &w);
         let hist =
             create_feature_histogram(&bdata.get_col(1), &b.cuts.get_col(1), &g, &h, &bdata.index);
         // println!("{:?}", hist);

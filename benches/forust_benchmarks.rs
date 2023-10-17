@@ -20,20 +20,15 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
     let yhat = vec![0.5; y.len()];
     let w = vec![1.; y.len()];
-    let g = LogLoss::calc_grad(&y, &yhat, &w);
-    let h = LogLoss::calc_hess(&y, &yhat, &w);
+    let (g, h) = LogLoss::calc_grad_hess(&y, &yhat, &w);
 
     let v: Vec<f32> = vec![10.; 300000];
     c.bench_function("Niave Sum", |b| b.iter(|| naive_sum(black_box(&v))));
     c.bench_function("fast sum", |b| b.iter(|| fast_sum(black_box(&v))));
     c.bench_function("fast f64 sum", |b| b.iter(|| fast_f64_sum(black_box(&v))));
 
-    c.bench_function("calc_grad", |b| {
-        b.iter(|| LogLoss::calc_grad(black_box(&y), black_box(&yhat), black_box(&w)))
-    });
-
-    c.bench_function("calc_hess", |b| {
-        b.iter(|| LogLoss::calc_hess(black_box(&y), black_box(&yhat), black_box(&w)))
+    c.bench_function("calc_grad_hess", |b| {
+        b.iter(|| LogLoss::calc_grad_hess(black_box(&y), black_box(&yhat), black_box(&w)))
     });
 
     let data = Matrix::new(&data_vec, y.len(), 5);

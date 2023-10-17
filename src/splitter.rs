@@ -999,8 +999,7 @@ mod tests {
         let y = vec![0., 0., 0., 1., 1., 0., 1.];
         let yhat = vec![0.; 7];
         let w = vec![1.; y.len()];
-        let grad = LogLoss::calc_grad(&y, &yhat, &w);
-        let hess = LogLoss::calc_hess(&y, &yhat, &w);
+        let (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
@@ -1043,8 +1042,7 @@ mod tests {
         let y = vec![0., 0., 0., 1., 1., 0., 1.];
         let yhat = vec![0.; 7];
         let w = vec![1.; y.len()];
-        let grad = LogLoss::calc_grad(&y, &yhat, &w);
-        let hess = LogLoss::calc_hess(&y, &yhat, &w);
+        let (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
 
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
@@ -1094,8 +1092,7 @@ mod tests {
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let yhat = vec![0.5; y.len()];
         let w = vec![1.; y.len()];
-        let grad = LogLoss::calc_grad(&y, &yhat, &w);
-        let hess = LogLoss::calc_hess(&y, &yhat, &w);
+        let (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
 
         let splitter = MissingImputerSplitter {
             l2: 1.0,
