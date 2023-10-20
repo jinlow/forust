@@ -459,7 +459,6 @@ fn percentiles<'py>(
     Ok(p.into_pyarray(py))
 }
 
-/// A Python module implemented in Rust.
 #[pymodule]
 fn forust(_py: Python, m: &PyModule) -> PyResult<()> {
     pyo3_log::init();
