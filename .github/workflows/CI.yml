@@ -38,7 +38,7 @@ jobs:
         run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Run Package Tests
         run: |
-          pip install pytest pytest-cov black ruff setuptools --update
+          pip install pytest pytest-cov black ruff setuptools --upgrade
           cd py-forust
           ruff check .
           black --check .
@@ -92,7 +92,7 @@ jobs:
         run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Run Package Tests
         run: |
-          pip install pytest pytest-cov black ruff setuptools --update
+          pip install pytest pytest-cov black ruff setuptools --upgrade
           cd py-forust
           ruff check .
           black --check .
@@ -149,7 +149,7 @@ jobs:
         run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Run Package Tests
         run: |
-          pip install pytest pytest-cov black ruff setuptools --update
+          pip install pytest pytest-cov black ruff setuptools --upgrade
           cd py-forust
           ruff check .
           black --check .
