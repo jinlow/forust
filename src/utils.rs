@@ -328,8 +328,8 @@ where
 /// * `v` - The value used to calculate the first
 ///   value larger than it.
 #[inline]
-pub fn map_bin<T: std::cmp::PartialOrd>(x: &[T], v: &T, missing: &T) -> Option<u16> {
-    if v == missing {
+pub fn map_bin<T: FloatData<T>>(x: &[T], v: &T, missing: &T) -> Option<u16> {
+    if v.is_nan() || (v == missing) {
         return Some(0);
     }
     let mut low = 0;

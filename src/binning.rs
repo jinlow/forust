@@ -45,7 +45,7 @@ pub struct BinnedData<T> {
 /// * `data` - Numeric data to be binned.
 /// * `cuts` - A slice of Vectors, where the vectors are the corresponding
 ///     cut values for each of the columns.
-fn bin_matrix_from_cuts<T: std::cmp::PartialOrd>(
+fn bin_matrix_from_cuts<T: FloatData<T>>(
     data: &Matrix<T>,
     cuts: &JaggedMatrix<T>,
     missing: &T,
