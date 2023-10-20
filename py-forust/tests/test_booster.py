@@ -180,9 +180,22 @@ def test_booster_from_numpy(X_y):
     assert np.allclose(fmod2_preds, fmod3_preds, atol=0.00001)
 
 
-def test_booster_to_xgboosts_with_missing(X_y):
+@pytest.mark.parametrize(
+    "with_mono,reverse,missing",
+    itertools.product([True, False], [True, False], [-9999, np.nan, 11, 9999]),
+)
+def test_booster_to_xgboosts_with_missing(
+    X_y, with_mono: bool, reverse: bool, missing: float
+):
     X, y = X_y
-    X = X
+    if with_mono:
+        mono_ = X.apply(lambda x: int(np.sign(x.corr(y)))).to_dict()
+    else:
+        mono_ = None
+    if reverse:
+        y = 1 - y
+    if not np.isnan(missing):
+        X = X.fillna(missing)
     xmod = XGBClassifier(
         n_estimators=100,
         learning_rate=0.3,
@@ -194,6 +207,8 @@ def test_booster_to_xgboosts_with_missing(X_y):
         eval_metric="auc",
         tree_method="hist",
         max_bin=10000,
+        monotone_constraints=mono_,
+        missing=missing,
     )
     xmod.fit(X, y)
     xmod_preds = xmod.predict(X, output_margin=True)
@@ -210,6 +225,8 @@ def test_booster_to_xgboosts_with_missing(X_y):
         nbins=500,
         parallel=True,
         initialize_base_score=False,
+        monotone_constraints=mono_,
+        missing=missing,
     )
     fmod.fit(X, y=y)
     fmod_preds = fmod.predict(X)

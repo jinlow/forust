@@ -45,9 +45,10 @@ pub struct BinnedData<T> {
 /// * `data` - Numeric data to be binned.
 /// * `cuts` - A slice of Vectors, where the vectors are the corresponding
 ///     cut values for each of the columns.
-fn bin_matrix_from_cuts<T: std::cmp::PartialOrd>(
+fn bin_matrix_from_cuts<T: FloatData<T>>(
     data: &Matrix<T>,
     cuts: &JaggedMatrix<T>,
+    missing: &T,
 ) -> Vec<u16> {
     // loop through the matrix, binning the data.
     // We will determine the column we are in, by
@@ -59,7 +60,7 @@ fn bin_matrix_from_cuts<T: std::cmp::PartialOrd>(
             let col = i / data.rows;
             // This will always be smaller than u16::MAX so we
             // are good to just unwrap here.
-            map_bin(cuts.get_col(col), v).unwrap()
+            map_bin(cuts.get_col(col), v, missing).unwrap()
         })
         .collect()
 }
@@ -117,7 +118,7 @@ pub fn bin_matrix(
         cuts.n_records = cuts.ends.iter().sum();
     }
 
-    let binned_data = bin_matrix_from_cuts(data, &cuts);
+    let binned_data = bin_matrix_from_cuts(data, &cuts, &missing);
 
     Ok(BinnedData {
         binned_data,

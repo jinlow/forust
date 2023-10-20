@@ -328,7 +328,10 @@ where
 /// * `v` - The value used to calculate the first
 ///   value larger than it.
 #[inline]
-pub fn map_bin<T: std::cmp::PartialOrd>(x: &[T], v: &T) -> Option<u16> {
+pub fn map_bin<T: FloatData<T>>(x: &[T], v: &T, missing: &T) -> Option<u16> {
+    if v.is_nan() || (v == missing) {
+        return Some(0);
+    }
     let mut low = 0;
     let mut high = x.len();
     while low != high {
@@ -528,16 +531,31 @@ mod tests {
     #[test]
     fn test_map_bin_or_equal() {
         let v = vec![f64::MIN, 1., 4., 8., 9.];
-        assert_eq!(1, map_bin(&v, &0.).unwrap());
-        assert_eq!(2, map_bin(&v, &1.).unwrap());
+        assert_eq!(1, map_bin(&v, &0., &f64::NAN).unwrap());
+        assert_eq!(2, map_bin(&v, &1., &f64::NAN).unwrap());
         // Less than the bin value of 2, means the value is less
         // than 4...
-        assert_eq!(2, map_bin(&v, &2.).unwrap());
-        assert_eq!(3, map_bin(&v, &4.).unwrap());
-        assert_eq!(5, map_bin(&v, &9.).unwrap());
-        assert_eq!(5, map_bin(&v, &10.).unwrap());
-        assert_eq!(2, map_bin(&v, &1.).unwrap());
-        assert_eq!(0, map_bin(&v, &f64::NAN).unwrap());
+        assert_eq!(2, map_bin(&v, &2., &f64::NAN).unwrap());
+        assert_eq!(3, map_bin(&v, &4., &f64::NAN).unwrap());
+        assert_eq!(5, map_bin(&v, &9., &f64::NAN).unwrap());
+        assert_eq!(5, map_bin(&v, &10., &f64::NAN).unwrap());
+        assert_eq!(2, map_bin(&v, &1., &f64::NAN).unwrap());
+        assert_eq!(0, map_bin(&v, &f64::NAN, &f64::NAN).unwrap());
+    }
+
+    #[test]
+    fn test_map_bin_or_equal_num_miss() {
+        let v = vec![f64::MIN, 1., 4., 8., 9.];
+        assert_eq!(1, map_bin(&v, &0., &-99.).unwrap());
+        assert_eq!(2, map_bin(&v, &1., &-99.).unwrap());
+        // Less than the bin value of 2, means the value is less
+        // than 4...
+        assert_eq!(2, map_bin(&v, &2., &-99.).unwrap());
+        assert_eq!(3, map_bin(&v, &4., &-99.).unwrap());
+        assert_eq!(5, map_bin(&v, &9., &-99.).unwrap());
+        assert_eq!(5, map_bin(&v, &10., &-99.).unwrap());
+        assert_eq!(2, map_bin(&v, &1., &-99.).unwrap());
+        assert_eq!(0, map_bin(&v, &-99., &-99.).unwrap());
     }
 
     #[test]

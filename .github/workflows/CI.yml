@@ -5,7 +5,7 @@ jobs:
   windows-build-tests:
     strategy:
       matrix:
-        pyversion: ["3.8", "3.9", "3.10", "3.11"]
+        pyversion: ["3.8", "3.9", "3.10", "3.11", "3.12"]
     runs-on: "windows-latest"
     steps:
       - uses: actions/checkout@v3
@@ -38,7 +38,7 @@ jobs:
         run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Run Package Tests
         run: |
-          pip install pytest pytest-cov black ruff
+          pip install pytest pytest-cov black ruff setuptools --upgrade
           cd py-forust
           ruff check .
           black --check .
@@ -59,7 +59,7 @@ jobs:
   macos-build-test:
     strategy:
       matrix:
-        pyversion: ["3.8", "3.9", "3.10", "3.11"]
+        pyversion: ["3.8", "3.9", "3.10", "3.11", "3.12"]
     runs-on: "macos-latest"
     steps:
       - uses: actions/checkout@v3
@@ -92,7 +92,7 @@ jobs:
         run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Run Package Tests
         run: |
-          pip install pytest pytest-cov black ruff
+          pip install pytest pytest-cov black ruff setuptools --upgrade
           cd py-forust
           ruff check .
           black --check .
@@ -115,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pyversion: ["3.8", "3.9", "3.10", "3.11"]
+        pyversion: ["3.8", "3.9", "3.10", "3.11", "3.12"]
         # target: [x86_64, i686]
     steps:
       - uses: actions/checkout@v3
@@ -149,7 +149,7 @@ jobs:
         run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Run Package Tests
         run: |
-          pip install pytest pytest-cov black ruff
+          pip install pytest pytest-cov black ruff setuptools --upgrade
           cd py-forust
           ruff check .
           black --check .
