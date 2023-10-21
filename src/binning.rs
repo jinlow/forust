@@ -100,6 +100,7 @@ pub fn bin_matrix(
         assert_eq!(no_miss.len(), w.len());
         let mut col_cuts = percentiles_or_value(&no_miss, &w, &pcts);
         col_cuts.push(f64::MAX);
+        col_cuts[0] = f64::MIN;
         col_cuts.dedup();
         if col_cuts.len() < 2 {
             return Err(ForustError::NoVariance(i));
