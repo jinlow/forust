@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import json
 import sys
@@ -60,6 +61,91 @@ class Node:
     left_child: int
     right_child: int
     is_leaf: bool
+
+    @classmethod
+    def _from_xgboost_node(
+        cls, xgb_node: dict[str, Any], feature_map: dict[Any, int]
+    ) -> Node:
+        return Node(
+            num=xgb_node["nodeid"],
+            weight_value=xgb_node.get("leaf", 0.0),
+            hessian_sum=xgb_node["cover"],
+            depth=xgb_node.get("depth", 0),
+            split_value=float(np.float32(xgb_node.get("split_condition", 0.0))),
+            split_feature=feature_map.get(xgb_node.get("split", 0), 0),
+            split_gain=xgb_node.get("gain", 0.0),
+            missing_node=xgb_node.get("missing", 0),
+            left_child=xgb_node.get("yes", 0),
+            right_child=xgb_node.get("no", 0),
+            is_leaf="leaf" in xgb_node,
+        )
+
+
+def _xgboost_tree_to_nodes(
+    tree: dict[str, Any], feature_map: dict[Any, int]
+) -> list[dict[str, Any]]:
+    buffer = [tree]
+    node_list = []
+    while len(buffer) > 0:
+        xgb_node = buffer.pop(0)
+        node_list.append(
+            dataclasses.asdict(
+                Node._from_xgboost_node(xgb_node, feature_map=feature_map)
+            )
+        )
+        if "leaf" not in xgb_node:
+            buffer.extend(xgb_node["children"])
+    # Ensure the nodeids all align with the nodes index
+    for idx, node in enumerate(node_list):
+        if idx != node["num"]:
+            raise ValueError(
+                f"Nodes are unaligned for node {node['num']} at index {idx}"
+            )
+    return node_list
+
+
+def _from_xgboost_model(model: Any) -> GradientBooster:
+    import xgboost
+
+    if isinstance(model, xgboost.XGBModel):
+        booster = model.get_booster()
+    else:
+        booster = cast(xgboost.Booster, model)
+    # Get the model dump...
+    model_dump = booster.get_dump(dump_format="json", with_stats=True)
+    features = booster.feature_names
+    if features is None:
+        feature_map = {}
+    else:
+        feature_map = {v: i for i, v in enumerate(features)}
+
+    # Get the nodes
+    trees = []
+    for tree in model_dump:
+        nodes = _xgboost_tree_to_nodes(tree=json.loads(tree), feature_map=feature_map)
+        trees.append({"nodes": nodes})
+
+    # This is would be wrong, for models trained with "binary:logistic"
+    # because the base score is modified prior to predictions.
+    # We would need to modify prior to handing it to the forust
+    # model.
+    learner_config = json.loads(model.get_booster().save_config())["learner"]
+    base_score = float(learner_config["learner_model_param"]["base_score"])
+    if learner_config["objective"]["name"] == "binary:logistic":
+        base_score = np.log(base_score / (1 - base_score))
+
+    # Get initial dump
+    model_json = json.loads(GradientBooster().json_dump())
+    model_json["base_score"] = base_score
+    model_json["trees"] = trees
+
+    # Populate booster from json
+    final_model = GradientBooster()
+    final_model.booster = CrateGradientBooster.from_json(json.dumps(model_json))
+    if features is not None:
+        final_model.feature_names_in_ = features
+        final_model.n_features_ = len(features)
+    return final_model
 
 
 class BoosterType(Protocol):

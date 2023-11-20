@@ -889,6 +889,37 @@ def test_booster_to_xgboosts_with_contributions_shapley(X_y):
     assert np.allclose(fmod_preds, xmod.predict(X, output_margin=True), atol=0.00001)
 
 
+def test_booster_to_xgboosts_with_contributions_shapley_from_xgboost(X_y):
+    X, y = X_y
+    X = X.astype(np.float32)
+    xmod = XGBClassifier(
+        n_estimators=100,
+        learning_rate=0.3,
+        max_depth=10,
+        reg_lambda=1,
+        min_child_weight=1,
+        gamma=1,
+        objective="binary:logitraw",
+        eval_metric="auc",
+        tree_method="hist",
+        base_score=0.5,
+    )
+    xmod.fit(X, y)
+
+    fmod = forust._from_xgboost_model(xmod)
+
+    contribs_shapley = fmod.predict_contributions(X, method="Shapley")
+    fmod_preds = fmod.predict(X)
+
+    import xgboost as xgb
+
+    xmod_contribs_shapley = xmod.get_booster().predict(
+        xgb.DMatrix(X), approx_contribs=False, pred_contribs=True
+    )
+    assert np.allclose(contribs_shapley, xmod_contribs_shapley, atol=0.00001)
+    assert np.allclose(fmod_preds, xmod.predict(X, output_margin=True), atol=0.00001)
+
+
 def test_missing_branch_with_contributions(X_y):
     X, y = X_y
     X = X
