@@ -44,11 +44,16 @@ impl PathList {
             &mut self.paths[i]
         }
     }
-    fn with_capacity(capacity: usize) -> PathList {
-        PathList {
-            paths: Vec::with_capacity(capacity),
-        }
-    }
+    // fn with_capacity(capacity: usize) -> PathList {
+    //     PathList {
+    //         paths: Vec::with_capacity(capacity),
+    //     }
+    // }
+    // fn with_empty(l: usize) -> PathList {
+    //     PathList {
+    //         paths: vec![PathElement::default(); l],
+    //     }
+    // }
 }
 
 fn extend_path(
@@ -218,7 +223,7 @@ pub fn predict_contributions_row_shapley(
         contribs,
         0,
         0,
-        PathList::with_capacity(tree.nodes.len()),
+        PathList::default(),
         1.,
         1.,
         row.len() + 100,
