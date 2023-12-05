@@ -108,10 +108,11 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-
+        let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
             &bdata,
             data.index.to_owned(),
+            &col_index,
             &b.cuts,
             &g,
             &h,

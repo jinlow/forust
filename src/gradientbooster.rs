@@ -13,7 +13,7 @@ use crate::tree::Tree;
 use crate::utils::{fmt_vec_output, odds, validate_positive_float_field};
 use log::info;
 use rand::rngs::StdRng;
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -122,6 +122,9 @@ pub struct GradientBooster {
     /// Used only in goss. the retain ratio of small gradient data.
     #[serde(default = "default_other_rate")]
     pub other_rate: f64,
+    /// Specify the fraction of columns that should be sampled at each iteration, valid values are in the range (0.0,1.0].
+    #[serde(default = "default_colsample_bytree")]
+    pub colsample_bytree: f64,
     /// Integer value used to seed any randomness used in the algorithm.
     pub seed: u64,
     /// Value to consider missing.
@@ -209,7 +212,9 @@ fn default_prediction_iteration() -> Option<usize> {
 fn default_terminate_missing_features() -> HashSet<usize> {
     HashSet::new()
 }
-
+fn default_colsample_bytree() -> f64 {
+    1.0
+}
 fn default_missing_node_treatment() -> MissingNodeTreatment {
     MissingNodeTreatment::AssignToParent
 }
@@ -247,6 +252,7 @@ impl Default for GradientBooster {
             1.,
             0.1,
             0.2,
+            1.0,
             0,
             f64::NAN,
             false,
@@ -298,6 +304,7 @@ impl GradientBooster {
     /// * `subsample` - Percent of records to randomly sample at each iteration when training a tree.
     /// * `top_rate` - Used only in goss. The retain ratio of large gradient data.
     /// * `other_rate` - Used only in goss. the retain ratio of small gradient data.
+    /// * `colsample_bytree` - Specify the fraction of columns that should be sampled at each iteration, valid values are in the range (0.0,1.0].
     /// * `seed` - Integer value used to seed any randomness used in the algorithm.
     /// * `missing` - Value to consider missing.
     /// * `create_missing_branch` - Should missing be split out it's own separate branch?
@@ -325,6 +332,7 @@ impl GradientBooster {
         subsample: f32,
         top_rate: f64,
         other_rate: f64,
+        colsample_bytree: f64,
         seed: u64,
         missing: f64,
         create_missing_branch: bool,
@@ -355,6 +363,7 @@ impl GradientBooster {
             subsample,
             top_rate,
             other_rate,
+            colsample_bytree,
             seed,
             missing,
             create_missing_branch,
@@ -515,7 +524,7 @@ impl GradientBooster {
 
         // This will always be false, unless early stopping rounds are used.
         let mut stop_early = false;
-
+        let col_index: Vec<usize> = (0..data.cols).collect();
         for i in 0..self.iterations {
             let verbose = if self.log_iterations == 0 {
                 false
@@ -527,9 +536,21 @@ impl GradientBooster {
                 self.sample_index(&mut rng, &data.index, &mut grad, &mut hess);
             let mut tree = Tree::new();
 
+            // If we are doing any column sampling...
+            let fit_col_index = if self.colsample_bytree == 1.0 {
+                col_index.to_vec()
+            } else {
+                col_index
+                    .iter()
+                    .filter(|_| rng.gen_range(0.0..1.0) < self.colsample_bytree)
+                    .copied()
+                    .collect()
+            };
+
             tree.fit(
                 &bdata,
                 chosen_index,
+                &fit_col_index,
                 &binned_data.cuts,
                 &grad,
                 &hess,

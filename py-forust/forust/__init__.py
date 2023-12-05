@@ -207,6 +207,7 @@ class GradientBooster:
         subsample: float = 1.0,
         top_rate: float = 0.1,
         other_rate: float = 0.2,
+        colsample_bytree: float = 1.0,
         seed: int = 0,
         missing: float = np.nan,
         create_missing_branch: bool = False,
@@ -269,7 +270,8 @@ class GradientBooster:
             subsample (float, optional): Percent of records to randomly sample at each iteration when
                 training a tree. Defaults to 1.0, meaning all data is used to training.
             top_rate (float, optional): Used only in goss. The retain ratio of large gradient data.
-            other_rate (float, optional):Used only in goss. the retain ratio of small gradient data.
+            other_rate (float, optional): Used only in goss. the retain ratio of small gradient data.
+            colsample_bytree (float, optional): Specify the fraction of columns that should be sampled at each iteration, valid values are in the range `(0.0,1.0]`.
             seed (integer, optional): Integer value used to seed any randomness used in the
                 algorithm. Defaults to 0.
             missing (float, optional): Value to consider missing, when training and predicting
@@ -377,6 +379,7 @@ class GradientBooster:
             subsample=subsample,
             top_rate=top_rate,
             other_rate=other_rate,
+            colsample_bytree=colsample_bytree,
             seed=seed,
             missing=missing,
             create_missing_branch=create_missing_branch,
@@ -410,6 +413,9 @@ class GradientBooster:
         self.allow_missing_splits = allow_missing_splits
         self.monotone_constraints = monotone_constraints_
         self.subsample = subsample
+        self.top_rate = top_rate
+        self.other_rate = other_rate
+        self.colsample_bytree = colsample_bytree
         self.seed = seed
         self.missing = missing
         self.create_missing_branch = create_missing_branch

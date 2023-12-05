@@ -116,16 +116,17 @@ impl HistogramMatrix {
             n_records: 0,
         })
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         data: &Matrix<u16>,
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
         index: &[usize],
+        col_index: &[usize],
         parallel: bool,
         sort: bool,
     ) -> Self {
-        let col_index: Vec<usize> = (0..data.cols).collect();
         // Sort gradients and hessians to reduce cache hits.
         // This made a really sizeable difference on larger datasets
         // Bringing training time down from nearly 6 minutes, to 2 minutes.

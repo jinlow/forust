@@ -34,6 +34,7 @@ impl Tree {
         &mut self,
         data: &Matrix<u16>,
         mut index: Vec<usize>,
+        col_index: &[usize],
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
@@ -68,7 +69,8 @@ impl Tree {
         let root_gain = gain(&splitter.get_l2(), gradient_sum, hessian_sum);
         let root_weight = weight(&splitter.get_l2(), gradient_sum, hessian_sum);
         // Calculate the histograms for the root node.
-        let root_hists = HistogramMatrix::new(data, cuts, grad, hess, &index, parallel, sort);
+        let root_hists =
+            HistogramMatrix::new(data, cuts, grad, hess, &index, col_index, parallel, sort);
         let root_node = SplittableNode::new(
             0,
             root_hists,
@@ -123,7 +125,7 @@ impl Tree {
             n_leaves -= 1;
 
             let new_nodes = splitter.split_node(
-                &n_nodes, &mut node, &mut index, data, cuts, grad, hess, parallel,
+                &n_nodes, &mut node, &mut index, col_index, data, cuts, grad, hess, parallel,
             );
 
             let n_new_nodes = new_nodes.len();
@@ -591,9 +593,11 @@ mod tests {
         let (index, excluded) =
             RandomSampler::new(0.5).sample(&mut rng, &data.index, &mut g, &mut h);
         assert!(excluded.len() > 0);
+        let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
             &bdata,
             index,
+            &col_index,
             &b.cuts,
             &g,
             &h,
@@ -631,9 +635,11 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
+        let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
             &bdata,
             data.index.to_owned(),
+            &col_index,
             &b.cuts,
             &g,
             &h,
@@ -688,6 +694,48 @@ mod tests {
     }
 
     #[test]
+    fn test_tree_colsample() {
+        let file = fs::read_to_string("resources/contiguous_no_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let yhat = vec![0.5; y.len()];
+        let w = vec![1.; y.len()];
+        let (g, h) = LogLoss::calc_grad_hess(&y, &yhat, &w);
+
+        let data = Matrix::new(&data_vec, 891, 5);
+        let splitter = MissingImputerSplitter {
+            l2: 1.0,
+            gamma: 3.0,
+            min_leaf_weight: 1.0,
+            learning_rate: 0.3,
+            allow_missing_splits: true,
+            constraints_map: ConstraintMap::new(),
+        };
+        let mut tree = Tree::new();
+
+        let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
+        let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
+        let col_index: Vec<usize> = vec![2, 4, 5];
+        tree.fit(
+            &bdata,
+            data.index.to_owned(),
+            &col_index,
+            &b.cuts,
+            &g,
+            &h,
+            &splitter,
+            usize::MAX,
+            5,
+            false,
+            &SampleMethod::None,
+            &GrowPolicy::DepthWise,
+        );
+    }
+
+    #[test]
     fn test_tree_fit_monotone() {
         let file = fs::read_to_string("resources/contiguous_no_missing.csv")
             .expect("Something went wrong reading the file");
@@ -715,10 +763,11 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-
+        let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
             &bdata,
             data.index.to_owned(),
+            &col_index,
             &b.cuts,
             &g,
             &h,
@@ -796,9 +845,11 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
+        let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
             &bdata,
             data.index.to_owned(),
+            &col_index,
             &b.cuts,
             &g,
             &h,

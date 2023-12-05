@@ -116,6 +116,19 @@ def test_multiple_fit_calls(X_y):
     assert np.allclose(fmod_preds, fmod_fit_again_preds)
 
 
+def test_colsample_bytree(X_y):
+    X, y = X_y
+    fmod1 = GradientBooster()
+    fmod1.fit(X, y=y)
+    fmod1_preds = fmod1.predict(X)
+
+    fmod2 = GradientBooster(colsample_bytree=0.5)
+    fmod2.fit(X, y=y)
+    fmod2_preds = fmod2.predict(X)
+
+    assert not np.allclose(fmod1_preds, fmod2_preds)
+
+
 def test_different_data_passed(X_y):
     X, y = X_y
     fmod = GradientBooster(
