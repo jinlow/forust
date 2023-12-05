@@ -8,6 +8,7 @@ use crate::objective::{
     SquaredLoss,
 };
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
+use crate::shapley::predict_contributions_row_shapley;
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
 use crate::utils::{fmt_vec_output, odds, validate_positive_float_field};
@@ -43,6 +44,8 @@ pub enum ContributionsMethod {
     ModeDifference,
     /// This method is only valid when the objective type is set to "LogLoss". This method will calculate contributions as the change in a records probability of being 1 moving from a parent node to a child node. The sum of the returned contributions matrix, will be equal to the probability a record will be 1. For example, given a model, `model.predict_contributions(X, method="ProbabilityChange") == 1 / (1 + np.exp(-model.predict(X)))`
     ProbabilityChange,
+    /// This method computes the Shapley values for each record, and feature.
+    Shapley,
 }
 
 /// Method to calculate variable importance.
@@ -713,6 +716,7 @@ impl GradientBooster {
                 Tree::predict_contributions_row_midpoint_difference
             }
             ContributionsMethod::ModeDifference => Tree::predict_contributions_row_mode_difference,
+            ContributionsMethod::Shapley => predict_contributions_row_shapley,
             ContributionsMethod::Average | ContributionsMethod::ProbabilityChange => unreachable!(),
         };
         // Clean this up..
