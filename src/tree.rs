@@ -718,7 +718,7 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-        let col_index: Vec<usize> = vec![2, 4, 5];
+        let col_index: Vec<usize> = vec![2, 3, 4];
         tree.fit(
             &bdata,
             data.index.to_owned(),

@@ -65,8 +65,8 @@ pub trait Splitter {
     fn best_split(&self, node: &SplittableNode, col_index: &[usize]) -> Option<SplitInfo> {
         let mut best_split_info = None;
         let mut best_gain = 0.0;
-        for i in col_index {
-            let split_info = self.best_feature_split(node, *i);
+        for (idx, feature) in col_index.iter().enumerate() {
+            let split_info = self.best_feature_split(node, *feature, idx);
             match split_info {
                 Some(info) => {
                     if info.split_gain > best_gain {
@@ -97,12 +97,19 @@ pub trait Splitter {
         constraint: Option<&Constraint>,
     ) -> Option<(NodeInfo, NodeInfo, MissingInfo)>;
 
-    fn best_feature_split(&self, node: &SplittableNode, feature: usize) -> Option<SplitInfo> {
+    /// The idx is the index of the feature in the histogram data, whereas feature
+    /// is the index of the actual feature in the data.
+    fn best_feature_split(
+        &self,
+        node: &SplittableNode,
+        feature: usize,
+        idx: usize,
+    ) -> Option<SplitInfo> {
         let mut split_info: Option<SplitInfo> = None;
         let mut max_gain: Option<f32> = None;
 
         let HistogramMatrix(histograms) = &node.histograms;
-        let histogram = histograms.get_col(feature);
+        let histogram = histograms.get_col(idx);
 
         // We also know we will have a missing bin.
         let missing = &histogram[0];
@@ -1042,7 +1049,7 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
-        let s = splitter.best_feature_split(&mut n, 0).unwrap();
+        let s = splitter.best_feature_split(&mut n, 0, 0).unwrap();
         assert_eq!(s.split_value, 4.0);
         assert_eq!(s.left_node.cover, 0.75);
         assert_eq!(s.right_node.cover, 1.0);

@@ -150,13 +150,15 @@ impl HistogramMatrix {
             col_index
                 .par_iter()
                 .flat_map(|col| {
-                    create_feature_histogram(
+                    let h = create_feature_histogram(
                         data.get_col(*col),
                         cuts.get_col(*col),
                         &sorted_grad,
                         &sorted_hess,
                         index,
-                    )
+                    );
+                    //ends[*col] = h.len();
+                    h
                 })
                 .collect::<Vec<Bin<f32>>>()
         } else {
@@ -173,11 +175,32 @@ impl HistogramMatrix {
                 })
                 .collect::<Vec<Bin<f32>>>()
         };
+
+        // If we have sampled down the columns, we need to recalculate the ends.
+        // we can do this by iterating over the cut's, as this will be the size
+        // of the histograms.
+        let ends: Vec<usize> = if col_index.len() == data.cols {
+            cuts.ends.to_owned()
+        } else {
+            col_index
+                .iter()
+                .scan(0_usize, |state, i| {
+                    *state += cuts.get_col(*i).len();
+                    Some(*state)
+                })
+                .collect()
+        };
+        let n_records = if col_index.len() == data.cols {
+            cuts.n_records
+        } else {
+            ends.iter().sum()
+        };
+
         HistogramMatrix(JaggedMatrix {
             data: histograms,
-            ends: cuts.ends.to_owned(),
-            cols: cuts.cols,
-            n_records: cuts.n_records,
+            ends,
+            cols: col_index.len(),
+            n_records,
         })
     }
 
