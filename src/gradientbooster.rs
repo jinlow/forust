@@ -8,7 +8,7 @@ use crate::objective::{
     SquaredLoss,
 };
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
-use crate::shaply::predict_contributions_row_shapley;
+use crate::shapley::predict_contributions_row_shapley;
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
 use crate::utils::{fmt_vec_output, odds, validate_positive_float_field};
