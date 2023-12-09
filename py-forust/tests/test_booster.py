@@ -15,7 +15,7 @@ from sklearn.model_selection import GridSearchCV
 from xgboost import XGBClassifier, XGBRegressor
 
 import forust
-from forust import GradientBooster
+from forust import GradientBooster, Node
 
 
 def loggodds_to_odds(v):
@@ -116,17 +116,41 @@ def test_multiple_fit_calls(X_y):
     assert np.allclose(fmod_preds, fmod_fit_again_preds)
 
 
-def test_colsample_bytree(X_y):
+@pytest.mark.parametrize(
+    "colsample_bytree,create_missing_branch",
+    list(itertools.product([0.25, 0.5, 0.75], [True, False])),
+)
+def test_colsample_bytree(X_y, colsample_bytree, create_missing_branch):
     X, y = X_y
-    fmod1 = GradientBooster()
+    fmod1 = GradientBooster(create_missing_branch=create_missing_branch)
     fmod1.fit(X, y=y)
     fmod1_preds = fmod1.predict(X)
 
-    fmod2 = GradientBooster(colsample_bytree=0.5)
+    fmod2 = GradientBooster(
+        colsample_bytree=colsample_bytree, create_missing_branch=create_missing_branch
+    )
     fmod2.fit(X, y=y)
     fmod2_preds = fmod2.predict(X)
 
     assert not np.allclose(fmod1_preds, fmod2_preds)
+
+    # Assert than every tree, has only 50% or less of the features.
+    trees = fmod2.get_node_lists()
+
+    def gather_feature_names(
+        node: Node, tree: list[Node], features: set[str | int]
+    ) -> None:
+        if not node.is_leaf:
+            features.add(node.split_feature)
+            gather_feature_names(tree[node.right_child], tree, features)
+            gather_feature_names(tree[node.left_child], tree, features)
+            gather_feature_names(tree[node.missing_node], tree, features)
+
+    for tree in trees:
+        features = set()
+        gather_feature_names(tree[0], tree, features)
+        assert len(features) > 0
+        assert len(features) <= (len(X.columns) * colsample_bytree)
 
 
 def test_different_data_passed(X_y):

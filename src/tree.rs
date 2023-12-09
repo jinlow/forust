@@ -718,7 +718,7 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-        let col_index: Vec<usize> = vec![2, 3, 4];
+        let col_index: Vec<usize> = vec![1, 3];
         tree.fit(
             &bdata,
             data.index.to_owned(),
@@ -733,6 +733,11 @@ mod tests {
             &SampleMethod::None,
             &GrowPolicy::DepthWise,
         );
+        for n in tree.nodes {
+            if !n.is_leaf {
+                assert!((n.split_feature == 1) || (n.split_feature == 3))
+            }
+        }
     }
 
     #[test]

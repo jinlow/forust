@@ -1134,7 +1134,8 @@ class GradientBooster:
         for t in model:
             tree = []
             for n in t["nodes"]:
-                n["split_feature"] = feature_map[n["split_feature"]]
+                if not n["is_leaf"]:
+                    n["split_feature"] = feature_map[n["split_feature"]]
                 tree.append(Node(**n))
             trees.append(tree)
         return trees

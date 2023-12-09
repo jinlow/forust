@@ -14,7 +14,8 @@ use crate::tree::Tree;
 use crate::utils::{fmt_vec_output, odds, validate_positive_float_field};
 use log::info;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::seq::IteratorRandom;
+use rand::SeedableRng;
 use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -540,20 +541,30 @@ impl GradientBooster {
             let mut tree = Tree::new();
 
             // If we are doing any column sampling...
-            let fit_col_index = if self.colsample_bytree == 1.0 {
-                col_index.to_vec()
+            let colsample_index: Vec<usize> = if self.colsample_bytree == 1.0 {
+                Vec::new()
             } else {
-                col_index
+                let amount = ((col_index.len() as f64) * self.colsample_bytree).floor() as usize;
+                let mut v: Vec<usize> = col_index
                     .iter()
-                    .filter(|_| rng.gen_range(0.0..1.0) < self.colsample_bytree)
-                    .copied()
-                    .collect()
+                    .choose_multiple(&mut rng, amount)
+                    .iter()
+                    .map(|i| **i)
+                    .collect();
+                v.sort();
+                v
+            };
+
+            let fit_col_index = if self.colsample_bytree == 1.0 {
+                &col_index
+            } else {
+                &colsample_index
             };
 
             tree.fit(
                 &bdata,
                 chosen_index,
-                &fit_col_index,
+                fit_col_index,
                 &binned_data.cuts,
                 &grad,
                 &hess,
