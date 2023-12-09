@@ -1116,6 +1116,13 @@ impl GradientBooster {
         self
     }
 
+    /// Set the colsample_bytree on the booster.
+    /// * `colsample_bytree` - Percent of the columns to randomly sample when training each tree.
+    pub fn set_colsample_bytree(mut self, colsample_bytree: f64) -> Self {
+        self.colsample_bytree = colsample_bytree;
+        self
+    }
+
     /// Set the seed on the booster.
     /// * `seed` - Integer value used to see any randomness used in the algorithm.
     pub fn set_seed(mut self, seed: u64) -> Self {

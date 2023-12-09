@@ -79,6 +79,25 @@ pub fn tree_benchmarks(c: &mut Criterion) {
             );
         })
     });
+    c.bench_function("Train Tree - column subset", |b| {
+        b.iter(|| {
+            let mut train_tree: Tree = Tree::new();
+            train_tree.fit(
+                black_box(&bdata),
+                black_box(data.index.to_owned()),
+                black_box(&[1, 3, 4]),
+                black_box(&bindata.cuts),
+                black_box(&g),
+                black_box(&h),
+                black_box(&splitter),
+                black_box(usize::MAX),
+                black_box(10),
+                black_box(false),
+                black_box(&SampleMethod::None),
+                black_box(&GrowPolicy::DepthWise),
+            );
+        })
+    });
     c.bench_function("Tree Predict (Single Threaded)", |b| {
         b.iter(|| tree.predict(black_box(&data), black_box(false), black_box(&f64::NAN)))
     });
@@ -95,6 +114,21 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     booster_train.bench_function("Train Booster", |b| {
         b.iter(|| {
             let mut booster = GradientBooster::default().set_parallel(false);
+            booster
+                .fit(
+                    black_box(&data),
+                    black_box(&y),
+                    black_box(&w),
+                    black_box(None),
+                )
+                .unwrap();
+        })
+    });
+    booster_train.bench_function("Train Booster - Column Sampling", |b| {
+        b.iter(|| {
+            let mut booster = GradientBooster::default()
+                .set_parallel(false)
+                .set_colsample_bytree(0.5);
             booster
                 .fit(
                     black_box(&data),
