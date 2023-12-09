@@ -386,15 +386,8 @@ impl Splitter for MissingBranchSplitter {
             assert!(between(lower_bound, upper_bound, right_weight));
         }
 
-        let left_gain =
-            gain_given_weight(&self.l1, &self.l2, left_gradient, left_hessian, left_weight);
-        let right_gain = gain_given_weight(
-            &self.l1,
-            &self.l2,
-            right_gradient,
-            right_hessian,
-            right_weight,
-        );
+        let left_gain = gain_given_weight(&self.l2, left_gradient, left_hessian, left_weight);
+        let right_gain = gain_given_weight(&self.l2, right_gradient, right_hessian, right_weight);
 
         // Check the min_hessian constraint first
         if (right_hessian < self.min_leaf_weight) || (left_hessian < self.min_leaf_weight) {
@@ -443,7 +436,6 @@ impl Splitter for MissingBranchSplitter {
             }
         };
         let missing_gain = gain_given_weight(
-            &self.get_l1(),
             &self.get_l2(),
             missing_gradient,
             missing_hessian,
@@ -823,15 +815,9 @@ impl Splitter for MissingImputerSplitter {
             constraint,
         );
 
-        let mut left_gain =
-            gain_given_weight(&self.l1, &self.l2, left_gradient, left_hessian, left_weight);
-        let mut right_gain = gain_given_weight(
-            &self.l1,
-            &self.l2,
-            right_gradient,
-            right_hessian,
-            right_weight,
-        );
+        let mut left_gain = gain_given_weight(&self.l2, left_gradient, left_hessian, left_weight);
+        let mut right_gain =
+            gain_given_weight(&self.l2, right_gradient, right_hessian, right_weight);
 
         if !self.allow_missing_splits {
             // Check the min_hessian constraint first, if we do not
@@ -861,7 +847,6 @@ impl Splitter for MissingImputerSplitter {
             );
             // The gain if missing went left
             let missing_left_gain = gain_given_weight(
-                &self.l1,
                 &self.l2,
                 left_gradient + missing_gradient,
                 left_hessian + missing_hessian,
@@ -887,7 +872,6 @@ impl Splitter for MissingImputerSplitter {
             );
             // The gain is missing went right
             let missing_right_gain = gain_given_weight(
-                &self.l1,
                 &self.l2,
                 right_gradient + missing_gradient,
                 right_hessian + missing_hessian,
@@ -1169,13 +1153,7 @@ mod tests {
         let gradient_sum = grad.iter().copied().sum();
         let hessian_sum = hess.iter().copied().sum();
         let root_weight = weight(&splitter.l1, &splitter.l2, gradient_sum, hessian_sum);
-        let root_gain = gain_given_weight(
-            &splitter.l1,
-            &splitter.l2,
-            gradient_sum,
-            hessian_sum,
-            root_weight,
-        );
+        let root_gain = gain(&splitter.l2, gradient_sum, hessian_sum);
         let data = Matrix::new(&data_vec, 891, 5);
 
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();

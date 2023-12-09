@@ -172,19 +172,8 @@ pub fn gain(l2: &f32, gradient_sum: f32, hessian_sum: f32) -> f32 {
 /// This is for if the weight has to be constrained, for example for
 /// monotonicity constraints.
 #[inline]
-pub fn gain_given_weight(
-    l1: &f32,
-    l2: &f32,
-    gradient_sum: f32,
-    hessian_sum: f32,
-    weight: f32,
-) -> f32 {
-    let v = -(2.0 * gradient_sum * weight + (hessian_sum + l2) * (weight * weight));
-    if l1 == &0. {
-        v + l1 * v.abs()
-    } else {
-        v
-    }
+pub fn gain_given_weight(l2: &f32, gradient_sum: f32, hessian_sum: f32, weight: f32) -> f32 {
+    -(2.0 * gradient_sum * weight + (hessian_sum + l2) * (weight * weight))
 }
 
 /// Cull gain, if it does not conform to constraints.
