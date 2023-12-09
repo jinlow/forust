@@ -97,6 +97,7 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
