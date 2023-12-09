@@ -1125,10 +1125,13 @@ class GradientBooster:
         """
         model = json.loads(self.json_dump())["trees"]
         feature_map: dict[int, str] | dict[int, int]
+        leaf_split_feature: str | int
         if map_features_names and hasattr(self, "feature_names_in_"):
             feature_map = {i: ft for i, ft in enumerate(self.feature_names_in_)}
+            leaf_split_feature = ""
         else:
             feature_map = {i: i for i in range(self.n_features_)}
+            leaf_split_feature = -1
 
         trees = []
         for t in model:
@@ -1136,6 +1139,8 @@ class GradientBooster:
             for n in t["nodes"]:
                 if not n["is_leaf"]:
                     n["split_feature"] = feature_map[n["split_feature"]]
+                else:
+                    n["split_feature"] = leaf_split_feature
                 tree.append(Node(**n))
             trees.append(tree)
         return trees
