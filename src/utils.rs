@@ -85,6 +85,7 @@ pub fn is_missing(value: &f64, missing: &f64) -> bool {
 /// and a constraint.
 #[inline]
 pub fn constrained_weight(
+    l1: &f32,
     l2: &f32,
     gradient_sum: f32,
     hessian_sum: f32,
@@ -92,7 +93,7 @@ pub fn constrained_weight(
     upper_bound: f32,
     constraint: Option<&Constraint>,
 ) -> f32 {
-    let weight = weight(l2, gradient_sum, hessian_sum);
+    let weight = weight(l1, l2, gradient_sum, hessian_sum);
     match constraint {
         None | Some(Constraint::Unconstrained) => weight,
         _ => {
@@ -171,8 +172,19 @@ pub fn gain(l2: &f32, gradient_sum: f32, hessian_sum: f32) -> f32 {
 /// This is for if the weight has to be constrained, for example for
 /// monotonicity constraints.
 #[inline]
-pub fn gain_given_weight(l2: &f32, gradient_sum: f32, hessian_sum: f32, weight: f32) -> f32 {
-    -(2.0 * gradient_sum * weight + (hessian_sum + l2) * (weight * weight))
+pub fn gain_given_weight(
+    l1: &f32,
+    l2: &f32,
+    gradient_sum: f32,
+    hessian_sum: f32,
+    weight: f32,
+) -> f32 {
+    let v = -(2.0 * gradient_sum * weight + (hessian_sum + l2) * (weight * weight));
+    if l1 == &0. {
+        v + l1 * v.abs()
+    } else {
+        v
+    }
 }
 
 /// Cull gain, if it does not conform to constraints.
@@ -202,11 +214,25 @@ pub fn cull_gain(
     }
 }
 
+/// Calculate l1 regularization
+#[inline]
+pub fn l1_regularization(w: &f32, l1: &f32) -> f32 {
+    if l1 == &0. {
+        *w
+    } else if w > l1 {
+        w - l1
+    } else if w < &-l1 {
+        w + l1
+    } else {
+        0.0
+    }
+}
+
 /// Calculate the weight of a given node, given the sum
 /// of the gradients, and the hessians in a node.
 #[inline]
-pub fn weight(l2: &f32, gradient_sum: f32, hessian_sum: f32) -> f32 {
-    -(gradient_sum / (hessian_sum + l2))
+pub fn weight(l1: &f32, l2: &f32, gradient_sum: f32, hessian_sum: f32) -> f32 {
+    -(l1_regularization(&gradient_sum, l1) / (hessian_sum + l2))
 }
 
 const LANES: usize = 16;

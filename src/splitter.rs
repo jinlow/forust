@@ -50,6 +50,7 @@ pub trait Splitter {
     fn get_constraint(&self, feature: &usize) -> Option<&Constraint>;
     // fn get_allow_missing_splits(&self) -> bool;
     fn get_gamma(&self) -> f32;
+    fn get_l1(&self) -> f32;
     fn get_l2(&self) -> f32;
     fn get_learning_rate(&self) -> f32;
 
@@ -244,6 +245,7 @@ pub trait Splitter {
 /// If this node is able, it will be split further, otherwise it will
 /// a leaf node will be generated.
 pub struct MissingBranchSplitter {
+    pub l1: f32,
     pub l2: f32,
     pub gamma: f32,
     pub min_leaf_weight: f32,
@@ -325,6 +327,10 @@ impl Splitter for MissingBranchSplitter {
         self.gamma
     }
 
+    fn get_l1(&self) -> f32 {
+        self.l1
+    }
+
     fn get_l2(&self) -> f32 {
         self.l2
     }
@@ -356,6 +362,7 @@ impl Splitter for MissingBranchSplitter {
         }
 
         let mut left_weight = constrained_weight(
+            &self.l1,
             &self.l2,
             left_gradient,
             left_hessian,
@@ -364,6 +371,7 @@ impl Splitter for MissingBranchSplitter {
             constraint,
         );
         let mut right_weight = constrained_weight(
+            &self.l1,
             &self.l2,
             right_gradient,
             right_hessian,
@@ -378,8 +386,15 @@ impl Splitter for MissingBranchSplitter {
             assert!(between(lower_bound, upper_bound, right_weight));
         }
 
-        let left_gain = gain_given_weight(&self.l2, left_gradient, left_hessian, left_weight);
-        let right_gain = gain_given_weight(&self.l2, right_gradient, right_hessian, right_weight);
+        let left_gain =
+            gain_given_weight(&self.l1, &self.l2, left_gradient, left_hessian, left_weight);
+        let right_gain = gain_given_weight(
+            &self.l1,
+            &self.l2,
+            right_gradient,
+            right_hessian,
+            right_weight,
+        );
 
         // Check the min_hessian constraint first
         if (right_hessian < self.min_leaf_weight) || (left_hessian < self.min_leaf_weight) {
@@ -395,6 +410,7 @@ impl Splitter for MissingBranchSplitter {
         // Set weight based on the missing node treatment.
         let missing_weight = match self.missing_node_treatment {
             MissingNodeTreatment::AssignToParent => constrained_weight(
+                &self.get_l1(),
                 &self.get_l2(),
                 missing_gradient + left_gradient + right_gradient,
                 missing_hessian + left_hessian + right_hessian,
@@ -415,6 +431,7 @@ impl Splitter for MissingBranchSplitter {
                     parent_weight
                 } else {
                     constrained_weight(
+                        &self.get_l1(),
                         &self.get_l2(),
                         missing_gradient,
                         missing_hessian,
@@ -426,6 +443,7 @@ impl Splitter for MissingBranchSplitter {
             }
         };
         let missing_gain = gain_given_weight(
+            &self.get_l1(),
             &self.get_l2(),
             missing_gradient,
             missing_hessian,
@@ -700,6 +718,7 @@ impl Splitter for MissingBranchSplitter {
 /// them down either the right or left branch, depending
 /// on which results in a higher increase in gain.
 pub struct MissingImputerSplitter {
+    pub l1: f32,
     pub l2: f32,
     pub gamma: f32,
     pub min_leaf_weight: f32,
@@ -711,6 +730,7 @@ pub struct MissingImputerSplitter {
 impl MissingImputerSplitter {
     /// Generate a new missing imputer splitter object.
     pub fn new(
+        l1: f32,
         l2: f32,
         gamma: f32,
         min_leaf_weight: f32,
@@ -719,6 +739,7 @@ impl MissingImputerSplitter {
         constraints_map: ConstraintMap,
     ) -> Self {
         MissingImputerSplitter {
+            l1,
             l2,
             gamma,
             min_leaf_weight,
@@ -736,6 +757,10 @@ impl Splitter for MissingImputerSplitter {
 
     fn get_gamma(&self) -> f32 {
         self.gamma
+    }
+
+    fn get_l1(&self) -> f32 {
+        self.l1
     }
 
     fn get_l2(&self) -> f32 {
@@ -780,6 +805,7 @@ impl Splitter for MissingImputerSplitter {
         let mut right_hessian = right_hessian;
 
         let mut left_weight = constrained_weight(
+            &self.l1,
             &self.l2,
             left_gradient,
             left_hessian,
@@ -788,6 +814,7 @@ impl Splitter for MissingImputerSplitter {
             constraint,
         );
         let mut right_weight = constrained_weight(
+            &self.l1,
             &self.l2,
             right_gradient,
             right_hessian,
@@ -796,9 +823,15 @@ impl Splitter for MissingImputerSplitter {
             constraint,
         );
 
-        let mut left_gain = gain_given_weight(&self.l2, left_gradient, left_hessian, left_weight);
-        let mut right_gain =
-            gain_given_weight(&self.l2, right_gradient, right_hessian, right_weight);
+        let mut left_gain =
+            gain_given_weight(&self.l1, &self.l2, left_gradient, left_hessian, left_weight);
+        let mut right_gain = gain_given_weight(
+            &self.l1,
+            &self.l2,
+            right_gradient,
+            right_hessian,
+            right_weight,
+        );
 
         if !self.allow_missing_splits {
             // Check the min_hessian constraint first, if we do not
@@ -818,6 +851,7 @@ impl Splitter for MissingImputerSplitter {
             // back to f32...
             // The weight if missing went left
             let missing_left_weight = constrained_weight(
+                &self.l1,
                 &self.l2,
                 left_gradient + missing_gradient,
                 left_hessian + missing_hessian,
@@ -827,6 +861,7 @@ impl Splitter for MissingImputerSplitter {
             );
             // The gain if missing went left
             let missing_left_gain = gain_given_weight(
+                &self.l1,
                 &self.l2,
                 left_gradient + missing_gradient,
                 left_hessian + missing_hessian,
@@ -842,6 +877,7 @@ impl Splitter for MissingImputerSplitter {
 
             // The gain if missing went right
             let missing_right_weight = constrained_weight(
+                &self.l1,
                 &self.l2,
                 right_gradient + missing_gradient,
                 right_hessian + missing_hessian,
@@ -851,6 +887,7 @@ impl Splitter for MissingImputerSplitter {
             );
             // The gain is missing went right
             let missing_right_gain = gain_given_weight(
+                &self.l1,
                 &self.l2,
                 right_gradient + missing_gradient,
                 right_hessian + missing_hessian,
@@ -1028,6 +1065,7 @@ mod tests {
         let index = data.index.to_owned();
         let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, &[0], true, true);
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 0.0,
             gamma: 0.0,
             min_leaf_weight: 0.0,
@@ -1074,6 +1112,7 @@ mod tests {
             HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, &[0, 1], true, true);
         println!("{:?}", hists);
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 0.0,
             gamma: 0.0,
             min_leaf_weight: 0.0,
@@ -1119,6 +1158,7 @@ mod tests {
         let (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
 
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
@@ -1128,8 +1168,14 @@ mod tests {
         };
         let gradient_sum = grad.iter().copied().sum();
         let hessian_sum = hess.iter().copied().sum();
-        let root_gain = gain(&splitter.l2, gradient_sum, hessian_sum);
-        let root_weight = weight(&splitter.l2, gradient_sum, hessian_sum);
+        let root_weight = weight(&splitter.l1, &splitter.l2, gradient_sum, hessian_sum);
+        let root_gain = gain_given_weight(
+            &splitter.l1,
+            &splitter.l2,
+            gradient_sum,
+            hessian_sum,
+            root_weight,
+        );
         let data = Matrix::new(&data_vec, 891, 5);
 
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();

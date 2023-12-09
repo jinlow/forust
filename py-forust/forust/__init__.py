@@ -282,6 +282,7 @@ class GradientBooster:
         learning_rate: float = 0.3,
         max_depth: int = 5,
         max_leaves: int = sys.maxsize,
+        l1: float = 0.0,
         l2: float = 1.0,
         gamma: float = 0.0,
         min_leaf_weight: float = 1.0,
@@ -322,6 +323,7 @@ class GradientBooster:
                 conservative the weights will be. Defaults to 0.3.
             max_depth (int, optional): Maximum depth of an individual tree. Valid values are 0 to infinity. Defaults to 5.
             max_leaves (int, optional): Maximum number of leaves allowed on a tree. Valid values are 0 to infinity. This is the total number of final nodes. Defaults to sys.maxsize.
+            l1 (float, optional): L1 regularization term applied to the weights of the tree. Valid values are 0 to infinity. Defaults to 0.0.
             l2 (float, optional): L2 regularization term applied to the weights of the tree. Valid values are 0 to infinity. Defaults to 1.0.
             gamma (float, optional): The minimum amount of loss required to further split a node.
                 Valid values are 0 to infinity. Defaults to 0.0.
@@ -454,6 +456,7 @@ class GradientBooster:
             learning_rate=learning_rate,
             max_depth=max_depth,
             max_leaves=max_leaves,
+            l1=l1,
             l2=l2,
             gamma=gamma,
             min_leaf_weight=min_leaf_weight,
@@ -488,6 +491,7 @@ class GradientBooster:
         self.learning_rate = learning_rate
         self.max_depth = max_depth
         self.max_leaves = max_leaves
+        self.l1 = l1
         self.l2 = l2
         self.gamma = gamma
         self.min_leaf_weight = min_leaf_weight
