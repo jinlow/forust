@@ -201,11 +201,15 @@ def test_colsample_bytree(X_y, colsample_bytree, create_missing_branch):
             gather_feature_names(tree[node.left_child], tree, features)
             gather_feature_names(tree[node.missing_node], tree, features)
 
+    total_features = set()
+    features = set()
     for tree in trees:
         features = set()
         gather_feature_names(tree[0], tree, features)
         assert len(features) > 0
         assert len(features) <= (len(X.columns) * colsample_bytree)
+        total_features.update(features)
+    assert len(total_features) > len(features)
 
 
 def test_different_data_passed(X_y):

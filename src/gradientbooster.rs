@@ -403,6 +403,7 @@ impl GradientBooster {
 
     fn validate_parameters(&self) -> Result<(), ForustError> {
         validate_positive_float_field!(self.learning_rate);
+        validate_positive_float_field!(self.l1);
         validate_positive_float_field!(self.l2);
         validate_positive_float_field!(self.gamma);
         validate_positive_float_field!(self.min_leaf_weight);
