@@ -30,6 +30,53 @@ def X_y() -> Tuple[pd.DataFrame, pd.Series]:
     return X, y
 
 
+def test_booster_no_variance(X_y):
+    X, y = X_y
+    X.iloc[:, 3] = 1
+    X.iloc[:, 1] = np.nan
+    xmod = XGBClassifier(
+        n_estimators=100,
+        learning_rate=0.3,
+        max_depth=5,
+        reg_lambda=1,
+        reg_alpha=0.0,
+        min_child_weight=1,
+        gamma=1,
+        objective="binary:logitraw",
+        eval_metric="auc",
+        tree_method="hist",
+        max_bin=10000,
+    )
+    xmod.fit(X, y)
+    xmod_preds = xmod.predict(X, output_margin=True)
+
+    fmod = GradientBooster(
+        base_score=0.5,
+        iterations=100,
+        learning_rate=0.3,
+        max_depth=5,
+        l1=0.0,
+        l2=1,
+        min_leaf_weight=1,
+        gamma=1,
+        objective_type="LogLoss",
+        nbins=500,
+        parallel=True,
+        initialize_base_score=False,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    assert fmod.feature_importances_[1] == 0.0
+    assert fmod.feature_importances_[3] == 0.0
+    assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
+
+    fmod.fit(X.iloc[:, [1]], y)
+    assert len(np.unique(fmod.predict(X.iloc[:, [1]]))) == 1
+
+    fmod.fit(X.iloc[:, [3]], y)
+    assert len(np.unique(fmod.predict(X.iloc[:, [3]]))) == 1
+
+
 def test_booster_to_xgboosts(X_y):
     X, y = X_y
     X = X.fillna(0)
