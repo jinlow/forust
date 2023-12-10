@@ -67,7 +67,12 @@ impl Tree {
 
         let mut n_nodes = 1;
         let root_gain = gain(&splitter.get_l2(), gradient_sum, hessian_sum);
-        let root_weight = weight(&splitter.get_l2(), gradient_sum, hessian_sum);
+        let root_weight = weight(
+            &splitter.get_l1(),
+            &splitter.get_l2(),
+            gradient_sum,
+            hessian_sum,
+        );
         // Calculate the histograms for the root node.
         let root_hists =
             HistogramMatrix::new(data, cuts, grad, hess, &index, col_index, parallel, sort);
@@ -578,6 +583,7 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
@@ -624,6 +630,7 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
@@ -707,6 +714,7 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,
@@ -757,6 +765,7 @@ mod tests {
         let data = Matrix::new(data_.get_col(1), 891, 1);
         let map = ConstraintMap::from([(0, Constraint::Negative)]);
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 1.0,
             gamma: 0.0,
             min_leaf_weight: 1.0,
@@ -839,6 +848,7 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 1.0,
             gamma: 3.0,
             min_leaf_weight: 1.0,

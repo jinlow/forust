@@ -94,6 +94,10 @@ pub struct GradientBooster {
     /// Maximum number of leaves allowed on a tree. Valid values
     /// are 0 to infinity. This is the total number of final nodes.
     pub max_leaves: usize,
+    /// L1 regularization term applied to the weights of the tree. Valid values
+    /// are 0 to infinity. 0 Means no regularization applied.
+    #[serde(default = "default_l1")]
+    pub l1: f32,
     /// L2 regularization term applied to the weights of the tree. Valid values
     /// are 0 to infinity.
     pub l2: f32,
@@ -181,6 +185,10 @@ pub struct GradientBooster {
     metadata: HashMap<String, String>,
 }
 
+fn default_l1() -> f32 {
+    0.0
+}
+
 fn default_initialize_base_score() -> bool {
     false
 }
@@ -245,6 +253,7 @@ impl Default for GradientBooster {
             0.3,
             5,
             usize::MAX,
+            0.,
             1.,
             0.,
             1.,
@@ -325,6 +334,7 @@ impl GradientBooster {
         learning_rate: f32,
         max_depth: usize,
         max_leaves: usize,
+        l1: f32,
         l2: f32,
         gamma: f32,
         min_leaf_weight: f32,
@@ -356,6 +366,7 @@ impl GradientBooster {
             learning_rate,
             max_depth,
             max_leaves,
+            l1,
             l2,
             gamma,
             min_leaf_weight,
@@ -398,6 +409,7 @@ impl GradientBooster {
         validate_positive_float_field!(self.subsample);
         validate_positive_float_field!(self.top_rate);
         validate_positive_float_field!(self.other_rate);
+        validate_positive_float_field!(self.colsample_bytree);
         Ok(())
     }
 
@@ -421,6 +433,7 @@ impl GradientBooster {
             .to_owned();
         if self.create_missing_branch {
             let splitter = MissingBranchSplitter {
+                l1: self.l1,
                 l2: self.l2,
                 gamma: self.gamma,
                 min_leaf_weight: self.min_leaf_weight,
@@ -434,6 +447,7 @@ impl GradientBooster {
             self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
         } else {
             let splitter = MissingImputerSplitter {
+                l1: self.l1,
                 l2: self.l2,
                 gamma: self.gamma,
                 min_leaf_weight: self.min_leaf_weight,
@@ -1049,6 +1063,13 @@ impl GradientBooster {
     ///   will be used.
     pub fn set_nbins(mut self, nbins: u16) -> Self {
         self.nbins = nbins;
+        self
+    }
+
+    /// Set the l1 on the booster.
+    /// * `l1` - The l1 regulation term of the booster.
+    pub fn set_l1(mut self, l1: f32) -> Self {
+        self.l1 = l1;
         self
     }
 

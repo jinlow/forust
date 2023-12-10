@@ -62,6 +62,61 @@ def test_booster_to_xgboosts(X_y):
     assert np.allclose(fmod_preds, xmod_preds, atol=0.00001)
 
 
+@pytest.mark.parametrize("l1", [0.0, 0.3, 1.0, 3.0])
+def test_booster_to_xgboosts_l1(X_y, l1):
+    # Small differences in the spits make a big difference
+    # when l1 is used.
+    c = ["pclass"]
+    X, y = X_y
+    X = X[c].fillna(0)
+    xmod = XGBClassifier(
+        n_estimators=5,
+        learning_rate=0.3,
+        max_depth=5,
+        reg_lambda=1,
+        min_child_weight=1.0,
+        gamma=0,
+        reg_alpha=l1,
+        objective="binary:logitraw",
+        tree_method="exact",
+    )
+    xmod.fit(X, y)
+    xmod_preds = xmod.predict(X, output_margin=True)
+
+    fmod = GradientBooster(
+        base_score=0.5,
+        iterations=5,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        l1=l1,
+        min_leaf_weight=1.0,
+        gamma=0,
+        objective_type="LogLoss",
+        initialize_base_score=False,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    assert np.allclose(fmod_preds, xmod_preds, atol=0.0001)
+
+    # Model trained without is different.
+    if l1 > 0:
+        fmod2 = GradientBooster(
+            base_score=0.5,
+            iterations=5,
+            learning_rate=0.3,
+            max_depth=5,
+            l2=1,
+            min_leaf_weight=1.0,
+            gamma=0,
+            objective_type="LogLoss",
+            initialize_base_score=False,
+        )
+        fmod2.fit(X, y=y)
+        fmod2_preds = fmod2.predict(X)
+        assert not np.allclose(fmod2_preds, fmod_preds, atol=0.0001)
+
+
 def test_sklearn_clone(X_y):
     X, y = X_y
     fmod = GradientBooster(
@@ -222,7 +277,10 @@ def test_booster_from_numpy(X_y):
     itertools.product([True, False], [True, False], [-9999, np.nan, 11, 9999]),
 )
 def test_booster_to_xgboosts_with_missing(
-    X_y, with_mono: bool, reverse: bool, missing: float
+    X_y,
+    with_mono: bool,
+    reverse: bool,
+    missing: float,
 ):
     X, y = X_y
     if with_mono:
@@ -238,6 +296,7 @@ def test_booster_to_xgboosts_with_missing(
         learning_rate=0.3,
         max_depth=5,
         reg_lambda=1,
+        reg_alpha=0.0,
         min_child_weight=1,
         gamma=1,
         objective="binary:logitraw",
@@ -255,6 +314,7 @@ def test_booster_to_xgboosts_with_missing(
         iterations=100,
         learning_rate=0.3,
         max_depth=5,
+        l1=0.0,
         l2=1,
         min_leaf_weight=1,
         gamma=1,
