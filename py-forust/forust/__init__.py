@@ -1072,6 +1072,13 @@ class GradientBooster:
         # Load the booster object the pickled JSon string.
         booster_object = CrateGradientBooster.from_json(d["__booster_json_file__"])
         d["booster"] = booster_object
+        # Are there any new parameters, that need to be added to the python object,
+        # that would have been loaded in as defaults on the json object?
+        # This makes sure that defaults set with a serde default function get
+        # carried through to the python object.
+        for p, v in booster_object.get_params():
+            if p not in d:
+                d[p] = v
         del d["__booster_json_file__"]
         self.__dict__ = d
 
