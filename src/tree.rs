@@ -70,6 +70,7 @@ impl Tree {
         let root_weight = weight(
             &splitter.get_l1(),
             &splitter.get_l2(),
+            &splitter.get_max_delta_step(),
             gradient_sum,
             hessian_sum,
         );
@@ -585,6 +586,7 @@ mod tests {
         let splitter = MissingImputerSplitter {
             l1: 0.0,
             l2: 1.0,
+            max_delta_step: 0.,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
@@ -632,6 +634,7 @@ mod tests {
         let splitter = MissingImputerSplitter {
             l1: 0.0,
             l2: 1.0,
+            max_delta_step: 0.,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
@@ -716,6 +719,7 @@ mod tests {
         let splitter = MissingImputerSplitter {
             l1: 0.0,
             l2: 1.0,
+            max_delta_step: 0.,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
@@ -767,6 +771,7 @@ mod tests {
         let splitter = MissingImputerSplitter {
             l1: 0.0,
             l2: 1.0,
+            max_delta_step: 0.,
             gamma: 0.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
@@ -850,6 +855,7 @@ mod tests {
         let splitter = MissingImputerSplitter {
             l1: 0.0,
             l2: 1.0,
+            max_delta_step: 0.,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,

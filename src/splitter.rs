@@ -52,6 +52,7 @@ pub trait Splitter {
     fn get_gamma(&self) -> f32;
     fn get_l1(&self) -> f32;
     fn get_l2(&self) -> f32;
+    fn get_max_delta_step(&self) -> f32;
     fn get_learning_rate(&self) -> f32;
 
     /// Perform any post processing on the tree that is
@@ -247,6 +248,7 @@ pub trait Splitter {
 pub struct MissingBranchSplitter {
     pub l1: f32,
     pub l2: f32,
+    pub max_delta_step: f32,
     pub gamma: f32,
     pub min_leaf_weight: f32,
     pub learning_rate: f32,
@@ -334,6 +336,9 @@ impl Splitter for MissingBranchSplitter {
     fn get_l2(&self) -> f32 {
         self.l2
     }
+    fn get_max_delta_step(&self) -> f32 {
+        self.max_delta_step
+    }
 
     fn get_learning_rate(&self) -> f32 {
         self.learning_rate
@@ -364,6 +369,7 @@ impl Splitter for MissingBranchSplitter {
         let mut left_weight = constrained_weight(
             &self.l1,
             &self.l2,
+            &self.max_delta_step,
             left_gradient,
             left_hessian,
             lower_bound,
@@ -373,6 +379,7 @@ impl Splitter for MissingBranchSplitter {
         let mut right_weight = constrained_weight(
             &self.l1,
             &self.l2,
+            &self.max_delta_step,
             right_gradient,
             right_hessian,
             lower_bound,
@@ -405,6 +412,7 @@ impl Splitter for MissingBranchSplitter {
             MissingNodeTreatment::AssignToParent => constrained_weight(
                 &self.get_l1(),
                 &self.get_l2(),
+                &self.max_delta_step,
                 missing_gradient + left_gradient + right_gradient,
                 missing_hessian + left_hessian + right_hessian,
                 lower_bound,
@@ -426,6 +434,7 @@ impl Splitter for MissingBranchSplitter {
                     constrained_weight(
                         &self.get_l1(),
                         &self.get_l2(),
+                        &self.max_delta_step,
                         missing_gradient,
                         missing_hessian,
                         lower_bound,
@@ -712,6 +721,7 @@ impl Splitter for MissingBranchSplitter {
 pub struct MissingImputerSplitter {
     pub l1: f32,
     pub l2: f32,
+    pub max_delta_step: f32,
     pub gamma: f32,
     pub min_leaf_weight: f32,
     pub learning_rate: f32,
@@ -721,9 +731,11 @@ pub struct MissingImputerSplitter {
 
 impl MissingImputerSplitter {
     /// Generate a new missing imputer splitter object.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         l1: f32,
         l2: f32,
+        max_delta_step: f32,
         gamma: f32,
         min_leaf_weight: f32,
         learning_rate: f32,
@@ -733,6 +745,7 @@ impl MissingImputerSplitter {
         MissingImputerSplitter {
             l1,
             l2,
+            max_delta_step,
             gamma,
             min_leaf_weight,
             learning_rate,
@@ -757,6 +770,9 @@ impl Splitter for MissingImputerSplitter {
 
     fn get_l2(&self) -> f32 {
         self.l2
+    }
+    fn get_max_delta_step(&self) -> f32 {
+        self.max_delta_step
     }
 
     fn get_learning_rate(&self) -> f32 {
@@ -799,6 +815,7 @@ impl Splitter for MissingImputerSplitter {
         let mut left_weight = constrained_weight(
             &self.l1,
             &self.l2,
+            &self.max_delta_step,
             left_gradient,
             left_hessian,
             lower_bound,
@@ -808,6 +825,7 @@ impl Splitter for MissingImputerSplitter {
         let mut right_weight = constrained_weight(
             &self.l1,
             &self.l2,
+            &self.max_delta_step,
             right_gradient,
             right_hessian,
             lower_bound,
@@ -839,6 +857,7 @@ impl Splitter for MissingImputerSplitter {
             let missing_left_weight = constrained_weight(
                 &self.l1,
                 &self.l2,
+                &self.max_delta_step,
                 left_gradient + missing_gradient,
                 left_hessian + missing_hessian,
                 lower_bound,
@@ -864,6 +883,7 @@ impl Splitter for MissingImputerSplitter {
             let missing_right_weight = constrained_weight(
                 &self.l1,
                 &self.l2,
+                &self.max_delta_step,
                 right_gradient + missing_gradient,
                 right_hessian + missing_hessian,
                 lower_bound,
@@ -1051,6 +1071,7 @@ mod tests {
         let splitter = MissingImputerSplitter {
             l1: 0.0,
             l2: 0.0,
+            max_delta_step: 0.,
             gamma: 0.0,
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
@@ -1098,6 +1119,7 @@ mod tests {
         let splitter = MissingImputerSplitter {
             l1: 0.0,
             l2: 0.0,
+            max_delta_step: 0.,
             gamma: 0.0,
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
@@ -1144,6 +1166,7 @@ mod tests {
         let splitter = MissingImputerSplitter {
             l1: 0.0,
             l2: 1.0,
+            max_delta_step: 0.,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
@@ -1152,7 +1175,13 @@ mod tests {
         };
         let gradient_sum = grad.iter().copied().sum();
         let hessian_sum = hess.iter().copied().sum();
-        let root_weight = weight(&splitter.l1, &splitter.l2, gradient_sum, hessian_sum);
+        let root_weight = weight(
+            &splitter.l1,
+            &splitter.l2,
+            &splitter.max_delta_step,
+            gradient_sum,
+            hessian_sum,
+        );
         let root_gain = gain(&splitter.l2, gradient_sum, hessian_sum);
         let data = Matrix::new(&data_vec, 891, 5);
 

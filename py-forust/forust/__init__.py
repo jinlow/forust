@@ -285,6 +285,7 @@ class GradientBooster:
         l1: float = 0.0,
         l2: float = 1.0,
         gamma: float = 0.0,
+        max_delta_step: float = 0.0,
         min_leaf_weight: float = 1.0,
         base_score: float = 0.5,
         nbins: int = 256,
@@ -327,6 +328,8 @@ class GradientBooster:
             l2 (float, optional): L2 regularization term applied to the weights of the tree. Valid values are 0 to infinity. Defaults to 1.0.
             gamma (float, optional): The minimum amount of loss required to further split a node.
                 Valid values are 0 to infinity. Defaults to 0.0.
+            max_delta_step (float, optional): Maximum delta step allowed at each leaf. This is the maximum magnitude a
+                leaf can take. Setting to 0 results in no constrain. Defaults to 0..
             min_leaf_weight (float, optional): Minimum sum of the hessian values of the loss function
                 required to be in a node. Defaults to 1.0.
             base_score (float, optional): The initial prediction value of the model. If `initialize_base_score`
@@ -459,6 +462,7 @@ class GradientBooster:
             l1=l1,
             l2=l2,
             gamma=gamma,
+            max_delta_step=max_delta_step,
             min_leaf_weight=min_leaf_weight,
             base_score=base_score,
             nbins=nbins,
@@ -494,6 +498,7 @@ class GradientBooster:
         self.l1 = l1
         self.l2 = l2
         self.gamma = gamma
+        self.max_delta_step = max_delta_step
         self.min_leaf_weight = min_leaf_weight
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -1076,7 +1081,7 @@ class GradientBooster:
         # that would have been loaded in as defaults on the json object?
         # This makes sure that defaults set with a serde default function get
         # carried through to the python object.
-        for p, v in booster_object.get_params():
+        for p, v in booster_object.get_params().items():
             if p not in d:
                 d[p] = v
         del d["__booster_json_file__"]

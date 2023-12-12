@@ -83,17 +83,19 @@ pub fn is_missing(value: &f64, missing: &f64) -> bool {
 
 /// Calculate the constraint weight given bounds
 /// and a constraint.
+#[allow(clippy::too_many_arguments)]
 #[inline]
 pub fn constrained_weight(
     l1: &f32,
     l2: &f32,
+    max_delta_step: &f32,
     gradient_sum: f32,
     hessian_sum: f32,
     lower_bound: f32,
     upper_bound: f32,
     constraint: Option<&Constraint>,
 ) -> f32 {
-    let weight = weight(l1, l2, gradient_sum, hessian_sum);
+    let weight = weight(l1, l2, max_delta_step, gradient_sum, hessian_sum);
     match constraint {
         None | Some(Constraint::Unconstrained) => weight,
         _ => {
@@ -220,8 +222,18 @@ pub fn l1_regularization(w: &f32, l1: &f32) -> f32 {
 /// Calculate the weight of a given node, given the sum
 /// of the gradients, and the hessians in a node.
 #[inline]
-pub fn weight(l1: &f32, l2: &f32, gradient_sum: f32, hessian_sum: f32) -> f32 {
-    -(l1_regularization(&gradient_sum, l1) / (hessian_sum + l2))
+pub fn weight(
+    l1: &f32,
+    l2: &f32,
+    max_delta_step: &f32,
+    gradient_sum: f32,
+    hessian_sum: f32,
+) -> f32 {
+    let w = -(l1_regularization(&gradient_sum, l1) / (hessian_sum + l2));
+    if (max_delta_step != &0.) && (&w.abs() > max_delta_step) {
+        return max_delta_step.copysign(w);
+    }
+    w
 }
 
 const LANES: usize = 16;

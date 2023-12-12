@@ -164,6 +164,70 @@ def test_booster_to_xgboosts_l1(X_y, l1):
         assert not np.allclose(fmod2_preds, fmod_preds, atol=0.0001)
 
 
+@pytest.mark.parametrize("max_delta_step", [0.0, 1.0, 2.0])
+def test_booster_to_xgboosts_max_delta_step(X_y, max_delta_step):
+    # Small differences in the spits make a big difference
+    # when l1 is used.
+    X, y = X_y
+    c = X.columns
+    X = X[c].fillna(0)
+    xmod = XGBClassifier(
+        n_estimators=5,
+        learning_rate=0.3,
+        max_depth=5,
+        reg_lambda=1,
+        min_child_weight=1.0,
+        gamma=0,
+        max_delta_step=max_delta_step,
+        objective="binary:logitraw",
+        tree_method="exact",
+    )
+    xmod.fit(X, y)
+    xmod_preds = xmod.predict(X, output_margin=True)
+
+    fmod = GradientBooster(
+        base_score=0.5,
+        iterations=5,
+        learning_rate=0.3,
+        max_depth=5,
+        l2=1,
+        max_delta_step=max_delta_step,
+        min_leaf_weight=1.0,
+        gamma=0,
+        objective_type="LogLoss",
+        initialize_base_score=False,
+    )
+    fmod.fit(X, y=y)
+    fmod_preds = fmod.predict(X)
+    assert np.allclose(fmod_preds, xmod_preds, atol=0.0001)
+
+    # Model trained without is different.
+    if max_delta_step > 0:
+        # The nodes weights will be maxed out at max_delta_step*learning_rate
+        max_w = []
+        for tree in fmod.get_node_lists():
+            max_w.append(max(abs(n.weight_value) for n in tree))
+        assert max(max_w) <= max_delta_step * 0.3
+        fmod2 = GradientBooster(
+            base_score=0.5,
+            iterations=5,
+            learning_rate=0.3,
+            max_depth=5,
+            l2=1,
+            min_leaf_weight=1.0,
+            gamma=0,
+            objective_type="LogLoss",
+            initialize_base_score=False,
+        )
+        fmod2.fit(X, y=y)
+        fmod2_preds = fmod2.predict(X)
+        assert not np.allclose(fmod2_preds, fmod_preds, atol=0.0001)
+        max_w = []
+        for tree in fmod2.get_node_lists():
+            max_w.append(max(abs(n.weight_value) for n in tree))
+        assert max(max_w) > max_delta_step * 0.3
+
+
 def test_sklearn_clone(X_y):
     X, y = X_y
     fmod = GradientBooster(

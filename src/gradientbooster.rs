@@ -104,6 +104,9 @@ pub struct GradientBooster {
     /// The minimum amount of loss required to further split a node.
     /// Valid values are 0 to infinity.
     pub gamma: f32,
+    /// Maximum delta step allowed at each leaf. This is the maximum magnitude a leaf can take. Setting to 0 results in no constrain.
+    #[serde(default = "default_max_delta_step")]
+    pub max_delta_step: f32,
     /// Minimum sum of the hessian values of the loss function
     /// required to be in a node.
     pub min_leaf_weight: f32,
@@ -188,6 +191,9 @@ pub struct GradientBooster {
 fn default_l1() -> f32 {
     0.0
 }
+fn default_max_delta_step() -> f32 {
+    0.0
+}
 
 fn default_initialize_base_score() -> bool {
     false
@@ -255,6 +261,7 @@ impl Default for GradientBooster {
             usize::MAX,
             0.,
             1.,
+            0.,
             0.,
             1.,
             0.5,
@@ -337,6 +344,7 @@ impl GradientBooster {
         l1: f32,
         l2: f32,
         gamma: f32,
+        max_delta_step: f32,
         min_leaf_weight: f32,
         base_score: f64,
         nbins: u16,
@@ -369,6 +377,7 @@ impl GradientBooster {
             l1,
             l2,
             gamma,
+            max_delta_step,
             min_leaf_weight,
             base_score,
             nbins,
@@ -406,6 +415,7 @@ impl GradientBooster {
         validate_positive_float_field!(self.l1);
         validate_positive_float_field!(self.l2);
         validate_positive_float_field!(self.gamma);
+        validate_positive_float_field!(self.max_delta_step);
         validate_positive_float_field!(self.min_leaf_weight);
         validate_positive_float_field!(self.subsample);
         validate_positive_float_field!(self.top_rate);
@@ -436,6 +446,7 @@ impl GradientBooster {
             let splitter = MissingBranchSplitter {
                 l1: self.l1,
                 l2: self.l2,
+                max_delta_step: self.max_delta_step,
                 gamma: self.gamma,
                 min_leaf_weight: self.min_leaf_weight,
                 learning_rate: self.learning_rate,
@@ -450,6 +461,7 @@ impl GradientBooster {
             let splitter = MissingImputerSplitter {
                 l1: self.l1,
                 l2: self.l2,
+                max_delta_step: self.max_delta_step,
                 gamma: self.gamma,
                 min_leaf_weight: self.min_leaf_weight,
                 learning_rate: self.learning_rate,
