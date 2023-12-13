@@ -282,8 +282,10 @@ class GradientBooster:
         learning_rate: float = 0.3,
         max_depth: int = 5,
         max_leaves: int = sys.maxsize,
+        l1: float = 0.0,
         l2: float = 1.0,
         gamma: float = 0.0,
+        max_delta_step: float = 0.0,
         min_leaf_weight: float = 1.0,
         base_score: float = 0.5,
         nbins: int = 256,
@@ -293,6 +295,7 @@ class GradientBooster:
         subsample: float = 1.0,
         top_rate: float = 0.1,
         other_rate: float = 0.2,
+        colsample_bytree: float = 1.0,
         seed: int = 0,
         missing: float = np.nan,
         create_missing_branch: bool = False,
@@ -321,9 +324,12 @@ class GradientBooster:
                 conservative the weights will be. Defaults to 0.3.
             max_depth (int, optional): Maximum depth of an individual tree. Valid values are 0 to infinity. Defaults to 5.
             max_leaves (int, optional): Maximum number of leaves allowed on a tree. Valid values are 0 to infinity. This is the total number of final nodes. Defaults to sys.maxsize.
+            l1 (float, optional): L1 regularization term applied to the weights of the tree. Valid values are 0 to infinity. Defaults to 0.0.
             l2 (float, optional): L2 regularization term applied to the weights of the tree. Valid values are 0 to infinity. Defaults to 1.0.
             gamma (float, optional): The minimum amount of loss required to further split a node.
                 Valid values are 0 to infinity. Defaults to 0.0.
+            max_delta_step (float, optional): Maximum delta step allowed at each leaf. This is the maximum magnitude a
+                leaf can take. Setting to 0 results in no constrain. Defaults to 0..
             min_leaf_weight (float, optional): Minimum sum of the hessian values of the loss function
                 required to be in a node. Defaults to 1.0.
             base_score (float, optional): The initial prediction value of the model. If `initialize_base_score`
@@ -355,7 +361,8 @@ class GradientBooster:
             subsample (float, optional): Percent of records to randomly sample at each iteration when
                 training a tree. Defaults to 1.0, meaning all data is used to training.
             top_rate (float, optional): Used only in goss. The retain ratio of large gradient data.
-            other_rate (float, optional):Used only in goss. the retain ratio of small gradient data.
+            other_rate (float, optional): Used only in goss. the retain ratio of small gradient data.
+            colsample_bytree (float, optional): Specify the fraction of columns that should be sampled at each iteration, valid values are in the range `(0.0,1.0]`.
             seed (integer, optional): Integer value used to seed any randomness used in the
                 algorithm. Defaults to 0.
             missing (float, optional): Value to consider missing, when training and predicting
@@ -452,8 +459,10 @@ class GradientBooster:
             learning_rate=learning_rate,
             max_depth=max_depth,
             max_leaves=max_leaves,
+            l1=l1,
             l2=l2,
             gamma=gamma,
+            max_delta_step=max_delta_step,
             min_leaf_weight=min_leaf_weight,
             base_score=base_score,
             nbins=nbins,
@@ -463,6 +472,7 @@ class GradientBooster:
             subsample=subsample,
             top_rate=top_rate,
             other_rate=other_rate,
+            colsample_bytree=colsample_bytree,
             seed=seed,
             missing=missing,
             create_missing_branch=create_missing_branch,
@@ -485,8 +495,10 @@ class GradientBooster:
         self.learning_rate = learning_rate
         self.max_depth = max_depth
         self.max_leaves = max_leaves
+        self.l1 = l1
         self.l2 = l2
         self.gamma = gamma
+        self.max_delta_step = max_delta_step
         self.min_leaf_weight = min_leaf_weight
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -496,6 +508,9 @@ class GradientBooster:
         self.allow_missing_splits = allow_missing_splits
         self.monotone_constraints = monotone_constraints_
         self.subsample = subsample
+        self.top_rate = top_rate
+        self.other_rate = other_rate
+        self.colsample_bytree = colsample_bytree
         self.seed = seed
         self.missing = missing
         self.create_missing_branch = create_missing_branch
@@ -1062,6 +1077,13 @@ class GradientBooster:
         # Load the booster object the pickled JSon string.
         booster_object = CrateGradientBooster.from_json(d["__booster_json_file__"])
         d["booster"] = booster_object
+        # Are there any new parameters, that need to be added to the python object,
+        # that would have been loaded in as defaults on the json object?
+        # This makes sure that defaults set with a serde default function get
+        # carried through to the python object.
+        for p, v in booster_object.get_params().items():
+            if p not in d:
+                d[p] = v
         del d["__booster_json_file__"]
         self.__dict__ = d
 
@@ -1119,16 +1141,22 @@ class GradientBooster:
         """
         model = json.loads(self.json_dump())["trees"]
         feature_map: dict[int, str] | dict[int, int]
+        leaf_split_feature: str | int
         if map_features_names and hasattr(self, "feature_names_in_"):
             feature_map = {i: ft for i, ft in enumerate(self.feature_names_in_)}
+            leaf_split_feature = ""
         else:
             feature_map = {i: i for i in range(self.n_features_)}
+            leaf_split_feature = -1
 
         trees = []
         for t in model:
             tree = []
             for n in t["nodes"]:
-                n["split_feature"] = feature_map[n["split_feature"]]
+                if not n["is_leaf"]:
+                    n["split_feature"] = feature_map[n["split_feature"]]
+                else:
+                    n["split_feature"] = leaf_split_feature
                 tree.append(Node(**n))
             trees.append(tree)
         return trees

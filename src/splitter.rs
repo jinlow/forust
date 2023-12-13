@@ -50,7 +50,9 @@ pub trait Splitter {
     fn get_constraint(&self, feature: &usize) -> Option<&Constraint>;
     // fn get_allow_missing_splits(&self) -> bool;
     fn get_gamma(&self) -> f32;
+    fn get_l1(&self) -> f32;
     fn get_l2(&self) -> f32;
+    fn get_max_delta_step(&self) -> f32;
     fn get_learning_rate(&self) -> f32;
 
     /// Perform any post processing on the tree that is
@@ -62,12 +64,11 @@ pub trait Splitter {
     /// Find the best possible split, considering all feature histograms.
     /// If we wanted to add Column sampling, this is probably where
     /// we would need to do it, otherwise, it would be at the tree level.
-    fn best_split(&self, node: &SplittableNode) -> Option<SplitInfo> {
+    fn best_split(&self, node: &SplittableNode, col_index: &[usize]) -> Option<SplitInfo> {
         let mut best_split_info = None;
         let mut best_gain = 0.0;
-        let HistogramMatrix(histograms) = &node.histograms;
-        for i in 0..histograms.cols {
-            let split_info = self.best_feature_split(node, i);
+        for (idx, feature) in col_index.iter().enumerate() {
+            let split_info = self.best_feature_split(node, *feature, idx);
             match split_info {
                 Some(info) => {
                     if info.split_gain > best_gain {
@@ -98,12 +99,19 @@ pub trait Splitter {
         constraint: Option<&Constraint>,
     ) -> Option<(NodeInfo, NodeInfo, MissingInfo)>;
 
-    fn best_feature_split(&self, node: &SplittableNode, feature: usize) -> Option<SplitInfo> {
+    /// The idx is the index of the feature in the histogram data, whereas feature
+    /// is the index of the actual feature in the data.
+    fn best_feature_split(
+        &self,
+        node: &SplittableNode,
+        feature: usize,
+        idx: usize,
+    ) -> Option<SplitInfo> {
         let mut split_info: Option<SplitInfo> = None;
         let mut max_gain: Option<f32> = None;
 
         let HistogramMatrix(histograms) = &node.histograms;
-        let histogram = histograms.get_col(feature);
+        let histogram = histograms.get_col(idx);
 
         // We also know we will have a missing bin.
         let missing = &histogram[0];
@@ -200,6 +208,7 @@ pub trait Splitter {
         n_nodes: &usize,
         node: &mut SplittableNode,
         index: &mut [usize],
+        col_index: &[usize],
         data: &Matrix<u16>,
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
@@ -215,15 +224,16 @@ pub trait Splitter {
         n_nodes: &usize,
         node: &mut SplittableNode,
         index: &mut [usize],
+        col_index: &[usize],
         data: &Matrix<u16>,
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
     ) -> Vec<SplittableNode> {
-        match self.best_split(node) {
+        match self.best_split(node, col_index) {
             Some(split_info) => self.handle_split_info(
-                split_info, n_nodes, node, index, data, cuts, grad, hess, parallel,
+                split_info, n_nodes, node, index, col_index, data, cuts, grad, hess, parallel,
             ),
             None => Vec::new(),
         }
@@ -236,7 +246,9 @@ pub trait Splitter {
 /// If this node is able, it will be split further, otherwise it will
 /// a leaf node will be generated.
 pub struct MissingBranchSplitter {
+    pub l1: f32,
     pub l2: f32,
+    pub max_delta_step: f32,
     pub gamma: f32,
     pub min_leaf_weight: f32,
     pub learning_rate: f32,
@@ -317,8 +329,15 @@ impl Splitter for MissingBranchSplitter {
         self.gamma
     }
 
+    fn get_l1(&self) -> f32 {
+        self.l1
+    }
+
     fn get_l2(&self) -> f32 {
         self.l2
+    }
+    fn get_max_delta_step(&self) -> f32 {
+        self.max_delta_step
     }
 
     fn get_learning_rate(&self) -> f32 {
@@ -348,7 +367,9 @@ impl Splitter for MissingBranchSplitter {
         }
 
         let mut left_weight = constrained_weight(
+            &self.l1,
             &self.l2,
+            &self.max_delta_step,
             left_gradient,
             left_hessian,
             lower_bound,
@@ -356,7 +377,9 @@ impl Splitter for MissingBranchSplitter {
             constraint,
         );
         let mut right_weight = constrained_weight(
+            &self.l1,
             &self.l2,
+            &self.max_delta_step,
             right_gradient,
             right_hessian,
             lower_bound,
@@ -387,7 +410,9 @@ impl Splitter for MissingBranchSplitter {
         // Set weight based on the missing node treatment.
         let missing_weight = match self.missing_node_treatment {
             MissingNodeTreatment::AssignToParent => constrained_weight(
+                &self.get_l1(),
                 &self.get_l2(),
+                &self.max_delta_step,
                 missing_gradient + left_gradient + right_gradient,
                 missing_hessian + left_hessian + right_hessian,
                 lower_bound,
@@ -407,7 +432,9 @@ impl Splitter for MissingBranchSplitter {
                     parent_weight
                 } else {
                     constrained_weight(
+                        &self.get_l1(),
                         &self.get_l2(),
+                        &self.max_delta_step,
                         missing_gradient,
                         missing_hessian,
                         lower_bound,
@@ -473,6 +500,7 @@ impl Splitter for MissingBranchSplitter {
         n_nodes: &usize,
         node: &mut SplittableNode,
         index: &mut [usize],
+        col_index: &[usize],
         data: &Matrix<u16>,
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
@@ -484,7 +512,7 @@ impl Splitter for MissingBranchSplitter {
         let right_child = missing_child + 2;
         node.update_children(missing_child, left_child, right_child, &split_info);
 
-        let (missing_is_leaf, mut missing_info) = match split_info.missing_node {
+        let (mut missing_is_leaf, mut missing_info) = match split_info.missing_node {
             MissingInfo::Branch(i) => {
                 if self
                     .terminate_missing_features
@@ -542,6 +570,9 @@ impl Splitter for MissingBranchSplitter {
         let right_histograms: HistogramMatrix;
         let missing_histograms: HistogramMatrix;
         if n_missing == 0 {
+            // If there are no missing records, we know the missing value
+            // will be a leaf, assign this node as a leaf.
+            missing_is_leaf = true;
             if max_ == 1 {
                 missing_histograms = HistogramMatrix::empty();
                 right_histograms = HistogramMatrix::new(
@@ -550,6 +581,7 @@ impl Splitter for MissingBranchSplitter {
                     grad,
                     hess,
                     &index[split_idx..node.stop_idx],
+                    col_index,
                     parallel,
                     true,
                 );
@@ -563,6 +595,7 @@ impl Splitter for MissingBranchSplitter {
                     grad,
                     hess,
                     &index[missing_split_idx..split_idx],
+                    col_index,
                     parallel,
                     true,
                 );
@@ -578,6 +611,7 @@ impl Splitter for MissingBranchSplitter {
                 grad,
                 hess,
                 &index[missing_split_idx..split_idx],
+                col_index,
                 parallel,
                 true,
             );
@@ -587,6 +621,7 @@ impl Splitter for MissingBranchSplitter {
                 grad,
                 hess,
                 &index[split_idx..node.stop_idx],
+                col_index,
                 parallel,
                 true,
             );
@@ -602,6 +637,7 @@ impl Splitter for MissingBranchSplitter {
                 grad,
                 hess,
                 &index[node.start_idx..missing_split_idx],
+                col_index,
                 parallel,
                 true,
             );
@@ -611,6 +647,7 @@ impl Splitter for MissingBranchSplitter {
                 grad,
                 hess,
                 &index[split_idx..node.stop_idx],
+                col_index,
                 parallel,
                 true,
             );
@@ -627,6 +664,7 @@ impl Splitter for MissingBranchSplitter {
                 grad,
                 hess,
                 &index[node.start_idx..missing_split_idx],
+                col_index,
                 parallel,
                 true,
             );
@@ -636,6 +674,7 @@ impl Splitter for MissingBranchSplitter {
                 grad,
                 hess,
                 &index[missing_split_idx..split_idx],
+                col_index,
                 parallel,
                 true,
             );
@@ -680,7 +719,9 @@ impl Splitter for MissingBranchSplitter {
 /// them down either the right or left branch, depending
 /// on which results in a higher increase in gain.
 pub struct MissingImputerSplitter {
+    pub l1: f32,
     pub l2: f32,
+    pub max_delta_step: f32,
     pub gamma: f32,
     pub min_leaf_weight: f32,
     pub learning_rate: f32,
@@ -690,8 +731,11 @@ pub struct MissingImputerSplitter {
 
 impl MissingImputerSplitter {
     /// Generate a new missing imputer splitter object.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        l1: f32,
         l2: f32,
+        max_delta_step: f32,
         gamma: f32,
         min_leaf_weight: f32,
         learning_rate: f32,
@@ -699,7 +743,9 @@ impl MissingImputerSplitter {
         constraints_map: ConstraintMap,
     ) -> Self {
         MissingImputerSplitter {
+            l1,
             l2,
+            max_delta_step,
             gamma,
             min_leaf_weight,
             learning_rate,
@@ -718,8 +764,15 @@ impl Splitter for MissingImputerSplitter {
         self.gamma
     }
 
+    fn get_l1(&self) -> f32 {
+        self.l1
+    }
+
     fn get_l2(&self) -> f32 {
         self.l2
+    }
+    fn get_max_delta_step(&self) -> f32 {
+        self.max_delta_step
     }
 
     fn get_learning_rate(&self) -> f32 {
@@ -760,7 +813,9 @@ impl Splitter for MissingImputerSplitter {
         let mut right_hessian = right_hessian;
 
         let mut left_weight = constrained_weight(
+            &self.l1,
             &self.l2,
+            &self.max_delta_step,
             left_gradient,
             left_hessian,
             lower_bound,
@@ -768,7 +823,9 @@ impl Splitter for MissingImputerSplitter {
             constraint,
         );
         let mut right_weight = constrained_weight(
+            &self.l1,
             &self.l2,
+            &self.max_delta_step,
             right_gradient,
             right_hessian,
             lower_bound,
@@ -798,7 +855,9 @@ impl Splitter for MissingImputerSplitter {
             // back to f32...
             // The weight if missing went left
             let missing_left_weight = constrained_weight(
+                &self.l1,
                 &self.l2,
+                &self.max_delta_step,
                 left_gradient + missing_gradient,
                 left_hessian + missing_hessian,
                 lower_bound,
@@ -822,7 +881,9 @@ impl Splitter for MissingImputerSplitter {
 
             // The gain if missing went right
             let missing_right_weight = constrained_weight(
+                &self.l1,
                 &self.l2,
+                &self.max_delta_step,
                 right_gradient + missing_gradient,
                 right_hessian + missing_hessian,
                 lower_bound,
@@ -890,6 +951,7 @@ impl Splitter for MissingImputerSplitter {
         n_nodes: &usize,
         node: &mut SplittableNode,
         index: &mut [usize],
+        col_index: &[usize],
         data: &Matrix<u16>,
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
@@ -937,6 +999,7 @@ impl Splitter for MissingImputerSplitter {
                 grad,
                 hess,
                 &index[node.start_idx..split_idx],
+                col_index,
                 parallel,
                 true,
             );
@@ -949,6 +1012,7 @@ impl Splitter for MissingImputerSplitter {
                 grad,
                 hess,
                 &index[split_idx..node.stop_idx],
+                col_index,
                 parallel,
                 true,
             );
@@ -1003,9 +1067,11 @@ mod tests {
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, true);
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, &[0], true, true);
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 0.0,
+            max_delta_step: 0.,
             gamma: 0.0,
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
@@ -1026,7 +1092,7 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
-        let s = splitter.best_feature_split(&mut n, 0).unwrap();
+        let s = splitter.best_feature_split(&mut n, 0, 0).unwrap();
         assert_eq!(s.split_value, 4.0);
         assert_eq!(s.left_node.cover, 0.75);
         assert_eq!(s.right_node.cover, 1.0);
@@ -1047,10 +1113,13 @@ mod tests {
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, true);
+        let hists =
+            HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, &[0, 1], true, true);
         println!("{:?}", hists);
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 0.0,
+            max_delta_step: 0.,
             gamma: 0.0,
             min_leaf_weight: 0.0,
             learning_rate: 1.0,
@@ -1071,7 +1140,7 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
-        let s = splitter.best_split(&mut n).unwrap();
+        let s = splitter.best_split(&mut n, &[0, 1]).unwrap();
         println!("{:?}", s);
         assert_eq!(s.split_feature, 1);
         assert_eq!(s.split_value, 4.);
@@ -1095,7 +1164,9 @@ mod tests {
         let (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
 
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 1.0,
+            max_delta_step: 0.,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
@@ -1104,14 +1175,23 @@ mod tests {
         };
         let gradient_sum = grad.iter().copied().sum();
         let hessian_sum = hess.iter().copied().sum();
+        let root_weight = weight(
+            &splitter.l1,
+            &splitter.l2,
+            &splitter.max_delta_step,
+            gradient_sum,
+            hessian_sum,
+        );
         let root_gain = gain(&splitter.l2, gradient_sum, hessian_sum);
-        let root_weight = weight(&splitter.l2, gradient_sum, hessian_sum);
         let data = Matrix::new(&data_vec, 891, 5);
 
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, true, false);
+        let col_index: Vec<usize> = (0..data.cols).collect();
+        let hists = HistogramMatrix::new(
+            &bdata, &b.cuts, &grad, &hess, &index, &col_index, true, false,
+        );
 
         let mut n = SplittableNode::new(
             0,
@@ -1127,7 +1207,7 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
-        let s = splitter.best_split(&mut n).unwrap();
+        let s = splitter.best_split(&mut n, &col_index).unwrap();
         println!("{:?}", s);
         n.update_children(2, 1, 2, &s);
         assert_eq!(0, s.split_feature);

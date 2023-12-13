@@ -14,6 +14,7 @@ use crate::tree::Tree;
 use crate::utils::{fmt_vec_output, odds, validate_positive_float_field};
 use log::info;
 use rand::rngs::StdRng;
+use rand::seq::IteratorRandom;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -93,12 +94,19 @@ pub struct GradientBooster {
     /// Maximum number of leaves allowed on a tree. Valid values
     /// are 0 to infinity. This is the total number of final nodes.
     pub max_leaves: usize,
+    /// L1 regularization term applied to the weights of the tree. Valid values
+    /// are 0 to infinity. 0 Means no regularization applied.
+    #[serde(default = "default_l1")]
+    pub l1: f32,
     /// L2 regularization term applied to the weights of the tree. Valid values
     /// are 0 to infinity.
     pub l2: f32,
     /// The minimum amount of loss required to further split a node.
     /// Valid values are 0 to infinity.
     pub gamma: f32,
+    /// Maximum delta step allowed at each leaf. This is the maximum magnitude a leaf can take. Setting to 0 results in no constrain.
+    #[serde(default = "default_max_delta_step")]
+    pub max_delta_step: f32,
     /// Minimum sum of the hessian values of the loss function
     /// required to be in a node.
     pub min_leaf_weight: f32,
@@ -125,6 +133,9 @@ pub struct GradientBooster {
     /// Used only in goss. the retain ratio of small gradient data.
     #[serde(default = "default_other_rate")]
     pub other_rate: f64,
+    /// Specify the fraction of columns that should be sampled at each iteration, valid values are in the range (0.0,1.0].
+    #[serde(default = "default_colsample_bytree")]
+    pub colsample_bytree: f64,
     /// Integer value used to seed any randomness used in the algorithm.
     pub seed: u64,
     /// Value to consider missing.
@@ -177,6 +188,13 @@ pub struct GradientBooster {
     metadata: HashMap<String, String>,
 }
 
+fn default_l1() -> f32 {
+    0.0
+}
+fn default_max_delta_step() -> f32 {
+    0.0
+}
+
 fn default_initialize_base_score() -> bool {
     false
 }
@@ -212,7 +230,9 @@ fn default_prediction_iteration() -> Option<usize> {
 fn default_terminate_missing_features() -> HashSet<usize> {
     HashSet::new()
 }
-
+fn default_colsample_bytree() -> f64 {
+    1.0
+}
 fn default_missing_node_treatment() -> MissingNodeTreatment {
     MissingNodeTreatment::AssignToParent
 }
@@ -239,7 +259,9 @@ impl Default for GradientBooster {
             0.3,
             5,
             usize::MAX,
+            0.,
             1.,
+            0.,
             0.,
             1.,
             0.5,
@@ -250,6 +272,7 @@ impl Default for GradientBooster {
             1.,
             0.1,
             0.2,
+            1.0,
             0,
             f64::NAN,
             false,
@@ -301,6 +324,7 @@ impl GradientBooster {
     /// * `subsample` - Percent of records to randomly sample at each iteration when training a tree.
     /// * `top_rate` - Used only in goss. The retain ratio of large gradient data.
     /// * `other_rate` - Used only in goss. the retain ratio of small gradient data.
+    /// * `colsample_bytree` - Specify the fraction of columns that should be sampled at each iteration, valid values are in the range (0.0,1.0].
     /// * `seed` - Integer value used to seed any randomness used in the algorithm.
     /// * `missing` - Value to consider missing.
     /// * `create_missing_branch` - Should missing be split out it's own separate branch?
@@ -317,8 +341,10 @@ impl GradientBooster {
         learning_rate: f32,
         max_depth: usize,
         max_leaves: usize,
+        l1: f32,
         l2: f32,
         gamma: f32,
+        max_delta_step: f32,
         min_leaf_weight: f32,
         base_score: f64,
         nbins: u16,
@@ -328,6 +354,7 @@ impl GradientBooster {
         subsample: f32,
         top_rate: f64,
         other_rate: f64,
+        colsample_bytree: f64,
         seed: u64,
         missing: f64,
         create_missing_branch: bool,
@@ -347,8 +374,10 @@ impl GradientBooster {
             learning_rate,
             max_depth,
             max_leaves,
+            l1,
             l2,
             gamma,
+            max_delta_step,
             min_leaf_weight,
             base_score,
             nbins,
@@ -358,6 +387,7 @@ impl GradientBooster {
             subsample,
             top_rate,
             other_rate,
+            colsample_bytree,
             seed,
             missing,
             create_missing_branch,
@@ -382,12 +412,15 @@ impl GradientBooster {
 
     fn validate_parameters(&self) -> Result<(), ForustError> {
         validate_positive_float_field!(self.learning_rate);
+        validate_positive_float_field!(self.l1);
         validate_positive_float_field!(self.l2);
         validate_positive_float_field!(self.gamma);
+        validate_positive_float_field!(self.max_delta_step);
         validate_positive_float_field!(self.min_leaf_weight);
         validate_positive_float_field!(self.subsample);
         validate_positive_float_field!(self.top_rate);
         validate_positive_float_field!(self.other_rate);
+        validate_positive_float_field!(self.colsample_bytree);
         Ok(())
     }
 
@@ -411,7 +444,9 @@ impl GradientBooster {
             .to_owned();
         if self.create_missing_branch {
             let splitter = MissingBranchSplitter {
+                l1: self.l1,
                 l2: self.l2,
+                max_delta_step: self.max_delta_step,
                 gamma: self.gamma,
                 min_leaf_weight: self.min_leaf_weight,
                 learning_rate: self.learning_rate,
@@ -424,7 +459,9 @@ impl GradientBooster {
             self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
         } else {
             let splitter = MissingImputerSplitter {
+                l1: self.l1,
                 l2: self.l2,
+                max_delta_step: self.max_delta_step,
                 gamma: self.gamma,
                 min_leaf_weight: self.min_leaf_weight,
                 learning_rate: self.learning_rate,
@@ -518,7 +555,7 @@ impl GradientBooster {
 
         // This will always be false, unless early stopping rounds are used.
         let mut stop_early = false;
-
+        let col_index: Vec<usize> = (0..data.cols).collect();
         for i in 0..self.iterations {
             let verbose = if self.log_iterations == 0 {
                 false
@@ -530,9 +567,31 @@ impl GradientBooster {
                 self.sample_index(&mut rng, &data.index, &mut grad, &mut hess);
             let mut tree = Tree::new();
 
+            // If we are doing any column sampling...
+            let colsample_index: Vec<usize> = if self.colsample_bytree == 1.0 {
+                Vec::new()
+            } else {
+                let amount = ((col_index.len() as f64) * self.colsample_bytree).floor() as usize;
+                let mut v: Vec<usize> = col_index
+                    .iter()
+                    .choose_multiple(&mut rng, amount)
+                    .iter()
+                    .map(|i| **i)
+                    .collect();
+                v.sort();
+                v
+            };
+
+            let fit_col_index = if self.colsample_bytree == 1.0 {
+                &col_index
+            } else {
+                &colsample_index
+            };
+
             tree.fit(
                 &bdata,
                 chosen_index,
+                fit_col_index,
                 &binned_data.cuts,
                 &grad,
                 &hess,
@@ -1020,6 +1079,13 @@ impl GradientBooster {
         self
     }
 
+    /// Set the l1 on the booster.
+    /// * `l1` - The l1 regulation term of the booster.
+    pub fn set_l1(mut self, l1: f32) -> Self {
+        self.l1 = l1;
+        self
+    }
+
     /// Set the l2 on the booster.
     /// * `l2` - The l2 regulation term of the booster.
     pub fn set_l2(mut self, l2: f32) -> Self {
@@ -1031,6 +1097,13 @@ impl GradientBooster {
     /// * `gamma` - The gamma value of the booster.
     pub fn set_gamma(mut self, gamma: f32) -> Self {
         self.gamma = gamma;
+        self
+    }
+
+    /// Set the max_delta_step on the booster.
+    /// * `max_delta_step` - The max_delta_step value of the booster.
+    pub fn set_max_delta_step(mut self, max_delta_step: f32) -> Self {
+        self.max_delta_step = max_delta_step;
         self
     }
 
@@ -1081,6 +1154,13 @@ impl GradientBooster {
     /// * `subsample` - Percent of the data to randomly sample when training each tree.
     pub fn set_subsample(mut self, subsample: f32) -> Self {
         self.subsample = subsample;
+        self
+    }
+
+    /// Set the colsample_bytree on the booster.
+    /// * `colsample_bytree` - Percent of the columns to randomly sample when training each tree.
+    pub fn set_colsample_bytree(mut self, colsample_bytree: f64) -> Self {
+        self.colsample_bytree = colsample_bytree;
         self
     }
 

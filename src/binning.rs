@@ -101,9 +101,9 @@ pub fn bin_matrix(
         let mut col_cuts = percentiles_or_value(&no_miss, &w, &pcts);
         col_cuts.push(f64::MAX);
         col_cuts.dedup();
-        if col_cuts.len() < 2 {
-            return Err(ForustError::NoVariance(i));
-        }
+        // if col_cuts.len() < 2 {
+        //     return Err(ForustError::NoVariance(i));
+        // }
         // There will be one less bins, then there are cuts.
         // The first value will be for missing.
         nunique.push(col_cuts.len());
