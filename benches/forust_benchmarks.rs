@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use forust_ml::binning::bin_matrix;
 use forust_ml::constraints::ConstraintMap;
 use forust_ml::data::Matrix;
-use forust_ml::gradientbooster::GradientBooster;
+use forust_ml::gradientbooster::{GradientBooster, GrowPolicy};
 use forust_ml::objective::{LogLoss, ObjectiveFunction};
 use forust_ml::sampler::SampleMethod;
 use forust_ml::splitter::MissingImputerSplitter;
@@ -33,7 +33,9 @@ pub fn tree_benchmarks(c: &mut Criterion) {
 
     let data = Matrix::new(&data_vec, y.len(), 5);
     let splitter = MissingImputerSplitter {
+        l1: 0.0,
         l2: 1.0,
+        max_delta_step: 0.,
         gamma: 3.0,
         min_leaf_weight: 1.0,
         learning_rate: 0.3,
@@ -44,9 +46,11 @@ pub fn tree_benchmarks(c: &mut Criterion) {
 
     let bindata = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
     let bdata = Matrix::new(&bindata.binned_data, data.rows, data.cols);
+    let col_index: Vec<usize> = (0..data.cols).collect();
     tree.fit(
         &bdata,
         data.index.to_owned(),
+        &col_index,
         &bindata.cuts,
         &g,
         &h,
@@ -55,6 +59,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
         5,
         true,
         &SampleMethod::None,
+        &GrowPolicy::DepthWise,
     );
     println!("{}", tree.nodes.len());
     c.bench_function("Train Tree", |b| {
@@ -63,6 +68,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
             train_tree.fit(
                 black_box(&bdata),
                 black_box(data.index.to_owned()),
+                black_box(&col_index),
                 black_box(&bindata.cuts),
                 black_box(&g),
                 black_box(&h),
@@ -71,6 +77,26 @@ pub fn tree_benchmarks(c: &mut Criterion) {
                 black_box(10),
                 black_box(false),
                 black_box(&SampleMethod::None),
+                black_box(&GrowPolicy::DepthWise),
+            );
+        })
+    });
+    c.bench_function("Train Tree - column subset", |b| {
+        b.iter(|| {
+            let mut train_tree: Tree = Tree::new();
+            train_tree.fit(
+                black_box(&bdata),
+                black_box(data.index.to_owned()),
+                black_box(&[1, 3, 4]),
+                black_box(&bindata.cuts),
+                black_box(&g),
+                black_box(&h),
+                black_box(&splitter),
+                black_box(usize::MAX),
+                black_box(10),
+                black_box(false),
+                black_box(&SampleMethod::None),
+                black_box(&GrowPolicy::DepthWise),
             );
         })
     });
@@ -90,6 +116,21 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     booster_train.bench_function("Train Booster", |b| {
         b.iter(|| {
             let mut booster = GradientBooster::default().set_parallel(false);
+            booster
+                .fit(
+                    black_box(&data),
+                    black_box(&y),
+                    black_box(&w),
+                    black_box(None),
+                )
+                .unwrap();
+        })
+    });
+    booster_train.bench_function("Train Booster - Column Sampling", |b| {
+        b.iter(|| {
+            let mut booster = GradientBooster::default()
+                .set_parallel(false)
+                .set_colsample_bytree(0.5);
             booster
                 .fit(
                     black_box(&data),

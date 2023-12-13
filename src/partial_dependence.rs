@@ -97,7 +97,9 @@ mod tests {
 
         let data = Matrix::new(&data_vec, 891, 5);
         let splitter = MissingImputerSplitter {
+            l1: 0.0,
             l2: 1.0,
+            max_delta_step: 0.,
             gamma: 3.0,
             min_leaf_weight: 1.0,
             learning_rate: 0.3,
@@ -108,10 +110,11 @@ mod tests {
 
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
-
+        let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
             &bdata,
             data.index.to_owned(),
+            &col_index,
             &b.cuts,
             &g,
             &h,

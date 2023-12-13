@@ -116,16 +116,17 @@ impl HistogramMatrix {
             n_records: 0,
         })
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         data: &Matrix<u16>,
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
         index: &[usize],
+        col_index: &[usize],
         parallel: bool,
         sort: bool,
     ) -> Self {
-        let col_index: Vec<usize> = (0..data.cols).collect();
         // Sort gradients and hessians to reduce cache hits.
         // This made a really sizeable difference on larger datasets
         // Bringing training time down from nearly 6 minutes, to 2 minutes.
@@ -172,11 +173,32 @@ impl HistogramMatrix {
                 })
                 .collect::<Vec<Bin<f32>>>()
         };
+
+        // If we have sampled down the columns, we need to recalculate the ends.
+        // we can do this by iterating over the cut's, as this will be the size
+        // of the histograms.
+        let ends: Vec<usize> = if col_index.len() == data.cols {
+            cuts.ends.to_owned()
+        } else {
+            col_index
+                .iter()
+                .scan(0_usize, |state, i| {
+                    *state += cuts.get_col(*i).len();
+                    Some(*state)
+                })
+                .collect()
+        };
+        let n_records = if col_index.len() == data.cols {
+            cuts.n_records
+        } else {
+            ends.iter().sum()
+        };
+
         HistogramMatrix(JaggedMatrix {
             data: histograms,
-            ends: cuts.ends.to_owned(),
-            cols: cuts.cols,
-            n_records: cuts.n_records,
+            ends,
+            cols: col_index.len(),
+            n_records,
         })
     }
 
