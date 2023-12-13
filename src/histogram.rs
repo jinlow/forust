@@ -150,15 +150,13 @@ impl HistogramMatrix {
             col_index
                 .par_iter()
                 .flat_map(|col| {
-                    let h = create_feature_histogram(
+                    create_feature_histogram(
                         data.get_col(*col),
                         cuts.get_col(*col),
                         &sorted_grad,
                         &sorted_hess,
                         index,
-                    );
-                    //ends[*col] = h.len();
-                    h
+                    )
                 })
                 .collect::<Vec<Bin<f32>>>()
         } else {

@@ -1100,6 +1100,13 @@ impl GradientBooster {
         self
     }
 
+    /// Set the max_delta_step on the booster.
+    /// * `max_delta_step` - The max_delta_step value of the booster.
+    pub fn set_max_delta_step(mut self, max_delta_step: f32) -> Self {
+        self.max_delta_step = max_delta_step;
+        self
+    }
+
     /// Set the min_leaf_weight on the booster.
     /// * `min_leaf_weight` - The minimum sum of the hession values allowed in the
     ///     node of a tree of the booster.
