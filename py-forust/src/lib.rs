@@ -363,7 +363,7 @@ impl GradientBooster {
             .booster
             .monotone_constraints
             .as_ref()
-            .unwrap()
+            .unwrap_or(&HashMap::new())
             .iter()
             .map(|(f, c)| {
                 let c_ = match c {
