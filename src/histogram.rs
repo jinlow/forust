@@ -119,7 +119,7 @@ pub fn create_feature_histogram(
         .iter_mut()
         .zip(gradient_sums)
         .zip(hessian_sums)
-        .map(|(h, (g, h))| h.update(g, h))
+        .map(|((hist, g), h)| hist.update(g, h))
         .collect()
 }
 
