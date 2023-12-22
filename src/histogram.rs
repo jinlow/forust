@@ -89,7 +89,7 @@ pub fn create_feature_histogram(
     sorted_hess: &[f32],
     index: &[usize],
 ) -> Vec<Bin<f32>> {
-    let mut histogram: Vec<Bin<f64>> = Vec::with_capacity(cuts.len());
+    let mut histogram: Vec<Bin<f32>> = Vec::with_capacity(cuts.len());
 
     let mut gradient_sums: Vec<f64> = Vec::with_capacity(cuts.len());
     let mut hessian_sums: Vec<f64> = Vec::with_capacity(cuts.len());
