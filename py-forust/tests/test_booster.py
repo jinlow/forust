@@ -30,6 +30,34 @@ def X_y() -> Tuple[pd.DataFrame, pd.Series]:
     return X, y
 
 
+@pytest.mark.parametrize(
+    "subsample,max_leaves,grow_policy",
+    itertools.product([0.5, 1.0], [5, 32], ["LossGuide", "DepthWise"]),
+)
+def test_n_records(X_y, subsample: float, max_leaves: int, grow_policy: str):
+    X, y = X_y
+    subsample = 1.0
+    fmod = GradientBooster(
+        max_depth=1000,
+        subsample=subsample,
+        max_leaves=max_leaves,
+        grow_policy=grow_policy,
+    )
+    fmod.fit(X, y)
+    # For each tree, assert that the total number of records
+    # at the root, is the same as all the records in the leaves...
+    nodes_list = fmod.get_node_lists()
+    for tree in nodes_list:
+        total_records = 0
+        root_records = tree[0].n_records
+        for n in tree:
+            if n.is_leaf:
+                total_records += n.n_records
+        assert root_records == total_records
+        if subsample == 1.0:
+            assert root_records == X.shape[0]
+
+
 def test_booster_no_variance(X_y):
     X, y = X_y
     X.iloc[:, 3] = 1

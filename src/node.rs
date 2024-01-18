@@ -27,6 +27,7 @@ pub struct SplittableNode {
     pub upper_bound: f32,
     pub is_leaf: bool,
     pub is_missing_leaf: bool,
+    pub n_records: usize,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -42,6 +43,7 @@ pub struct Node {
     pub left_child: usize,
     pub right_child: usize,
     pub is_leaf: bool,
+    pub n_records: usize,
 }
 
 impl Ord for SplittableNode {
@@ -121,6 +123,7 @@ impl SplittableNode {
             upper_bound: node_info.bounds.1,
             is_leaf: true,
             is_missing_leaf: false,
+            n_records: stop_idx - start_idx,
         }
     }
 
@@ -160,6 +163,7 @@ impl SplittableNode {
             upper_bound,
             is_leaf: true,
             is_missing_leaf: false,
+            n_records: stop_idx - start_idx,
         }
     }
 
@@ -211,6 +215,7 @@ impl SplittableNode {
             left_child: self.left_child,
             right_child: self.right_child,
             is_leaf: self.is_leaf,
+            n_records: self.n_records,
         }
     }
 }

@@ -61,6 +61,7 @@ class Node:
     left_child: int
     right_child: int
     is_leaf: bool
+    n_records: int
 
     @classmethod
     def _from_xgboost_node(
@@ -78,6 +79,7 @@ class Node:
             left_child=xgb_node.get("yes", 0),
             right_child=xgb_node.get("no", 0),
             is_leaf="leaf" in xgb_node,
+            n_records=0,
         )
 
 
