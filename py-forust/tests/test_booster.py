@@ -31,10 +31,21 @@ def X_y() -> Tuple[pd.DataFrame, pd.Series]:
 
 
 @pytest.mark.parametrize(
-    "subsample,max_leaves,grow_policy",
-    itertools.product([0.5, 1.0], [5, 32], ["LossGuide", "DepthWise"]),
+    "subsample,max_leaves,grow_policy,create_missing_branch",
+    itertools.product(
+        [0.5, 1.0],
+        [5, 32],
+        ["LossGuide", "DepthWise"],
+        [True, False],
+    ),
 )
-def test_n_records(X_y, subsample: float, max_leaves: int, grow_policy: str):
+def test_n_records(
+    X_y,
+    subsample: float,
+    max_leaves: int,
+    grow_policy: str,
+    create_missing_branch: bool,
+):
     X, y = X_y
     subsample = 1.0
     fmod = GradientBooster(
@@ -42,6 +53,7 @@ def test_n_records(X_y, subsample: float, max_leaves: int, grow_policy: str):
         subsample=subsample,
         max_leaves=max_leaves,
         grow_policy=grow_policy,
+        create_missing_branch=create_missing_branch,
     )
     fmod.fit(X, y)
     # For each tree, assert that the total number of records
