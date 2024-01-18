@@ -2,7 +2,7 @@ use crate::data::{JaggedMatrix, Matrix};
 use crate::gradientbooster::GrowPolicy;
 use crate::grower::Grower;
 use crate::histogram::HistogramMatrix;
-use crate::node::{Node, SplittableNode};
+use crate::node::{Node, NodeStats, SplittableNode};
 use crate::partial_dependence::tree_partial_dependence;
 use crate::sampler::SampleMethod;
 use crate::splitter::Splitter;
@@ -16,6 +16,7 @@ use std::fmt::{self, Display};
 #[derive(Deserialize, Serialize)]
 pub struct Tree {
     pub nodes: Vec<Node>,
+    pub node_stats: Vec<NodeStats>,
 }
 
 impl Default for Tree {
@@ -26,7 +27,14 @@ impl Default for Tree {
 
 impl Tree {
     pub fn new() -> Self {
-        Tree { nodes: Vec::new() }
+        Tree {
+            nodes: Vec::new(),
+            node_stats: Vec::new(),
+        }
+    }
+    pub fn push_node(&mut self, node: &SplittableNode, learning_rate: f32) {
+        self.nodes.push(node.as_node(learning_rate));
+        self.node_stats.push(node.as_node_stats());
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -91,8 +99,7 @@ impl Tree {
             f32::INFINITY,
         );
         // Add the first node to the tree nodes.
-        self.nodes
-            .push(root_node.as_node(splitter.get_learning_rate()));
+        self.push_node(&root_node, splitter.get_learning_rate());
         let mut n_leaves = 1;
 
         let mut growable: Box<dyn Grower> = match grow_policy {
@@ -142,7 +149,7 @@ impl Tree {
                 n_leaves += n_new_nodes;
                 n_nodes += n_new_nodes;
                 for n in new_nodes {
-                    self.nodes.push(n.as_node(splitter.get_learning_rate()));
+                    self.push_node(&n, splitter.get_learning_rate());
                     if !n.is_missing_leaf {
                         growable.add_node(n)
                     }
@@ -527,7 +534,7 @@ impl Tree {
     }
 
     pub fn calculate_importance_gain(&self, stats: &mut HashMap<usize, (f32, usize)>) {
-        self.get_node_stats(&|n: &Node| n.split_gain, stats);
+        self.get_node_stats(&|n: &Node| n.hessian_sum, stats);
     }
 
     pub fn calculate_importance_cover(&self, stats: &mut HashMap<usize, (f32, usize)>) {
@@ -542,10 +549,11 @@ impl Display for Tree {
         let mut r = String::new();
         while let Some(idx) = print_buffer.pop() {
             let node = &self.nodes[idx];
+            let node_stats = &self.node_stats[idx];
             if node.is_leaf {
-                r += format!("{}{}\n", "      ".repeat(node.depth).as_str(), node).as_str();
+                r += format!("{}{}\n", "      ".repeat(node_stats.depth).as_str(), node).as_str();
             } else {
-                r += format!("{}{}\n", "      ".repeat(node.depth).as_str(), node).as_str();
+                r += format!("{}{}\n", "      ".repeat(node_stats.depth).as_str(), node).as_str();
                 print_buffer.push(node.right_child);
                 print_buffer.push(node.left_child);
                 if node.has_missing_branch() {

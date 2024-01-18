@@ -33,16 +33,21 @@ pub struct SplittableNode {
 #[derive(Deserialize, Serialize)]
 pub struct Node {
     pub num: usize,
-    pub weight_value: f32,
     pub hessian_sum: f32,
-    pub depth: usize,
+    pub weight_value: f32,
     pub split_value: f64,
     pub split_feature: usize,
-    pub split_gain: f32,
     pub missing_node: usize,
     pub left_child: usize,
     pub right_child: usize,
     pub is_leaf: bool,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct NodeStats {
+    pub hessian_sum: f32,
+    pub depth: usize,
+    pub split_gain: f32,
     pub n_records: usize,
 }
 
@@ -74,7 +79,6 @@ impl Node {
         self.missing_node = split_node.missing_node;
         self.split_value = split_node.split_value;
         self.split_feature = split_node.split_feature;
-        self.split_gain = split_node.split_gain;
         self.left_child = split_node.left_child;
         self.right_child = split_node.right_child;
     }
@@ -202,20 +206,26 @@ impl SplittableNode {
         left_node_info.gain + right_node_info.gain + missing_split_gain - self.gain_value - gamma
     }
 
+    pub fn as_node_stats(&self) -> NodeStats {
+        NodeStats {
+            depth: self.depth,
+            hessian_sum: self.hessian_sum,
+            split_gain: self.split_gain,
+            n_records: self.n_records,
+        }
+    }
+
     pub fn as_node(&self, learning_rate: f32) -> Node {
         Node {
             num: self.num,
-            weight_value: self.weight_value * learning_rate,
             hessian_sum: self.hessian_sum,
-            depth: self.depth,
+            weight_value: self.weight_value * learning_rate,
             missing_node: self.missing_node,
             split_value: self.split_value,
             split_feature: self.split_feature,
-            split_gain: self.split_gain,
             left_child: self.left_child,
             right_child: self.right_child,
             is_leaf: self.is_leaf,
-            n_records: self.n_records,
         }
     }
 }
@@ -227,7 +237,9 @@ impl fmt::Display for Node {
             write!(
                 f,
                 "{}:leaf={},cover={}",
-                self.num, self.weight_value, self.hessian_sum
+                self.num,
+                self.weight_value,
+                0. //self.hessian_sum
             )
         } else {
             write!(
@@ -239,7 +251,7 @@ impl fmt::Display for Node {
                 self.left_child,
                 self.right_child,
                 self.missing_node,
-                self.split_gain,
+                0., //self.split_gain,
                 self.hessian_sum
             )
         }
