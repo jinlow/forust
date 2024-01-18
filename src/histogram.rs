@@ -89,16 +89,8 @@ pub fn create_feature_histogram(
     sorted_hess: &[f32],
     index: &[usize],
 ) -> Vec<Bin<f32>> {
-    let mut histogram: Vec<Bin<f32>> = Vec::with_capacity(cuts.len());
-
-    let mut gradient_sums: Vec<f64> = Vec::with_capacity(cuts.len());
-    let mut hessian_sums: Vec<f64> = Vec::with_capacity(cuts.len());
-
-    histogram.push(Bin::new_f32(f64::NAN));
-    // The last cut value is simply the maximum possible value, so we don't need it.
-    // This value is needed initially for binning, but we don't need to count it as
-    // a histogram bin.
-    histogram.extend(cuts[..(cuts.len() - 1)].iter().map(|c| Bin::new_f32(*c)));
+    let mut gradient_sums: Vec<f64> = vec![0.; cuts.len()];
+    let mut hessian_sums: Vec<f64> = vec![0.; cuts.len()];
 
     index
         .iter()
@@ -112,14 +104,21 @@ pub fn create_feature_histogram(
                 *v += f64::from(*h);
             }
         });
+
+    // The first value si reserved for missing.
     // The last cut value is simply the maximum possible value, so we don't need it.
     // This value is needed initially for binning, but we don't need to count it as
     // a histogram bin.
-    histogram
-        .iter_mut()
+    Some(&f64::NAN)
+        .into_iter()
+        .chain(cuts[..(cuts.len() - 1)].iter())
         .zip(gradient_sums)
         .zip(hessian_sums)
-        .map(|((hist, g), h)| hist.update(g, h))
+        .map(|((c, g), h)| Bin {
+            gradient_sum: g as f32,
+            hessian_sum: h as f32,
+            cut_value: *c,
+        })
         .collect()
 }
 
