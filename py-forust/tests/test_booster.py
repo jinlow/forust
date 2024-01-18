@@ -56,6 +56,8 @@ def test_n_records(X_y, subsample: float, max_leaves: int, grow_policy: str):
         assert root_records == total_records
         if subsample == 1.0:
             assert root_records == X.shape[0]
+        else:
+            assert root_records < X.shape[0]
 
 
 def test_booster_no_variance(X_y):
