@@ -30,6 +30,31 @@ def X_y() -> Tuple[pd.DataFrame, pd.Series]:
     return X, y
 
 
+def test_booster_y_sample_validation():
+    X = pd.DataFrame({"a": [1, 2, 3], "b": [-1, 2, 4], "c": [np.nan, 3, 4]})
+    y = pd.Series([1, 0, 1])
+    y_miss = pd.Series([1, 0, np.nan])
+
+    model = GradientBooster()
+    with pytest.raises(ValueError, match="Missing values found in y"):
+        model.fit(X, y_miss)
+    with pytest.raises(ValueError, match="Negative values found in sample_weight"):
+        model.fit(X, y, sample_weight=X["b"])
+    with pytest.raises(ValueError, match="Missing values found in sample_weight"):
+        model.fit(X, y, sample_weight=X["c"])
+    # Eval sets
+    with pytest.raises(ValueError, match="Missing values found in eval set 0 y"):
+        model.fit(X, y, evaluation_data=[(X, y_miss)])
+    with pytest.raises(
+        ValueError, match="Negative values found in eval set 0 sample_weight"
+    ):
+        model.fit(X, y, evaluation_data=[(X, y, X["b"])])
+    with pytest.raises(
+        ValueError, match="Missing values found in eval set 0 sample_weight"
+    ):
+        model.fit(X, y, evaluation_data=[(X, y, X["c"])])
+
+
 def test_booster_no_variance(X_y):
     X, y = X_y
     X.iloc[:, 3] = 1

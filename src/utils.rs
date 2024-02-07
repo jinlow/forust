@@ -66,7 +66,7 @@ pub fn validate_not_nan_vec(v: &[f64], name: String) -> Result<(), ForustError> 
 }
 
 pub fn validate_positive_vec(v: &[f64], name: String) -> Result<(), ForustError> {
-    if v.iter().any(|i| i.is_nan()) {
+    if v.iter().any(|i| i < &0.) {
         Err(ForustError::NegativeValuesFound(name))
     } else {
         Ok(())
