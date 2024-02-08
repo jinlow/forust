@@ -163,8 +163,9 @@ class BoosterType(Protocol):
         cols: int,
         y: np.ndarray,
         sample_weight: np.ndarray,
-        evaluation_data: None
-        | list[tuple[FrameLike, ArrayLike, None | ArrayLike]] = None,
+        evaluation_data: (
+            None | list[tuple[FrameLike, ArrayLike, None | ArrayLike]]
+        ) = None,
         parallel: bool = True,
     ):
         """Fit method"""
@@ -536,10 +537,10 @@ class GradientBooster:
         X: FrameLike,
         y: ArrayLike,
         sample_weight: Union[ArrayLike, None] = None,
-        evaluation_data: None
-        | list[
-            tuple[FrameLike, ArrayLike, ArrayLike] | tuple[FrameLike, ArrayLike]
-        ] = None,
+        evaluation_data: (
+            None
+            | list[tuple[FrameLike, ArrayLike, ArrayLike] | tuple[FrameLike, ArrayLike]]
+        ) = None,
     ) -> GradientBooster:
         """Fit the gradient booster on a provided dataset.
 
