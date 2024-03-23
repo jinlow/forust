@@ -15,4 +15,8 @@ pub enum ForustError {
     /// First value is the name of the parameter, second is expected, third is what was passed.
     #[error("Invalid parameter value passed for {0}, expected {1} but {2} provided.")]
     InvalidParameter(String, String, String),
+    #[error("Missing values found in {0}")]
+    MissingValuesFound(String),
+    #[error("Negative values found in {0}")]
+    NegativeValuesFound(String),
 }

@@ -57,6 +57,33 @@ pub fn validate_float_parameter<T: FloatData<T>>(
     }
 }
 
+pub fn validate_not_nan_vec(v: &[f64], name: String) -> Result<(), ForustError> {
+    if v.iter().any(|i| i.is_nan()) {
+        Err(ForustError::MissingValuesFound(name))
+    } else {
+        Ok(())
+    }
+}
+
+pub fn validate_positive_vec(v: &[f64], name: String) -> Result<(), ForustError> {
+    if v.iter().any(|i| i < &0.) {
+        Err(ForustError::NegativeValuesFound(name))
+    } else {
+        Ok(())
+    }
+}
+
+pub fn validate_positive_not_nan_vec(v: &[f64], name: String) -> Result<(), ForustError> {
+    let remainder = v
+        .iter()
+        .filter(|i| i.is_nan() || i < &&0.)
+        .copied()
+        .collect::<Vec<f64>>();
+    validate_positive_vec(&remainder, name.clone())?;
+    validate_not_nan_vec(&remainder, name)?;
+    Ok(())
+}
+
 macro_rules! validate_positive_float_field {
     ($var: expr) => {
         let var_name = stringify!($var).split(".").nth(1).unwrap();

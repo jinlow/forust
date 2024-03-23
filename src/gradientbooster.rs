@@ -11,7 +11,10 @@ use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::shapley::predict_contributions_row_shapley;
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
-use crate::utils::{fmt_vec_output, odds, validate_positive_float_field};
+use crate::utils::{
+    fmt_vec_output, odds, validate_not_nan_vec, validate_positive_float_field,
+    validate_positive_not_nan_vec,
+};
 use log::info;
 use rand::rngs::StdRng;
 use rand::seq::IteratorRandom;
@@ -437,6 +440,19 @@ impl GradientBooster {
         sample_weight: &[f64],
         evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
+        // Validate inputs
+        validate_not_nan_vec(y, "y".to_string())?;
+        validate_positive_not_nan_vec(sample_weight, "sample_weight".to_string())?;
+        if let Some(eval_data) = &evaluation_data {
+            for (i, (_, eval_y, eval_sample_weight)) in eval_data.iter().enumerate() {
+                validate_not_nan_vec(eval_y, format!("eval set {} y", i).to_string())?;
+                validate_positive_not_nan_vec(
+                    eval_sample_weight,
+                    format!("eval set {} sample_weight", i).to_string(),
+                )?;
+            }
+        }
+
         let constraints_map = self
             .monotone_constraints
             .as_ref()
