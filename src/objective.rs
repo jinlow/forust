@@ -71,27 +71,6 @@ impl ObjectiveFunction for LogLoss {
             .unzip()
     }
 
-    // #[inline]
-    // fn calc_grad(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
-    //     y.iter()
-    //         .zip(yhat)
-    //         .zip(sample_weight)
-    //         .map(|((y_, yhat_), w_)| {
-    //             let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
-    //             ((yhat_ - *y_) * *w_) as f32
-    //         })
-    //         .collect()
-    // }
-    // #[inline]
-    // fn calc_hess(_: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
-    //     yhat.iter()
-    //         .zip(sample_weight)
-    //         .map(|(yhat_, w_)| {
-    //             let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
-    //             (yhat_ * (f64::ONE - yhat_) * *w_) as f32
-    //         })
-    //         .collect()
-    // }
     fn default_metric() -> Metric {
         Metric::LogLoss
     }
@@ -124,19 +103,6 @@ impl ObjectiveFunction for SquaredLoss {
         ytot / ntot
     }
 
-    // #[inline]
-    // fn calc_grad(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
-    //     y.iter()
-    //         .zip(yhat)
-    //         .zip(sample_weight)
-    //         .map(|((y_, yhat_), w_)| ((*yhat_ - *y_) * *w_) as f32)
-    //         .collect()
-    // }
-
-    // #[inline]
-    // fn calc_hess(_: &[f64], _: &[f64], sample_weight: &[f64]) -> Vec<f32> {
-    //     sample_weight.iter().map(|v| *v as f32).collect()
-    // }
     #[inline]
     fn calc_grad_hess(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> (Vec<f32>, Vec<f32>) {
         y.iter()
