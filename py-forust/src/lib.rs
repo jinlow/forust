@@ -274,6 +274,18 @@ impl GradientBooster {
             .into_pyarray(py))
     }
 
+    pub fn predict_leaf_indices<'py>(
+        &self,
+        py: Python<'py>,
+        flat_data: PyReadonlyArray1<f64>,
+        rows: usize,
+        cols: usize,
+    ) -> PyResult<&'py PyArray1<usize>> {
+        let flat_data = flat_data.as_slice()?;
+        let data = Matrix::new(flat_data, rows, cols);
+        Ok(self.booster.predict_leaf_indices(&data).into_pyarray(py))
+    }
+
     pub fn calculate_feature_importance(
         &self,
         method: &str,

@@ -743,6 +743,14 @@ impl GradientBooster {
         init_preds
     }
 
+    /// Predict the leaf Indexes, this returns a vector of length N records * N Trees
+    pub fn predict_leaf_indices(&self, data: &Matrix<f64>) -> Vec<usize> {
+        self.get_prediction_trees()
+            .iter()
+            .flat_map(|tree| tree.predict_leaf_indices(data, &self.missing))
+            .collect()
+    }
+
     /// Predict the contributions matrix for the provided dataset.
     pub fn predict_contributions(
         &self,

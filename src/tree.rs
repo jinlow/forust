@@ -393,12 +393,12 @@ impl Tree {
             })
     }
 
-    fn predict_row(&self, data: &Matrix<f64>, row: usize, missing: &f64) -> f64 {
+    fn predict_leaf(&self, data: &Matrix<f64>, row: usize, missing: &f64) -> &Node {
         let mut node_idx = 0;
         loop {
             let node = &self.nodes[node_idx];
             if node.is_leaf {
-                return node.weight_value as f64;
+                return node;
             } else {
                 node_idx = node.get_child_idx(data.get(row, node.split_feature), missing);
             }
@@ -420,14 +420,14 @@ impl Tree {
     fn predict_single_threaded(&self, data: &Matrix<f64>, missing: &f64) -> Vec<f64> {
         data.index
             .iter()
-            .map(|i| self.predict_row(data, *i, missing))
+            .map(|i| self.predict_leaf(data, *i, missing).weight_value as f64)
             .collect()
     }
 
     fn predict_parallel(&self, data: &Matrix<f64>, missing: &f64) -> Vec<f64> {
         data.index
             .par_iter()
-            .map(|i| self.predict_row(data, *i, missing))
+            .map(|i| self.predict_leaf(data, *i, missing).weight_value as f64)
             .collect()
     }
 
@@ -437,6 +437,13 @@ impl Tree {
         } else {
             self.predict_single_threaded(data, missing)
         }
+    }
+
+    pub fn predict_leaf_indices(&self, data: &Matrix<f64>, missing: &f64) -> Vec<usize> {
+        data.index
+            .par_iter()
+            .map(|i| self.predict_leaf(data, *i, missing).num)
+            .collect()
     }
 
     pub fn value_partial_dependence(&self, feature: usize, value: f64, missing: &f64) -> f64 {

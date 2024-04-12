@@ -189,6 +189,14 @@ class BoosterType(Protocol):
     ) -> np.ndarray:
         """method"""
 
+    def predict_leaf_indices(
+        self,
+        flat_data: np.ndarray,
+        rows: int,
+        cols: int,
+    ) -> np.ndarray:
+        """method"""
+
     def value_partial_dependence(
         self,
         feature: int,
@@ -698,7 +706,7 @@ class GradientBooster:
                 Defaults to `None`.
 
         Returns:
-            np.ndarray: Returns a numpy array of the predictions.
+            np.ndarray: Returns a numpy array of the predicted contributions.
         """
         features_, flat_data, rows, cols = _convert_input_frame(X)
         self._validate_features(features_)
@@ -712,6 +720,29 @@ class GradientBooster:
             parallel=parallel_,
         )
         return np.reshape(contributions, (rows, cols + 1))
+
+    def predict_leaf_indices(self, X: FrameLike) -> np.ndarray:
+        """Predict the leaf indices for each tree. This will be the node ID number, this can be used to identify the leaf node a record will fall into for each row, this could be paired directly with the `trees_to_dataframe` output. The data returned will be a matrix, where each column corresponds to a tree, thus the data will be of the shape (rows in X, prediction_iteration)
+
+        Args:
+            X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
+
+        Returns:
+            np.ndarray: Returns a numpy array of the predicted leaf indices..
+        """
+        features_, flat_data, rows, cols = _convert_input_frame(X)
+        self._validate_features(features_)
+        leaf_indices = self.booster.predict_leaf_indices(
+            flat_data=flat_data,
+            rows=rows,
+            cols=cols,
+        )
+        n_trees = (
+            self.number_of_trees
+            if self.prediction_iteration is None
+            else self.prediction_iteration
+        )
+        return np.reshape(leaf_indices, (rows, n_trees), order="F")
 
     def set_prediction_iteration(self, iteration: int):
         """Set the iteration that should be used when predicting. If `early_stopping_rounds`
