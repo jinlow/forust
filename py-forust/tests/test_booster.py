@@ -1644,6 +1644,7 @@ def test_compat_gridsearch(X_y):
     clf.fit(X, y)
     assert len(clf.cv_results_["mean_test_score"]) > 0
 
+
 def test_leaf_preds(X_y):
     X, y = X_y
     fmod = GradientBooster()
@@ -1655,10 +1656,11 @@ def test_leaf_preds(X_y):
     leaf_preds = fmod.predict_leaf_indices(X)
     for i, tree in enumerate(nodes):
         node_map = {node.num: node.weight_value for node in tree}
-        tree_preds = np.array([node_map[tv] for tv in leaf_preds[:,i]])
+        tree_preds = np.array([node_map[tv] for tv in leaf_preds[:, i]])
         initial_preds += tree_preds
     real_preds = fmod.predict(X)
     assert np.allclose(real_preds, initial_preds)
+
 
 # All save and load methods
 @pytest.mark.parametrize(
