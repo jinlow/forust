@@ -722,7 +722,7 @@ class GradientBooster:
         return np.reshape(contributions, (rows, cols + 1))
 
     def predict_leaf_indices(self, X: FrameLike) -> np.ndarray:
-        """Predict the leaf indices for each tree. This will be the node ID number, this can be used to identify the leaf node a record will fall into for each row. The data returned will be a matrix, where each column corresponds to a tree, thus the data will be of the shape (rows in X, prediction_iteration)
+        """Predict the leaf indices for each tree. This will be the node ID number, this can be used to identify the leaf node a record will fall into for each row, this could be paired directly with the `trees_to_dataframe` output. The data returned will be a matrix, where each column corresponds to a tree, thus the data will be of the shape (rows in X, prediction_iteration)
 
         Args:
             X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
@@ -738,11 +738,11 @@ class GradientBooster:
             cols=cols,
         )
         n_trees = (
-            self.number_of_trees + 1
+            self.number_of_trees
             if self.prediction_iteration is None
             else self.prediction_iteration
         )
-        return np.reshape(leaf_indices, (rows, n_trees))
+        return np.reshape(leaf_indices, (rows, n_trees), order="F")
 
     def set_prediction_iteration(self, iteration: int):
         """Set the iteration that should be used when predicting. If `early_stopping_rounds`
