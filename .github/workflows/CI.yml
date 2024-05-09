@@ -67,10 +67,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
+          check-latest: false
       - name: Install deps
         run: pip install numpy pandas seaborn xgboost=='1.6.1' scikit-learn toml
       - run: |
