@@ -10,6 +10,7 @@ use crate::utils::{
     between, bound_to_parent, constrained_weight, cull_gain, gain_given_weight, pivot_on_split,
     pivot_on_split_exclude_missing,
 };
+use rayon::prelude::*;
 
 #[derive(Debug)]
 pub struct SplitInfo {
@@ -39,7 +40,7 @@ pub enum MissingInfo {
     Branch(NodeInfo),
 }
 
-pub trait Splitter {
+pub trait Splitter: Send + Sync {
     /// When a split happens, how many leaves will the tree increase by?
     /// For example, if a binary split happens, the split will increase the
     /// number of leaves by 1, if a ternary split happens, the number of leaves will
@@ -65,6 +66,28 @@ pub trait Splitter {
     /// If we wanted to add Column sampling, this is probably where
     /// we would need to do it, otherwise, it would be at the tree level.
     fn best_split(&self, node: &SplittableNode, col_index: &[usize]) -> Option<SplitInfo> {
+        // let best_info = col_index
+        //     .par_iter()
+        //     .enumerate()
+        //     .map(|(idx, feature)| self.best_feature_split(node, *feature, idx))
+        //     .reduce(|| None, |a, b| match (a, b) {
+        //         (None, None) => None,
+        //         (Some(a_info), None) => Some(a_info),
+        //         (None, Some(b_info)) => Some(b_info),
+        //         (Some(a_info), Some(b_info)) => {
+        //             let best = if a_info.split_gain >= b_info.split_gain {
+        //                 a_info
+        //             } else {
+        //                 b_info
+        //             };
+        //             if best.split_gain <= 0. {
+        //                 None
+        //             } else {
+        //                 Some(best)
+        //             }
+        //         }
+        //     });
+        // col_index.par_iter().enumerate().for_each()
         let mut best_split_info = None;
         let mut best_gain = 0.0;
         for (idx, feature) in col_index.iter().enumerate() {
@@ -80,6 +103,7 @@ pub trait Splitter {
             }
         }
         best_split_info
+        // best_info
     }
 
     /// Evaluate a split, returning the node info for the left, and right splits,

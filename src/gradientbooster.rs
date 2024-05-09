@@ -562,7 +562,7 @@ impl GradientBooster {
         let mut evaluation_sets: Option<Vec<TrainingEvaluationData>> =
             evaluation_data.as_ref().map(|evals| {
                 evals
-                    .iter()
+                    .par_iter()
                     .map(|(d, y, w)| (d, *y, *w, vec![self.base_score; y.len()]))
                     .collect()
             });

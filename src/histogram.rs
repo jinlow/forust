@@ -238,9 +238,9 @@ impl HistogramMatrix {
         let HistogramMatrix(second_child) = second_child_histogram;
         let histograms = root
             .data
-            .iter()
-            .zip(first_child.data.iter())
-            .zip(second_child.data.iter())
+            .par_iter()
+            .zip(first_child.data.par_iter())
+            .zip(second_child.data.par_iter())
             .map(|((root_bin, first_child_bin), second_child_bin)| {
                 Bin::from_parent_two_children(root_bin, first_child_bin, second_child_bin)
             })

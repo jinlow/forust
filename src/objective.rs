@@ -1,5 +1,6 @@
 use crate::{data::FloatData, metric::Metric};
 use serde::{Deserialize, Serialize};
+use rayon::prelude::*;
 
 type ObjFn = fn(&[f64], &[f64], &[f64]) -> (Vec<f32>, Vec<f32>);
 
@@ -36,7 +37,7 @@ pub struct LogLoss {}
 impl ObjectiveFunction for LogLoss {
     #[inline]
     fn calc_loss(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
-        y.iter()
+        y.par_iter()
             .zip(yhat)
             .zip(sample_weight)
             .map(|((y_, yhat_), w_)| {
@@ -58,7 +59,7 @@ impl ObjectiveFunction for LogLoss {
 
     #[inline]
     fn calc_grad_hess(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> (Vec<f32>, Vec<f32>) {
-        y.iter()
+        y.par_iter()
             .zip(yhat)
             .zip(sample_weight)
             .map(|((y_, yhat_), w_)| {
