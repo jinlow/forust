@@ -55,11 +55,11 @@ jobs:
         with:
           command: publish
           args: --username __token__ --password ${{ secrets.PYPI_TOKEN }} --interpreter python --skip-existing --manifest-path py-forust/Cargo.toml
-
+# "3.8", "3.9", "3.10",
   macos-build-test:
     strategy:
       matrix:
-        pyversion: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        pyversion: ["3.11", "3.12"]
     runs-on: "macos-latest"
     steps:
       - uses: actions/checkout@v3
@@ -71,7 +71,6 @@ jobs:
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
-          check-latest: false
       - name: Install deps
         run: pip install numpy pandas seaborn xgboost=='1.6.1' scikit-learn toml
       - run: |
