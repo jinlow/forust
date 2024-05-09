@@ -111,6 +111,62 @@ jobs:
           target: x86_64
           args: --username __token__ --password ${{ secrets.PYPI_TOKEN }} --interpreter python --skip-existing --manifest-path py-forust/Cargo.toml
 
+  macos-13-build-test:
+    strategy:
+      matrix:
+        pyversion: ["3.8", "3.9", "3.10"]
+    runs-on: "macos-13"
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install latests stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.pyversion }}
+          architecture: x64
+      - name: Install deps
+        run: pip install numpy pandas seaborn xgboost=='1.6.1' scikit-learn toml
+      - run: |
+          cp README.md py-forust/README.md
+          cp LICENSE py-forust/LICENSE
+      - name: Update TOML
+        run: python scripts/remove-optional-deps.py
+      - name: Build test data
+        run: python scripts/make_resources.py
+      - name: Run tests
+        run: cargo test --verbose
+      - name: Build Wheels with maturin
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          command: build
+          args: --release --strip --interpreter python --manifest-path py-forust/Cargo.toml --out dist
+      - name: Install wheel
+        run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
+      - name: Run Package Tests
+        run: |
+          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
+          cd py-forust
+          ruff check .
+          black --check .
+          pytest --cov-fail-under=90 tests
+          cd ..
+      - name: Save Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: wheels
+          path: dist
+      - if: "startsWith(github.ref, 'refs/tags/')"
+        name: Publish Wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          command: publish
+          target: x86_64
+          args: --username __token__ --password ${{ secrets.PYPI_TOKEN }} --interpreter python --skip-existing --manifest-path py-forust/Cargo.toml
+
+
   linux-build-test:
     runs-on: ubuntu-latest
     strategy:
