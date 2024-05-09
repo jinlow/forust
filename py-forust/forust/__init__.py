@@ -95,6 +95,10 @@ def _xgboost_tree_to_nodes(
         )
         if "leaf" not in xgb_node:
             buffer.extend(xgb_node["children"])
+    # We can't depend on the children to be in the "depth-wise" order, sometimes they
+    # will be built with lossguide, in which case the order will differ. Because of this,
+    # We need do tresort the list, by the node number...
+    node_list = sorted(node_list, key=lambda n: n["num"])
     # Ensure the nodeids all align with the nodes index
     for idx, node in enumerate(node_list):
         if idx != node["num"]:

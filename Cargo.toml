@@ -1,6 +1,6 @@
 [package]
 name = "forust-ml"
-version = "0.4.7"
+version = "0.4.8"
 edition = "2021"
 authors = ["James Inlow <james.d.inlow@gmail.com>"]
 homepage = "https://github.com/jinlow/forust"
