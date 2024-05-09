@@ -67,7 +67,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         env:
             PIP_DISABLE_PIP_VERSION_CHECK: 1
         with:
