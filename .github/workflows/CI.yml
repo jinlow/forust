@@ -88,12 +88,8 @@ jobs:
           target: x86_64
           command: build
           args: --release --strip --interpreter python --manifest-path py-forust/Cargo.toml --out dist
-      - name: Build Wheels with maturin
-        uses: PyO3/maturin-action@v1
-        with:
-          target: x86_64
-          command: develop
-          args: --release --strip --manifest-path py-forust/Cargo.toml
+      - name: Install wheel
+        run: cd py-forust; pip install --no-deps --force-reinstall -e .; cd ..
       - name: Run Package Tests
         run: |
           pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
