@@ -1156,6 +1156,24 @@ def test_booster_to_xgboosts_with_contributions_shapley_from_xgboost(X_y):
     assert np.allclose(contribs_shapley, xmod_contribs_shapley, atol=0.00001)
     assert np.allclose(fmod_preds, xmod.predict(X, output_margin=True), atol=0.00001)
 
+@pytest.mark.parametrize("growth_policy", ["depthwise", "lossguide"])
+def test_from_xgboost(X_y, growth_policy):
+    X, y = X_y
+    X = X.astype(np.float32)
+    xmod = XGBClassifier(
+        n_estimators=200,
+        learning_rate=0.03,
+        max_depth=10,
+        objective="binary:logitraw",
+        eval_metric="auc",
+        tree_method="hist",
+        base_score=0.5,
+        growth_policy=growth_policy,
+    )
+    xmod.fit(X, y)
+
+    fmod = forust._from_xgboost_model(xmod)
+    assert np.allclose(xmod.predict(X, output_margin=True), fmod.predict(X), atol=0.00001)
 
 def test_missing_branch_with_contributions(X_y):
     X, y = X_y
