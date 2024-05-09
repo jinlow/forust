@@ -68,6 +68,8 @@ jobs:
         with:
           toolchain: stable
       - uses: actions/setup-python@v4
+        env:
+            PIP_DISABLE_PIP_VERSION_CHECK: 1
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
