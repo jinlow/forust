@@ -6,6 +6,7 @@ use std::str::FromStr;
 
 /// Data trait used throughout the package
 /// to control for floating point numbers.
+/// IDEA: can implement it also for `Float`?
 pub trait FloatData<T>:
     Mul<Output = T>
     + Display

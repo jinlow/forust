@@ -1,7 +1,9 @@
 use crate::{data::FloatData, metric::Metric};
+use rug::{ops::{AddFrom, NegAssign}, Float};
 use serde::{Deserialize, Serialize};
 
-type ObjFn = fn(&[f64], &[f64], &[f64]) -> (Vec<f32>, Vec<f32>);
+// IDEA: can we use a `Float` here instead of all f64 and f32?
+type ObjFn = fn(&[Float], &[Float], &[Float]) -> (Vec<f32>, Vec<f32>);
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ObjectiveType {
@@ -16,7 +18,8 @@ pub fn gradient_hessian_callables(objective_type: &ObjectiveType) -> ObjFn {
     }
 }
 
-pub fn calc_init_callables(objective_type: &ObjectiveType) -> fn(&[f64], &[f64]) -> f64 {
+// IDEA: can we use a `Float` here instead of all f64?
+pub fn calc_init_callables(objective_type: &ObjectiveType) -> fn(&[Float], &[Float]) -> Float {
     match objective_type {
         ObjectiveType::LogLoss => LogLoss::calc_init,
         ObjectiveType::SquaredLoss => SquaredLoss::calc_init,
@@ -24,9 +27,9 @@ pub fn calc_init_callables(objective_type: &ObjectiveType) -> fn(&[f64], &[f64])
 }
 
 pub trait ObjectiveFunction {
-    fn calc_loss(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32>;
-    fn calc_grad_hess(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> (Vec<f32>, Vec<f32>);
-    fn calc_init(y: &[f64], sample_weight: &[f64]) -> f64;
+    fn calc_loss(y: &[Float], yhat: &[Float], sample_weight: &[Float]) -> Vec<f32>;
+    fn calc_grad_hess(y: &[Float], yhat: &[Float], sample_weight: &[Float]) -> (Vec<f32>, Vec<f32>);
+    fn calc_init(y: &[Float], sample_weight: &[Float]) -> Float;
     fn default_metric() -> Metric;
 }
 
@@ -46,26 +49,32 @@ impl ObjectiveFunction for LogLoss {
             .collect()
     }
 
-    fn calc_init(y: &[f64], sample_weight: &[f64]) -> f64 {
-        let mut ytot: f64 = 0.;
-        let mut ntot: f64 = 0.;
+    fn calc_init(y: &[Float], sample_weight: &[Float]) -> Float {
+        // TODO: how to handle the precision in a better way? 
+        //   - passing it in every function?
+        //   - creating a wrapper on the `Float`? --- don't like it
+        //   - other solutions? Ask ChatGPT
+        let mut ytot = Float::new(300);
+        let mut ntot = Float::new(300);
         for i in 0..y.len() {
-            ytot += sample_weight[i] * y[i];
-            ntot += sample_weight[i];
+            ytot.add_from(&sample_weight[i] * &y[i]);
+            ntot.add_from( &sample_weight[i]);
         }
-        f64::ln(ytot / (ntot - ytot))
+        let diff = Float::with_val(300, &ntot - &ytot);
+        Float::ln(ytot / diff)
     }
 
     #[inline]
-    fn calc_grad_hess(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> (Vec<f32>, Vec<f32>) {
+    // IDEA: can we use a `Float` here instead of all f64 and f32?
+    fn calc_grad_hess(y: &[Float], yhat: &[Float], sample_weight: &[Float]) -> (Vec<f32>, Vec<f32>) {
         y.iter()
             .zip(yhat)
             .zip(sample_weight)
             .map(|((y_, yhat_), w_)| {
-                let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
+                let yhat_ = Float::with_val(300, 1) / (Float::with_val(300, 1) + (yhat_.neg_assign().).exp());
                 (
-                    ((yhat_ - *y_) * *w_) as f32,
-                    (yhat_ * (f64::ONE - yhat_) * *w_) as f32,
+                    ((yhat_ - *y_) * *w_).to_f32(),
+                    (yhat_ * (f64::ONE - yhat_) * *w_).to_f32(),
                 )
             })
             .unzip()
@@ -104,6 +113,7 @@ impl ObjectiveFunction for SquaredLoss {
     }
 
     #[inline]
+    // IDEA: can we use a `Float` here instead of all f64 and f32?
     fn calc_grad_hess(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> (Vec<f32>, Vec<f32>) {
         y.iter()
             .zip(yhat)

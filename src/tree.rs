@@ -32,9 +32,11 @@ impl Tree {
     #[allow(clippy::too_many_arguments)]
     pub fn fit<T: Splitter>(
         &mut self,
+        // IDEA: can we use a `Float` here instead?
         data: &Matrix<u16>,
         mut index: Vec<usize>,
         col_index: &[usize],
+        // IDEA: can we use a `Float` here instead?
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
         hess: &[f32],
@@ -156,9 +158,13 @@ impl Tree {
 
     pub fn predict_contributions_row_probability_change(
         &self,
+        // IDEA: can we use a `Float` here instead?
         row: &[f64],
+        // IDEA: can we use a `Float` here instead?
         contribs: &mut [f64],
+        // IDEA: can we use a `Float` here instead?
         missing: &f64,
+        // IDEA: can we use a `Float` here instead?
         current_logodds: f64,
     ) -> f64 {
         contribs[contribs.len() - 1] +=
@@ -349,9 +355,13 @@ impl Tree {
     /// This is the method that XGBoost uses.
     pub fn predict_contributions_row_average(
         &self,
+        // IDEA: can we use a `Float` here instead?
         row: &[f64],
+        // IDEA: can we use a `Float` here instead?
         contribs: &mut [f64],
+        // IDEA: can we use a `Float` here instead?
         weights: &[f64],
+        // IDEA: can we use a `Float` here instead?
         missing: &f64,
     ) {
         // Add the bias term first...
@@ -393,6 +403,7 @@ impl Tree {
             })
     }
 
+    // IDEA: can we use a `Float` here instead?
     fn predict_leaf(&self, data: &Matrix<f64>, row: usize, missing: &f64) -> &Node {
         let mut node_idx = 0;
         loop {
@@ -405,6 +416,7 @@ impl Tree {
         }
     }
 
+    // IDEA: can we use a `Float` here instead?
     pub fn predict_row_from_row_slice(&self, row: &[f64], missing: &f64) -> f64 {
         let mut node_idx = 0;
         loop {
@@ -417,6 +429,7 @@ impl Tree {
         }
     }
 
+    // IDEA: can we use a `Float` here instead?
     fn predict_single_threaded(&self, data: &Matrix<f64>, missing: &f64) -> Vec<f64> {
         data.index
             .iter()
@@ -424,6 +437,7 @@ impl Tree {
             .collect()
     }
 
+    // IDEA: can we use a `Float` here instead?
     fn predict_parallel(&self, data: &Matrix<f64>, missing: &f64) -> Vec<f64> {
         data.index
             .par_iter()
@@ -431,6 +445,7 @@ impl Tree {
             .collect()
     }
 
+    // IDEA: can we use a `Float` here instead?
     pub fn predict(&self, data: &Matrix<f64>, parallel: bool, missing: &f64) -> Vec<f64> {
         if parallel {
             self.predict_parallel(data, missing)
@@ -439,6 +454,7 @@ impl Tree {
         }
     }
 
+    // IDEA: can we use a `Float` here instead?
     pub fn predict_leaf_indices(&self, data: &Matrix<f64>, missing: &f64) -> Vec<usize> {
         data.index
             .par_iter()
@@ -446,9 +462,11 @@ impl Tree {
             .collect()
     }
 
+    // IDEA: can we use a `Float` here instead?
     pub fn value_partial_dependence(&self, feature: usize, value: f64, missing: &f64) -> f64 {
         tree_partial_dependence(self, 0, feature, value, 1.0, missing)
     }
+    // IDEA: can we use a `Float` here instead?
     fn distribute_node_leaf_weights(&self, i: usize, weights: &mut [f64]) -> f64 {
         let node = &self.nodes[i];
         let mut w = node.weight_value as f64;

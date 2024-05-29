@@ -72,10 +72,13 @@ fn bin_matrix_from_cuts<T: FloatData<T>>(
 /// * `nbins` - The number of bins each column should be binned into.
 /// * `missing` - Float value to consider as missing.
 pub fn bin_matrix(
+    // IDEA: can we use a `Float` here instead?
     data: &Matrix<f64>,
+    // IDEA: can we use a `Float` here instead?
     sample_weight: &[f64],
     nbins: u16,
     missing: f64,
+    // IDEA: can we use a `Float` here instead?
 ) -> Result<BinnedData<f64>, ForustError> {
     let mut pcts = Vec::new();
     let nbins_ = f64::from_u16(nbins);

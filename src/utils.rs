@@ -57,7 +57,8 @@ pub fn validate_float_parameter<T: FloatData<T>>(
     }
 }
 
-pub fn validate_not_nan_vec(v: &[f64], name: String) -> Result<(), ForustError> {
+// IDEA: can we use a `Float` here instead?
+pub fn validate_not_nan_vec(v: &[Float], name: String) -> Result<(), ForustError> {
     if v.iter().any(|i| i.is_nan()) {
         Err(ForustError::MissingValuesFound(name))
     } else {
@@ -65,7 +66,7 @@ pub fn validate_not_nan_vec(v: &[f64], name: String) -> Result<(), ForustError> 
     }
 }
 
-pub fn validate_positive_vec(v: &[f64], name: String) -> Result<(), ForustError> {
+pub fn validate_positive_vec(v: &[Float], name: String) -> Result<(), ForustError> {
     if v.iter().any(|i| i < &0.) {
         Err(ForustError::NegativeValuesFound(name))
     } else {
@@ -73,12 +74,13 @@ pub fn validate_positive_vec(v: &[f64], name: String) -> Result<(), ForustError>
     }
 }
 
-pub fn validate_positive_not_nan_vec(v: &[f64], name: String) -> Result<(), ForustError> {
+// IDEA: can we use a `Float` here instead?
+pub fn validate_positive_not_nan_vec(v: &[Float], name: String) -> Result<(), ForustError> {
     let remainder = v
         .iter()
         .filter(|i| i.is_nan() || i < &&0.)
-        .copied()
-        .collect::<Vec<f64>>();
+        .cloned()
+        .collect::<Vec<Float>>();
     validate_positive_vec(&remainder, name.clone())?;
     validate_not_nan_vec(&remainder, name)?;
     Ok(())
@@ -91,10 +93,12 @@ macro_rules! validate_positive_float_field {
     };
 }
 
+use rug::Float;
 pub(crate) use validate_positive_float_field;
 
 /// Calculate if a value is missing.
 #[inline]
+// IDEA: can we use a `Float` here instead?
 pub fn is_missing(value: &f64, missing: &f64) -> bool {
     if missing.is_nan() {
         value.is_nan()
@@ -186,6 +190,8 @@ pub fn bound_to_parent(parent_weight: f32, left_weight: f32, right_weight: f32) 
 }
 
 /// Convert Log odds to probability
+/// 
+/// IDEA: can we use a `Float` here instead?
 #[inline]
 pub fn odds(v: f64) -> f64 {
     1. / (1. + (-v).exp())

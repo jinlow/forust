@@ -16,8 +16,10 @@ pub fn tree_partial_dependence(
     tree: &Tree,
     node_idx: usize,
     feature: usize,
+    // IDEA: can we use a `Float` here instead?
     value: f64,
     proportion: f32,
+    // IDEA: can we use a `Float` here instead?
     missing: &f64,
 ) -> f64 {
     let n = &tree.nodes[node_idx];

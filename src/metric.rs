@@ -9,6 +9,8 @@ pub type MetricFn = fn(&[f64], &[f64], &[f64]) -> f64;
 /// Compare to metric values, determining if b is better.
 /// If one of them is NaN favor the non NaN value.
 /// If both are NaN, consider the first value to be better.
+/// 
+/// IDEA: can we use a `Float` here instead?
 pub fn is_comparison_better(value: f64, comparison: f64, maximize: bool) -> bool {
     match (value.is_nan(), comparison.is_nan()) {
         // Both nan, comparison is not better,

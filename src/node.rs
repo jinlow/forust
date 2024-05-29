@@ -77,6 +77,8 @@ impl Node {
         self.right_child = split_node.right_child;
     }
     /// Get the path that should be traveled down, given a value.
+    /// 
+    /// IDEA: can we use a `Float` here instead?
     pub fn get_child_idx(&self, v: &f64, missing: &f64) -> usize {
         if is_missing(v, missing) {
             self.missing_node

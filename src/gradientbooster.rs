@@ -20,12 +20,15 @@ use rand::rngs::StdRng;
 use rand::seq::IteratorRandom;
 use rand::SeedableRng;
 use rayon::prelude::*;
+use rug::Float;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
-pub type EvaluationData<'a> = (Matrix<'a, f64>, &'a [f64], &'a [f64]);
-pub type TrainingEvaluationData<'a> = (&'a Matrix<'a, f64>, &'a [f64], &'a [f64], Vec<f64>);
+// IDEA: can we use a `Float` here instead of all the `f64`?
+pub type EvaluationData<'a> = (Matrix<'a, Float>, &'a [Float], &'a [Float]);
+// IDEA: can we use a `Float` here instead for all f64?
+pub type TrainingEvaluationData<'a> = (&'a Matrix<'a, Float>, &'a [Float], &'a [Float], Vec<Float>);
 type ImportanceFn = fn(&Tree, &mut HashMap<usize, (f32, usize)>);
 
 #[derive(Serialize, Deserialize)]
@@ -114,6 +117,7 @@ pub struct GradientBooster {
     /// required to be in a node.
     pub min_leaf_weight: f32,
     /// The initial prediction value of the model.
+    /// IDEA: can we use a `Float` here instead?
     pub base_score: f64,
     /// Number of bins to calculate to partition the data. Setting this to
     /// a smaller number, will result in faster training time, while potentially sacrificing
@@ -168,6 +172,7 @@ pub struct GradientBooster {
     #[serde(default = "default_terminate_missing_features")]
     pub terminate_missing_features: HashSet<usize>,
     /// A matrix of the evaluation history on the evaluation datasets.
+    /// IDEA: can we use a `Float` here instead of f64?
     #[serde(default = "default_evaluation_history")]
     pub evaluation_history: Option<RowMajorMatrix<f64>>,
     #[serde(default = "default_best_iteration")]
@@ -435,9 +440,12 @@ impl GradientBooster {
     /// training the model. If None is passed, a weight of 1 will be used for every record.
     pub fn fit(
         &mut self,
-        data: &Matrix<f64>,
-        y: &[f64],
-        sample_weight: &[f64],
+        // IDEA: can we use a `Float` here instead?
+        data: &Matrix<Float>,
+        // IDEA: can we use a `Float` here instead?
+        y: &[Float],
+        // IDEA: can we use a `Float` here instead?
+        sample_weight: &[Float],
         evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
         // Validate inputs
@@ -528,9 +536,12 @@ impl GradientBooster {
 
     fn fit_trees<T: Splitter>(
         &mut self,
-        y: &[f64],
-        sample_weight: &[f64],
-        data: &Matrix<f64>,
+        // IDEA: can we use a `Float` here instead?
+        y: &[Float],
+        // IDEA: can we use a `Float` here instead?
+        sample_weight: &[Float],
+        // IDEA: can we use a `Float` here instead?
+        data: &Matrix<Float>,
         splitter: &T,
         evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
@@ -708,6 +719,7 @@ impl GradientBooster {
         self.prediction_iteration = Some(i + 1);
     }
 
+    // IDEA: can we use a `Float` here instead?
     fn update_predictions_inplace(&self, yhat: &mut [f64], tree: &Tree, data: &Matrix<f64>) {
         let preds = tree.predict(data, self.parallel, &self.missing);
         yhat.iter_mut().zip(preds).for_each(|(i, j)| *i += j);
@@ -719,6 +731,7 @@ impl GradientBooster {
     /// * `y` - Either a pandas Series, or a 1 dimensional numpy array.
     pub fn fit_unweighted(
         &mut self,
+        // IDEA: can we use a `Float` here instead?
         data: &Matrix<f64>,
         y: &[f64],
         evaluation_data: Option<Vec<EvaluationData>>,
@@ -730,6 +743,8 @@ impl GradientBooster {
     /// Generate predictions on data using the gradient booster.
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
+    /// 
+    /// IDEA: can we use a `Float` here instead?
     pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
         let mut init_preds = vec![self.base_score; data.rows];
         self.get_prediction_trees().iter().for_each(|tree| {
@@ -744,6 +759,8 @@ impl GradientBooster {
     }
 
     /// Predict the leaf Indexes, this returns a vector of length N records * N Trees
+    /// 
+    /// IDEA: can we use a `Float` here instead?
     pub fn predict_leaf_indices(&self, data: &Matrix<f64>) -> Vec<usize> {
         self.get_prediction_trees()
             .iter()
@@ -754,6 +771,7 @@ impl GradientBooster {
     /// Predict the contributions matrix for the provided dataset.
     pub fn predict_contributions(
         &self,
+        // IDEA: can we use a `Float` here instead?
         data: &Matrix<f64>,
         method: ContributionsMethod,
         parallel: bool,
@@ -842,6 +860,8 @@ impl GradientBooster {
     /// This is equivalent to the XGBoost predict contributions with approx_contribs
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
+    /// 
+    /// IDEA: can we use a `Float` here instead?
     fn predict_contributions_average(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
         let weights: Vec<Vec<f64>> = if parallel {
             self.get_prediction_trees()
@@ -901,6 +921,7 @@ impl GradientBooster {
 
     fn predict_contributions_probability_change(
         &self,
+        // IDEA: can we use a `Float` here instead?
         data: &Matrix<f64>,
         parallel: bool,
     ) -> Vec<f64> {
@@ -955,6 +976,8 @@ impl GradientBooster {
     ///
     /// * `feature` - The index of the feature.
     /// * `value` - The value for which to calculate the partial dependence.
+    /// 
+    /// IDEA: can we use a `Float` here instead?
     pub fn value_partial_dependence(&self, feature: usize, value: f64) -> f64 {
         let pd: f64 = if self.parallel {
             self.get_prediction_trees()
@@ -1141,6 +1164,8 @@ impl GradientBooster {
 
     /// Set the base_score on the booster.
     /// * `base_score` - The base score of the booster.
+    /// 
+    /// IDEA: can we use a `Float` here instead?
     pub fn set_base_score(mut self, base_score: f64) -> Self {
         self.base_score = base_score;
         self
