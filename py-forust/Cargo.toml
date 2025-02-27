@@ -9,10 +9,10 @@ name = "forust"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.20.0", features = ["extension-module"] }
+pyo3 = { version = "0.23.5", features = ["extension-module"] }
 forust-ml = { version = "0.4.8", path = "../" }
-numpy = "0.20.0"
-ndarray = "0.15.1"
+numpy = "0.23.0"
+ndarray = "0.16.1"
 serde_plain = { version = "1.0" }
 serde = { version = "1.0" }
-pyo3-log = "0.8.3"
+pyo3-log = "0.12.1"

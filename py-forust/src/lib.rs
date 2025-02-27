@@ -207,6 +207,7 @@ impl GradientBooster {
         Ok(self.booster.trees.len())
     }
 
+    #[pyo3(signature = (flat_data, rows, cols, y, sample_weight, evaluation_data=None))]
     pub fn fit(
         &mut self,
         flat_data: PyReadonlyArray1<f64>,
@@ -241,6 +242,8 @@ impl GradientBooster {
         }?;
         Ok(())
     }
+
+    #[pyo3(signature = (flat_data, rows, cols, parallel=None))]
     pub fn predict<'py>(
         &self,
         py: Python<'py>,
@@ -248,13 +251,14 @@ impl GradientBooster {
         rows: usize,
         cols: usize,
         parallel: Option<bool>,
-    ) -> PyResult<&'py PyArray1<f64>> {
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let parallel = parallel.unwrap_or(true);
         Ok(self.booster.predict(&data, parallel).into_pyarray(py))
     }
 
+    #[pyo3(signature = (flat_data, rows, cols, method, parallel=None))]
     pub fn predict_contributions<'py>(
         &self,
         py: Python<'py>,
@@ -263,7 +267,7 @@ impl GradientBooster {
         cols: usize,
         method: &str,
         parallel: Option<bool>,
-    ) -> PyResult<&'py PyArray1<f64>> {
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let parallel = parallel.unwrap_or(true);
@@ -280,7 +284,7 @@ impl GradientBooster {
         flat_data: PyReadonlyArray1<f64>,
         rows: usize,
         cols: usize,
-    ) -> PyResult<&'py PyArray1<usize>> {
+    ) -> PyResult<Bound<'py, PyArray1<usize>>> {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         Ok(self.booster.predict_leaf_indices(&data).into_pyarray(py))
@@ -339,7 +343,7 @@ impl GradientBooster {
     }
 
     #[classmethod]
-    pub fn load_booster(_: &PyType, path: String) -> PyResult<Self> {
+    pub fn load_booster(_: &Bound<'_, PyType>, path: String) -> PyResult<Self> {
         let booster = match CrateGradientBooster::load_booster(path.as_str()) {
             Ok(m) => Ok(m),
             Err(e) => Err(PyValueError::new_err(e.to_string())),
@@ -348,7 +352,7 @@ impl GradientBooster {
     }
 
     #[classmethod]
-    pub fn from_json(_: &PyType, json_str: &str) -> PyResult<Self> {
+    pub fn from_json(_: &Bound<'_, PyType>, json_str: &str) -> PyResult<Self> {
         let booster = match CrateGradientBooster::from_json(json_str) {
             Ok(m) => Ok(m),
             Err(e) => Err(PyValueError::new_err(e.to_string())),
@@ -389,6 +393,7 @@ impl GradientBooster {
         let missing_node_treatment_ = to_value_error(
             serde_plain::to_string::<MissingNodeTreatment>(&self.booster.missing_node_treatment),
         )?;
+
         let key_vals: Vec<(&str, PyObject)> = vec![
             ("objective_type", objective_.to_object(py)),
             ("iterations", self.booster.iterations.to_object(py)),
@@ -449,14 +454,14 @@ impl GradientBooster {
                 self.booster.force_children_to_bound_parent.to_object(py),
             ),
         ];
-        let dict = key_vals.into_py_dict(py);
+        let dict = key_vals.into_py_dict(py)?;
         Ok(dict.to_object(py))
     }
 
     pub fn get_evaluation_history<'py>(
         &self,
         py: Python<'py>,
-    ) -> PyResult<Option<(usize, usize, &'py PyArray1<f64>)>> {
+    ) -> PyResult<Option<(usize, usize, Bound<'py, PyArray1<f64>>)>> {
         if let Some(data) = &self.booster.evaluation_history {
             let d = data.data.to_owned().into_pyarray(py);
             return Ok(Some((data.rows, data.cols, d)));
@@ -465,33 +470,31 @@ impl GradientBooster {
     }
 }
 
-#[pyfunction]
-fn print_matrix(x: PyReadonlyArray1<f32>, rows: usize, cols: usize) -> PyResult<()> {
-    let m = Matrix::new(x.as_slice()?, rows, cols);
-    println!("{}", m);
-    Ok(())
-}
-
-#[pyfunction]
-fn percentiles<'py>(
-    py: Python<'py>,
-    v: PyReadonlyArray1<f64>,
-    sample_weight: PyReadonlyArray1<f64>,
-    percentiles: PyReadonlyArray1<f64>,
-) -> PyResult<&'py PyArray1<f64>> {
-    let v_ = v.as_slice()?;
-    let sample_weight_ = sample_weight.as_slice()?;
-    let percentiles_ = percentiles.as_slice()?;
-    let p = crate_percentiles(v_, sample_weight_, percentiles_);
-    Ok(p.into_pyarray(py))
-}
-
 #[pymodule]
-fn forust(_py: Python, m: &PyModule) -> PyResult<()> {
-    pyo3_log::init();
+mod forust {
+    use super::*;
+    // pyo3_log::init()
 
-    m.add_function(wrap_pyfunction!(print_matrix, m)?)?;
-    m.add_function(wrap_pyfunction!(percentiles, m)?)?;
-    m.add_class::<GradientBooster>()?;
-    Ok(())
+    #[pyfunction]
+    fn percentiles<'py>(
+        py: Python<'py>,
+        v: PyReadonlyArray1<f64>,
+        sample_weight: PyReadonlyArray1<f64>,
+        percentiles: PyReadonlyArray1<f64>,
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        let v_ = v.as_slice()?;
+        let sample_weight_ = sample_weight.as_slice()?;
+        let percentiles_ = percentiles.as_slice()?;
+        let p = crate_percentiles(v_, sample_weight_, percentiles_);
+        Ok(p.into_pyarray(py))
+    }
+    #[pyfunction]
+    fn print_matrix(x: PyReadonlyArray1<f32>, rows: usize, cols: usize) -> PyResult<()> {
+        let m = Matrix::new(x.as_slice()?, rows, cols);
+        println!("{}", m);
+        Ok(())
+    }
+
+    #[pymodule_export]
+    use super::GradientBooster;
 }
