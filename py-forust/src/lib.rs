@@ -473,7 +473,12 @@ impl GradientBooster {
 #[pymodule]
 mod forust {
     use super::*;
-    // pyo3_log::init()
+
+    #[pymodule_init]
+    fn init(_m: &Bound<'_, PyModule>) -> PyResult<()> {
+        pyo3_log::init();
+        Ok(())
+    }
 
     #[pyfunction]
     fn percentiles<'py>(

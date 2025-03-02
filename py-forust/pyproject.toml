@@ -4,6 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "forust"
+dynamic = ["version"]
 description = "A lightweight gradient boosting implementation in Rust."
 license = { file = "LICENSE" }
 keywords = [
