@@ -1,25 +1,37 @@
 name: Test and Deploy
-on: [pull_request, push]
+on:
+  pull_request:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   windows-build-tests:
     strategy:
+      fail-fast: false
       matrix:
-        pyversion: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        pyversion: ["3.9", "3.10", "3.11", "3.12"]
     runs-on: "windows-latest"
     steps:
-      - uses: actions/checkout@v3
-      - name: Install latests stable Rust
+      - uses: actions/checkout@v4
+      - name: Install latest stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.6.1' scikit-learn toml
-      - run: |
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<1.6' toml
+      - name: Sync package metadata files
+        run: |
           cp README.md py-forust/README.md
           cp LICENSE py-forust/LICENSE
       - name: Update TOML
@@ -45,35 +57,32 @@ jobs:
           pytest --cov-fail-under=90 tests
           cd ..
       - name: Save Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: wheels
-          path: dist
-      - if: "startsWith(github.ref, 'refs/tags/')"
-        name: Publish Wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          command: publish
-          args: --username __token__ --password ${{ secrets.PYPI_TOKEN }} --interpreter python --skip-existing --manifest-path py-forust/Cargo.toml
-# "3.8", "3.9", "3.10",
+          name: wheels-windows-${{ matrix.pyversion }}
+          path: dist/*.whl
+          overwrite: true
+# "3.9", "3.10",
   macos-build-test:
     strategy:
+      fail-fast: false
       matrix:
         pyversion: ["3.11", "3.12"]
     runs-on: "macos-latest"
     steps:
-      - uses: actions/checkout@v3
-      - name: Install latests stable Rust
+      - uses: actions/checkout@v4
+      - name: Install latest stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.6.1' scikit-learn toml
-      - run: |
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<1.6' toml
+      - name: Sync package metadata files
+        run: |
           cp README.md py-forust/README.md
           cp LICENSE py-forust/LICENSE
       - name: Update TOML
@@ -99,36 +108,32 @@ jobs:
           pytest --cov-fail-under=90 tests
           cd ..
       - name: Save Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: wheels
-          path: dist
-      - if: "startsWith(github.ref, 'refs/tags/')"
-        name: Publish Wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          command: publish
-          target: x86_64
-          args: --username __token__ --password ${{ secrets.PYPI_TOKEN }} --interpreter python --skip-existing --manifest-path py-forust/Cargo.toml
+          name: wheels-macos-${{ matrix.pyversion }}
+          path: dist/*.whl
+          overwrite: true
 
-  macos-13-build-test:
+  macos-15-intel-build-test:
     strategy:
+      fail-fast: false
       matrix:
-        pyversion: ["3.8", "3.9", "3.10"]
-    runs-on: "macos-13"
+        pyversion: ["3.9", "3.10"]
+    runs-on: "macos-15-intel"
     steps:
-      - uses: actions/checkout@v3
-      - name: Install latests stable Rust
+      - uses: actions/checkout@v4
+      - name: Install latest stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.6.1' scikit-learn toml
-      - run: |
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<1.6' toml
+      - name: Sync package metadata files
+        run: |
           cp README.md py-forust/README.md
           cp LICENSE py-forust/LICENSE
       - name: Update TOML
@@ -154,38 +159,34 @@ jobs:
           pytest --cov-fail-under=90 tests
           cd ..
       - name: Save Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: wheels
-          path: dist
-      - if: "startsWith(github.ref, 'refs/tags/')"
-        name: Publish Wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          command: publish
-          target: x86_64
-          args: --username __token__ --password ${{ secrets.PYPI_TOKEN }} --interpreter python --skip-existing --manifest-path py-forust/Cargo.toml
+          name: wheels-macos-15-intel-${{ matrix.pyversion }}
+          path: dist/*.whl
+          overwrite: true
 
 
   linux-build-test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        pyversion: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        pyversion: ["3.9", "3.10", "3.11", "3.12"]
         # target: [x86_64, i686]
     steps:
-      - uses: actions/checkout@v3
-      - name: Install latests stable Rust
+      - uses: actions/checkout@v4
+      - name: Install latest stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.6.1' scikit-learn toml
-      - run: |
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<1.6' toml
+      - name: Sync package metadata files
+        run: |
           cp README.md py-forust/README.md
           cp LICENSE py-forust/LICENSE
       - name: Update TOML
@@ -212,34 +213,47 @@ jobs:
           pytest --cov-fail-under=90 tests
           cd ..
       - name: Save Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: wheels
+          name: wheels-linux-${{ matrix.pyversion }}
+          path: dist/*.whl
+          overwrite: true
+
+  release-wheels:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [windows-build-tests, macos-build-test, macos-15-intel-build-test, linux-build-test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
           path: dist
-      - if: "startsWith(github.ref, 'refs/tags/')"
-        name: Publish Wheels
+          merge-multiple: true
+      - name: List downloaded wheels
+        run: ls -la dist
+      - name: Publish Wheels
         uses: PyO3/maturin-action@v1
         with:
-          command: publish
-          target: x86_64
-          manylinux: auto
-          args: --username __token__ --password ${{ secrets.PYPI_TOKEN }} --interpreter python${{ matrix.pyversion }} --skip-existing --manifest-path py-forust/Cargo.toml
+          command: upload
+          args: --username __token__ --password ${{ secrets.PYPI_TOKEN }} --skip-existing dist/*.whl
 
   cargo-build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Install latests stable Rust
+      - uses: actions/checkout@v4
+      - name: Install latest stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.6.1' scikit-learn toml
-      - run: |
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<1.6' toml
+      - name: Sync package metadata files
+        run: |
           cp README.md py-forust/README.md
           cp LICENSE py-forust/LICENSE
       - name: Update TOML
