@@ -1,5 +1,15 @@
 name: Test and Deploy
-on: [pull_request, push]
+on:
+  pull_request:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   windows-build-tests:
@@ -8,12 +18,12 @@ jobs:
         pyversion: ["3.8", "3.9", "3.10", "3.11", "3.12"]
     runs-on: "windows-latest"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install latests stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
@@ -62,12 +72,12 @@ jobs:
         pyversion: ["3.11", "3.12"]
     runs-on: "macos-latest"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install latests stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
@@ -117,12 +127,12 @@ jobs:
         pyversion: ["3.8", "3.9", "3.10"]
     runs-on: "macos-13"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install latests stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
@@ -174,12 +184,12 @@ jobs:
         pyversion: ["3.8", "3.9", "3.10", "3.11", "3.12"]
         # target: [x86_64, i686]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install latests stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
@@ -228,12 +238,12 @@ jobs:
   cargo-build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install latests stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
           architecture: x64
