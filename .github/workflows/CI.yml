@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pyversion: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        pyversion: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     runs-on: "windows-latest"
     steps:
       - uses: actions/checkout@v4
@@ -62,12 +62,12 @@ jobs:
           name: wheels-windows-${{ matrix.pyversion }}
           path: dist/*.whl
           overwrite: true
-# "3.8", "3.9", "3.10",
+# "3.9", "3.10",
   macos-build-test:
     strategy:
       fail-fast: false
       matrix:
-        pyversion: ["3.11", "3.12"]
+        pyversion: ["3.11", "3.12", "3.13"]
     runs-on: "macos-latest"
     steps:
       - uses: actions/checkout@v4
@@ -118,7 +118,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pyversion: ["3.8", "3.9", "3.10"]
+        pyversion: ["3.9", "3.10"]
     runs-on: "macos-15-intel"
     steps:
       - uses: actions/checkout@v4
@@ -171,7 +171,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pyversion: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        pyversion: ["3.9", "3.10", "3.11", "3.12", "3.13"]
         # target: [x86_64, i686]
     steps:
       - uses: actions/checkout@v4
