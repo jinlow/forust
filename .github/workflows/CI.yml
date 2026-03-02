@@ -29,7 +29,7 @@ jobs:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' scikit-learn toml
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn>=1.6.1,<1.7' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -80,7 +80,7 @@ jobs:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' scikit-learn toml
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn>=1.6.1,<1.7' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -114,12 +114,12 @@ jobs:
           path: dist/*.whl
           overwrite: true
 
-  macos-13-build-test:
+  macos-15-intel-build-test:
     strategy:
       fail-fast: false
       matrix:
         pyversion: ["3.8", "3.9", "3.10"]
-    runs-on: "macos-13"
+    runs-on: "macos-15-intel"
     steps:
       - uses: actions/checkout@v4
       - name: Install latest stable Rust
@@ -131,7 +131,7 @@ jobs:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' scikit-learn toml
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn>=1.6.1,<1.7' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -161,7 +161,7 @@ jobs:
       - name: Save Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-13-${{ matrix.pyversion }}
+          name: wheels-macos-15-intel-${{ matrix.pyversion }}
           path: dist/*.whl
           overwrite: true
 
@@ -184,7 +184,7 @@ jobs:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' scikit-learn toml
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn>=1.6.1,<1.7' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -221,7 +221,7 @@ jobs:
 
   release-wheels:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [windows-build-tests, macos-build-test, macos-13-build-test, linux-build-test]
+    needs: [windows-build-tests, macos-build-test, macos-15-intel-build-test, linux-build-test]
     runs-on: ubuntu-latest
     steps:
       - name: Download wheel artifacts
@@ -251,7 +251,7 @@ jobs:
           python-version: "3.10"
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' scikit-learn toml
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn>=1.6.1,<1.7' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
