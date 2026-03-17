@@ -544,6 +544,18 @@ class GradientBooster:
             "feature_importance_method", feature_importance_method
         )
 
+    def __sklearn_tags__(self) -> dict[str, Any]:
+        # Only considered a regressor in the scikit-learn sense, as it only ever returns a 1d prediction value.
+        from sklearn.utils import Tags, TargetTags
+
+        return Tags(
+            estimator_type="regressor",
+            target_tags=TargetTags(required=False),
+            transformer_tags=None,
+            regressor_tags=None,
+            classifier_tags=None,
+        )
+
     def fit(
         self,
         X: FrameLike,
