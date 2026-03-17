@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pyversion: ["3.9", "3.10", "3.11", "3.12"]
+        pyversion: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     runs-on: "windows-latest"
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,7 @@ jobs:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<1.6' toml
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<=1.8' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -67,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pyversion: ["3.11", "3.12"]
+        pyversion: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: "macos-latest"
     steps:
       - uses: actions/checkout@v4
@@ -80,7 +80,7 @@ jobs:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<1.6' toml
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -131,7 +131,7 @@ jobs:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<1.6' toml
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -171,7 +171,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pyversion: ["3.9", "3.10", "3.11", "3.12"]
+        pyversion: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
         # target: [x86_64, i686]
     steps:
       - uses: actions/checkout@v4
@@ -184,7 +184,7 @@ jobs:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<1.6' toml
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -251,7 +251,7 @@ jobs:
           python-version: "3.10"
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<1.6' toml
+        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
