@@ -1,5 +1,6 @@
 name: docs
 on:
+  workflow_dispatch:
   push:
     branches:
       - "main"
@@ -10,9 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: 3.x
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
       - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV 
       - uses: actions/cache@v3
         with:
@@ -23,8 +23,8 @@ jobs:
       - run: |
           cp README.md py-forust/README.md
           cp LICENSE py-forust/LICENSE
-      - run: pip install mkdocs-material 
+      - run: pip install mkdocs-material
       - run: |
           cd py-forust
-          pip install .[dev]
-          mkdocs gh-deploy --force
+          uv sync --group dev
+          uv run mkdocs gh-deploy --force
