@@ -1,6 +1,6 @@
 [package]
 name = "py-forust"
-version = "0.4.8"
+version = "0.5.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.28", features = ["extension-module"] }
-forust-ml = { version = "0.4.8", path = "../" }
+forust-ml = { version = "0.5.0", path = "../" }
 numpy = "0.28"
 ndarray = "0.17"
 serde_plain = { version = "1.0" }
