@@ -27,7 +27,7 @@ build-backend = "maturin"
 
 [dependency-groups]
 dev = ["maturin", "pytest", "seaborn", "xgboost<2.0", "scikit-learn", "ruff>=0.0.272"]
-docs = ["mkdocs-material==9.*", "mkdocstrings==0.29.1", "mkdocstrings-python==1.16.10", "mkdocs-autorefs", "mkdocs<2.0.0"]
+docs = ["mkdocs-material==9.*", "mkdocstrings==0.29.1", "mkdocstrings-python==1.16.10", "mkdocs-autorefs==1.4.1", "mkdocs<2.0.0"]
 
 [tool.maturin]
 sdist-include = ["LICENSE", "README.md"]
