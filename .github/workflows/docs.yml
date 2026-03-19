@@ -26,5 +26,5 @@ jobs:
       - run: pip install mkdocs-material
       - run: |
           cd py-forust
-          uv sync --group dev
-          uv run mkdocs gh-deploy --force
+          uv sync --group dev --group docs
+          uv run --group dev --group docs mkdocs gh-deploy --force
