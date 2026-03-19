@@ -219,9 +219,33 @@ jobs:
           path: dist/*.whl
           overwrite: true
 
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      - name: Sync package metadata files
+        run: |
+          cp README.md py-forust/README.md
+          cp LICENSE py-forust/LICENSE
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+          working-directory: py-forust
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: py-forust/dist
+          overwrite: true
+
   release-wheels:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [windows-build-tests, macos-build-test, macos-15-intel-build-test, linux-build-test]
+    needs: [windows-build-tests, macos-build-test, macos-15-intel-build-test, linux-build-test, sdist]
     runs-on: ubuntu-latest
     steps:
       - name: Download wheel artifacts
@@ -232,11 +256,13 @@ jobs:
           merge-multiple: true
       - name: List downloaded wheels
         run: ls -la dist
-      - name: Publish Wheels
+      - name: Publish to PyPI
         uses: PyO3/maturin-action@v1
+        env:
+          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
         with:
           command: upload
-          args: --username __token__ --password ${{ secrets.PYPI_TOKEN }} --skip-existing dist/*.whl
+          args: --non-interactive --skip-existing *
 
   cargo-build-test:
     runs-on: ubuntu-latest
