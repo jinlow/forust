@@ -12,3 +12,4 @@ resources/*
 py-forust/LICENSE
 py-forust/README.md
 .venv
+py-forust/uv.lock
