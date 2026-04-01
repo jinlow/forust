@@ -176,10 +176,11 @@ pub struct GradientBooster {
     /// A matrix of the evaluation history on the evaluation datasets.
     #[serde(default = "default_evaluation_history")]
     pub evaluation_history: Option<RowMajorMatrix<f64>>,
+    /// Zero-based boosting iteration with the best evaluation metric.
     #[serde(default = "default_best_iteration")]
     pub best_iteration: Option<usize>,
-    /// Number of trees to use when predicting,
-    /// defaults to best_iteration if this is defined.
+    /// Number of boosting iterations to use when predicting.
+    /// For SoftmaxMultiClass, each boosting iteration corresponds to `num_classes` trees.
     #[serde(default = "default_prediction_iteration")]
     pub prediction_iteration: Option<usize>,
     /// How the missing nodes weights should be treated at training time.
@@ -1003,8 +1004,7 @@ impl GradientBooster {
 
     fn update_best_iteration_multiclass(&mut self, round: usize, num_classes: usize) {
         self.best_iteration = Some(round);
-        // prediction_iteration is tree count, not round count
-        self.prediction_iteration = Some((round + 1) * num_classes);
+        self.prediction_iteration = Some((round + 1).min(self.trees.len() / num_classes));
     }
 
     fn update_best_iteration(&mut self, i: usize) {
@@ -1179,11 +1179,73 @@ impl GradientBooster {
         contribs
     }
 
-    /// Get the a reference to the trees for predicting, ensureing that the right number of
-    /// trees are used.
+    fn total_prediction_rounds(&self) -> usize {
+        if self.num_classes > 1 {
+            self.trees.len() / self.num_classes
+        } else {
+            self.trees.len()
+        }
+    }
+
+    fn normalize_prediction_iteration_state(&mut self) {
+        let Some(prediction_iteration) = self.prediction_iteration else {
+            return;
+        };
+        if self.trees.is_empty() {
+            return;
+        }
+        if self.num_classes <= 1 {
+            self.prediction_iteration = Some(prediction_iteration.min(self.trees.len()));
+            return;
+        }
+
+        let total_rounds = self.total_prediction_rounds();
+        let normalized = if let Some(best_iteration) = self.best_iteration {
+            let best_rounds = best_iteration + 1;
+            let legacy_tree_count = best_rounds.saturating_mul(self.num_classes);
+            if prediction_iteration == legacy_tree_count {
+                best_rounds
+            } else {
+                prediction_iteration.min(total_rounds)
+            }
+        } else if prediction_iteration > total_rounds
+            && prediction_iteration % self.num_classes == 0
+            && prediction_iteration <= self.trees.len()
+        {
+            prediction_iteration / self.num_classes
+        } else {
+            prediction_iteration.min(total_rounds)
+        };
+
+        self.prediction_iteration = Some(normalized.min(total_rounds));
+    }
+
+    pub fn prediction_iteration_limit(&self) -> Option<usize> {
+        if self.trees.is_empty() {
+            return self.prediction_iteration;
+        }
+        self.prediction_iteration.map(|prediction_iteration| {
+            if self.num_classes > 1 {
+                prediction_iteration.min(self.total_prediction_rounds())
+            } else {
+                prediction_iteration.min(self.trees.len())
+            }
+        })
+    }
+
+    pub fn prediction_tree_count(&self) -> usize {
+        match self.prediction_iteration_limit() {
+            Some(prediction_iteration) if self.num_classes > 1 => prediction_iteration
+                .saturating_mul(self.num_classes)
+                .min(self.trees.len()),
+            Some(prediction_iteration) => prediction_iteration,
+            None => self.trees.len(),
+        }
+    }
+
+    /// Get a reference to the trees used for predicting.
     fn get_prediction_trees(&self) -> &[Tree] {
-        let n_iterations = self.prediction_iteration.unwrap_or(self.trees.len());
-        &self.trees[..n_iterations]
+        &self.trees[..self.prediction_tree_count()]
     }
 
     /// Generate predictions on data using the gradient booster.
@@ -1392,7 +1454,10 @@ impl GradientBooster {
     pub fn from_json(json_str: &str) -> Result<Self, ForustError> {
         let model = serde_json::from_str::<GradientBooster>(json_str);
         match model {
-            Ok(m) => Ok(m),
+            Ok(mut m) => {
+                m.normalize_prediction_iteration_state();
+                Ok(m)
+            }
             Err(e) => Err(ForustError::UnableToRead(e.to_string())),
         }
     }
@@ -1590,9 +1655,10 @@ impl GradientBooster {
     }
 
     /// Set prediction iterations.
-    /// * `early_stopping_rounds` - Early stoppings rounds.
+    /// * `prediction_iteration` - Number of boosting iterations to use when predicting.
+    ///   For SoftmaxMultiClass, each boosting iteration corresponds to `num_classes` trees.
     pub fn set_prediction_iteration(mut self, prediction_iteration: Option<usize>) -> Self {
-        self.prediction_iteration = prediction_iteration.map(|i| i + 1);
+        self.prediction_iteration = prediction_iteration;
         self
     }
 
@@ -1961,10 +2027,67 @@ mod tests {
             "expected early stopping, got {} trees",
             booster.trees.len()
         );
-        // prediction_iteration should be a multiple of K
-        if let Some(pi) = booster.prediction_iteration {
-            assert_eq!(pi % 3, 0, "prediction_iteration must be multiple of K");
-        }
+        assert_eq!(
+            booster.prediction_iteration_limit(),
+            booster.best_iteration.map(|best| best + 1)
+        );
+    }
+
+    #[test]
+    fn test_multiclass_prediction_iteration_uses_rounds() {
+        let (data_vec, y, n, n_cols) = make_3class_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::SoftmaxMultiClass)
+            .set_num_classes(3)
+            .set_iterations(20);
+        booster.fit(&data, &y, &w, None).unwrap();
+
+        let full_preds = booster.predict(&data, true);
+        booster.prediction_iteration = Some(2);
+        let partial_preds = booster.predict(&data, true);
+        let leaf_indices = booster.predict_leaf_indices(&data);
+
+        assert_eq!(booster.prediction_iteration_limit(), Some(2));
+        assert_eq!(leaf_indices.len(), n * 2 * 3);
+        assert!(
+            full_preds
+                .iter()
+                .zip(partial_preds.iter())
+                .any(|(full, partial)| (full - partial).abs() > 1e-10),
+            "using fewer boosting rounds should change predictions"
+        );
+    }
+
+    #[test]
+    fn test_multiclass_prediction_iteration_legacy_json_is_normalized() {
+        let (data_vec, y, n, n_cols) = make_3class_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::SoftmaxMultiClass)
+            .set_num_classes(3)
+            .set_iterations(20);
+        booster.early_stopping_rounds = Some(3);
+        booster.initialize_base_score = true;
+
+        let eval_data = vec![(
+            Matrix::new(&data_vec, n, n_cols),
+            y.as_slice(),
+            w.as_slice(),
+        )];
+        booster.fit(&data, &y, &w, Some(eval_data)).unwrap();
+
+        let best_rounds = booster.best_iteration.unwrap() + 1;
+        let mut json_value: serde_json::Value =
+            serde_json::from_str(&booster.json_dump().unwrap()).unwrap();
+        json_value["prediction_iteration"] = serde_json::json!(best_rounds * booster.num_classes);
+
+        let loaded = GradientBooster::from_json(&json_value.to_string()).unwrap();
+        assert_eq!(loaded.prediction_iteration_limit(), Some(best_rounds));
     }
 
     #[test]

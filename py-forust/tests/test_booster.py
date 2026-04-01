@@ -146,6 +146,30 @@ def test_softmax_multiclass_explanations_raise(iris_X_y):
         fmod.partial_dependence(X, feature=0)
 
 
+def test_softmax_multiclass_prediction_iteration_uses_rounds(iris_X_y):
+    X, y = iris_X_y
+    fmod = GradientBooster(
+        objective_type="SoftmaxMultiClass",
+        num_classes=3,
+        iterations=20,
+        early_stopping_rounds=3,
+    )
+    fmod.fit(X, y, evaluation_data=[(X, y)])
+
+    full_logits = fmod.predict(X)
+    assert fmod.best_iteration is not None
+    assert fmod.prediction_iteration == (fmod.best_iteration + 1)
+
+    fmod.set_prediction_iteration(2)
+    truncated_logits = fmod.predict(X)
+    leaf_indices = fmod.predict_leaf_indices(X)
+
+    assert fmod.prediction_iteration == 2
+    assert truncated_logits.shape == (len(X), 3)
+    assert leaf_indices.shape == (len(X), 2 * 3)
+    assert not np.allclose(truncated_logits, full_logits)
+
+
 def test_booster_to_xgboosts(X_y):
     X, y = X_y
     X = X.fillna(0)

@@ -70,7 +70,7 @@ model.predict_contributions(X.head())
 #        -1.07720813],
 ```
 
-When predicting with the data, the maximum iteration that will be used when predicting can be set using the [`set_prediction_iteration`](https://jinlow.github.io/forust/#forust.GradientBooster.set_prediction_iteration) method. If `early_stopping_rounds` has been set, this will default to the best iteration, otherwise all of the trees will be used.
+When predicting with the data, the maximum boosting iteration that will be used can be set using the [`set_prediction_iteration`](https://jinlow.github.io/forust/#forust.GradientBooster.set_prediction_iteration) method. If `early_stopping_rounds` has been set, this will default to the best iteration, otherwise all fitted iterations will be used. For `SoftmaxMultiClass`, each boosting iteration corresponds to `num_classes` trees.
 
 If early stopping was used, the evaluation history can be retrieved with the [`get_evaluation_history`](https://jinlow.github.io/forust/#forust.GradientBooster.get_evaluation_history) method.
 
@@ -91,6 +91,11 @@ For K-class classification, use `objective_type="SoftmaxMultiClass"` and set `nu
 
 ```python
 from forust import GradientBooster
+from sklearn.datasets import load_iris
+
+iris = load_iris(as_frame=True)
+X = iris.data
+y = iris.target
 
 model = GradientBooster(
     objective_type="SoftmaxMultiClass",
@@ -101,6 +106,8 @@ model.fit(X, y)
 logits = model.predict(X.head())
 probs = model.predict_proba(X.head())
 ```
+
+Feature contributions and partial dependence are currently only implemented for scalar-output objectives.
 
 ### Inspecting the Model
 

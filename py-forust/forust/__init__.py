@@ -793,7 +793,7 @@ class GradientBooster:
         return np.reshape(contributions, (rows, cols + 1))
 
     def predict_leaf_indices(self, X: FrameLike) -> np.ndarray:
-        """Predict the leaf indices for each tree. This will be the node ID number, this can be used to identify the leaf node a record will fall into for each row, this could be paired directly with the `trees_to_dataframe` output. The data returned will be a matrix, where each column corresponds to a tree, thus the data will be of the shape (rows in X, prediction_iteration)
+        """Predict the leaf indices for each tree. This will be the node ID number, this can be used to identify the leaf node a record will fall into for each row, this could be paired directly with the `trees_to_dataframe` output. The data returned has one column per tree used for prediction. For `SoftmaxMultiClass`, each boosting iteration corresponds to `num_classes` trees.
 
         Args:
             X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
@@ -808,11 +808,12 @@ class GradientBooster:
             rows=rows,
             cols=cols,
         )
-        n_trees = (
-            self.number_of_trees
-            if self.prediction_iteration is None
-            else self.prediction_iteration
-        )
+        if self.prediction_iteration is None:
+            n_trees = self.number_of_trees
+        elif self.objective_type == "SoftmaxMultiClass" and self.num_classes > 1:
+            n_trees = self.prediction_iteration * self.num_classes
+        else:
+            n_trees = self.prediction_iteration
         return np.reshape(leaf_indices, (rows, n_trees), order="F")
 
     def set_prediction_iteration(self, iteration: int):
@@ -821,8 +822,9 @@ class GradientBooster:
         will be used.
 
         Args:
-            iteration (int): Iteration number to use, this will use all trees, up to this
-                index. Setting this to 10, would result in trees 0 through 9 used for predictions.
+            iteration (int): Number of boosting iterations to use when predicting.
+                For `SoftmaxMultiClass`, each boosting iteration corresponds to
+                `num_classes` trees.
         """
         self.booster.prediction_iteration = iteration
 
@@ -1115,8 +1117,9 @@ class GradientBooster:
         If no `evaluation_dataset` was passed, this will return None.
 
         Returns:
-            np.ndarray | None: A numpy array equal to the shape of the number
-            of evaluation datasets passed, and the number of trees in the model.
+            np.ndarray | None: A numpy array with shape
+            `(completed_boosting_iterations, n_evaluation_datasets)`.
+            For `SoftmaxMultiClass`, rows correspond to boosting rounds, not individual trees.
 
         Example:
             ```python
@@ -1138,7 +1141,7 @@ class GradientBooster:
 
     @property
     def best_iteration(self) -> int | None:
-        """Get the best iteration if `early_stopping_rounds` was used when fitting.
+        """Get the zero-based best boosting iteration if `early_stopping_rounds` was used when fitting.
 
         Returns:
             int | None: The best iteration, or None if `early_stopping_rounds` wasn't used.
@@ -1147,10 +1150,11 @@ class GradientBooster:
 
     @property
     def prediction_iteration(self) -> int | None:
-        """The prediction_iteration that will be used when predicting, up to this many trees will be used.
+        """The number of boosting iterations that will be used when predicting.
+        For `SoftmaxMultiClass`, each boosting iteration corresponds to `num_classes` trees.
 
         Returns:
-            int | None: Int if this is set, otherwise, None, in which case all trees will be used.
+            int | None: Int if this is set, otherwise, None, in which case all fitted iterations will be used.
         """
         return self.booster.prediction_iteration
 

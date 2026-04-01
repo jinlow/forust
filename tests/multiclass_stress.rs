@@ -883,18 +883,16 @@ fn stress_early_stopping_metric_tracking() {
         "first ({first_metric}) should be >= best ({best_metric})"
     );
 
-    // prediction_iteration must be multiple of K
-    let pi = booster.prediction_iteration.unwrap();
+    let best_iteration = booster
+        .best_iteration
+        .expect("best_iteration should be set");
+    let prediction_iteration = booster
+        .prediction_iteration_limit()
+        .expect("prediction_iteration should be set");
     assert_eq!(
-        pi % 3,
-        0,
-        "prediction_iteration ({pi}) must be multiple of 3"
-    );
-
-    // Verify we have a best_iteration set
-    assert!(
-        booster.best_iteration.is_some(),
-        "best_iteration should be set"
+        prediction_iteration,
+        best_iteration + 1,
+        "prediction_iteration should equal best_iteration + 1 in boosting rounds"
     );
 }
 

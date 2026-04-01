@@ -197,7 +197,7 @@ impl GradientBooster {
 
     #[getter]
     fn prediction_iteration(&self) -> PyResult<Option<usize>> {
-        Ok(self.booster.prediction_iteration)
+        Ok(self.booster.prediction_iteration_limit())
     }
 
     #[getter]
@@ -280,8 +280,10 @@ impl GradientBooster {
         cols: usize,
         parallel: Option<bool>,
     ) -> PyResult<Bound<'py, PyArray1<f64>>> {
-        if !matches!(self.booster.objective_type, ObjectiveType::SoftmaxMultiClass)
-            || self.booster.num_classes < 2
+        if !matches!(
+            self.booster.objective_type,
+            ObjectiveType::SoftmaxMultiClass
+        ) || self.booster.num_classes < 2
         {
             return Err(PyValueError::new_err(
                 "predict_proba is only available when objective_type is SoftmaxMultiClass and num_classes >= 2",
@@ -304,7 +306,10 @@ impl GradientBooster {
         method: &str,
         parallel: Option<bool>,
     ) -> PyResult<Bound<'py, PyArray1<f64>>> {
-        if matches!(self.booster.objective_type, ObjectiveType::SoftmaxMultiClass) {
+        if matches!(
+            self.booster.objective_type,
+            ObjectiveType::SoftmaxMultiClass
+        ) {
             return Err(PyValueError::new_err(
                 "predict_contributions is not supported for SoftmaxMultiClass; explanations are only implemented for scalar-output objectives",
             ));
@@ -343,7 +348,10 @@ impl GradientBooster {
     }
 
     pub fn value_partial_dependence(&self, feature: usize, value: f64) -> PyResult<f64> {
-        if matches!(self.booster.objective_type, ObjectiveType::SoftmaxMultiClass) {
+        if matches!(
+            self.booster.objective_type,
+            ObjectiveType::SoftmaxMultiClass
+        ) {
             return Err(PyValueError::new_err(
                 "value_partial_dependence is not supported for SoftmaxMultiClass; partial dependence is only implemented for scalar-output objectives",
             ));
