@@ -1,5 +1,6 @@
 use crate::data::FloatData;
 use crate::errors::ForustError;
+use crate::objective::SoftmaxMultiClass;
 use crate::utils::items_to_strings;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -37,6 +38,7 @@ pub enum Metric {
     LogLoss,
     RootMeanSquaredLogError,
     RootMeanSquaredError,
+    MultiClassLogLoss,
 }
 
 impl FromStr for Metric {
@@ -48,6 +50,7 @@ impl FromStr for Metric {
             "LogLoss" => Ok(Metric::LogLoss),
             "RootMeanSquaredLogError" => Ok(Metric::RootMeanSquaredLogError),
             "RootMeanSquaredError" => Ok(Metric::RootMeanSquaredError),
+            "MultiClassLogLoss" => Ok(Metric::MultiClassLogLoss),
 
             _ => Err(ForustError::ParseString(
                 s.to_string(),
@@ -57,6 +60,7 @@ impl FromStr for Metric {
                     "LogLoss",
                     "RootMeanSquaredLogError",
                     "RootMeanSquaredError",
+                    "MultiClassLogLoss",
                 ]),
             )),
         }
@@ -74,6 +78,9 @@ pub fn metric_callables(metric_type: &Metric) -> (MetricFn, bool) {
         Metric::RootMeanSquaredError => (
             RootMeanSquaredErrorMetric::calculate_metric,
             RootMeanSquaredErrorMetric::maximize(),
+        ),
+        Metric::MultiClassLogLoss => panic!(
+            "MultiClassLogLoss uses multiclass_log_loss() directly, not function-pointer dispatch"
         ),
     }
 }
@@ -166,6 +173,22 @@ pub fn root_mean_squared_error(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -
     (res / w_sum).sqrt()
 }
 
+/// Multi-class log loss (cross-entropy).
+/// y: labels (N), yhat: raw logits (N×K), w: weights (N).
+pub fn multiclass_log_loss(y: &[f64], yhat: &[f64], w: &[f64], num_classes: usize) -> f64 {
+    let probs = SoftmaxMultiClass::softmax(yhat, num_classes);
+    let n = y.len();
+    let mut loss = 0.0;
+    let mut w_sum = 0.0;
+    for i in 0..n {
+        let k = y[i] as usize;
+        let p = probs[i * num_classes + k].max(1e-15);
+        loss -= p.ln() * w[i];
+        w_sum += w[i];
+    }
+    loss / w_sum
+}
+
 fn trapezoid_area(x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
     (x0 - x1).abs() * (y0 + y1) * 0.5
 }
@@ -241,6 +264,24 @@ mod tests {
         let sample_weight = vec![1., 1., 1., 1., 1., 2., 2.];
         let res = roc_auc_score(&y, &yhat, &sample_weight);
         assert_eq!(precision_round(res, 5), 0.67857);
+    }
+
+    #[test]
+    fn test_multiclass_log_loss() {
+        // Perfect predictions → low loss
+        let y = vec![0.0, 1.0, 2.0];
+        let good_logits = vec![10.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0];
+        let w = vec![1.0; 3];
+        let good_loss = multiclass_log_loss(&y, &good_logits, &w, 3);
+
+        // Random predictions → higher loss
+        let bad_logits = vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let bad_loss = multiclass_log_loss(&y, &bad_logits, &w, 3);
+
+        assert!(good_loss > 0.0, "loss should be positive");
+        assert!(good_loss < bad_loss, "better predictions should have lower loss");
+        // Uniform distribution → log(3) ≈ 1.0986
+        assert!((bad_loss - 3.0_f64.ln()).abs() < 1e-6);
     }
 
     #[test]

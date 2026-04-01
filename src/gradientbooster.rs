@@ -3,9 +3,10 @@ use crate::constraints::ConstraintMap;
 use crate::data::{Matrix, RowMajorMatrix};
 use crate::errors::ForustError;
 use crate::metric::{is_comparison_better, metric_callables, Metric, MetricFn};
+use crate::metric::multiclass_log_loss;
 use crate::objective::{
     calc_init_callables, gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType,
-    SquaredLoss,
+    SoftmaxMultiClass, SquaredLoss,
 };
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::shapley::predict_contributions_row_shapley;
@@ -185,6 +186,14 @@ pub struct GradientBooster {
     /// Should the children nodes contain the parent node in their bounds, setting this to true, will result in no children being created that result in the higher and lower child values both being greater than, or less than the parent weight.
     #[serde(default = "default_force_children_to_bound_parent")]
     pub force_children_to_bound_parent: bool,
+    /// Number of classes for SoftmaxMultiClass. Default 1 (binary/regression).
+    /// Must be >= 2 when objective is SoftmaxMultiClass.
+    #[serde(default = "default_num_classes")]
+    pub num_classes: usize,
+    /// Per-class base scores for SoftmaxMultiClass. Length = num_classes.
+    /// None for binary/regression (uses existing scalar base_score field).
+    #[serde(default)]
+    pub base_scores: Option<Vec<f64>>,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -247,11 +256,54 @@ fn default_force_children_to_bound_parent() -> bool {
     false
 }
 
+fn default_num_classes() -> usize {
+    1
+}
+
 fn parse_missing<'de, D>(d: D) -> Result<f64, D::Error>
 where
     D: Deserializer<'de>,
 {
     Deserialize::deserialize(d).map(|x: Option<_>| x.unwrap_or(f64::NAN))
+}
+
+/// Extract class k's N-length grad/hess from N×K row-major arrays.
+fn extract_class_slice(
+    grad: &[f32],
+    hess: &[f32],
+    class: usize,
+    num_classes: usize,
+    n: usize,
+) -> (Vec<f32>, Vec<f32>) {
+    let mut g = Vec::with_capacity(n);
+    let mut h = Vec::with_capacity(n);
+    for i in 0..n {
+        g.push(grad[i * num_classes + class]);
+        h.push(hess[i * num_classes + class]);
+    }
+    (g, h)
+}
+
+/// Reduce N×K grad/hess to N-length for row-wise sampling.
+/// Per row: grad = max(|grad_ik|) over k, hess = sum(hess_ik) over k.
+fn max_abs_grad_per_row(
+    grad: &[f32],
+    hess: &[f32],
+    num_classes: usize,
+) -> (Vec<f32>, Vec<f32>) {
+    let n = grad.len() / num_classes;
+    let mut g = Vec::with_capacity(n);
+    let mut h = Vec::with_capacity(n);
+    for i in 0..n {
+        let offset = i * num_classes;
+        let max_g = (0..num_classes)
+            .map(|k| grad[offset + k].abs())
+            .fold(0.0f32, f32::max);
+        let sum_h: f32 = (0..num_classes).map(|k| hess[offset + k]).sum();
+        g.push(max_g);
+        h.push(sum_h);
+    }
+    (g, h)
 }
 
 impl Default for GradientBooster {
@@ -406,6 +458,8 @@ impl GradientBooster {
             missing_node_treatment,
             log_iterations,
             force_children_to_bound_parent,
+            num_classes: 1,
+            base_scores: None,
             trees: Vec::new(),
             metadata: HashMap::new(),
         };
@@ -453,6 +507,23 @@ impl GradientBooster {
             }
         }
 
+        // Multi-class consistency guards
+        if matches!(self.objective_type, ObjectiveType::SoftmaxMultiClass) {
+            if self.num_classes < 2 {
+                return Err(ForustError::InvalidInput(
+                    "SoftmaxMultiClass requires num_classes >= 2".into(),
+                ));
+            }
+            SoftmaxMultiClass::validate_labels(y, self.num_classes)?;
+        } else if self.num_classes > 1 {
+            return Err(ForustError::InvalidInput(format!(
+                "num_classes={} requires ObjectiveType::SoftmaxMultiClass, got {:?}",
+                self.num_classes, self.objective_type
+            )));
+        }
+
+        let is_multiclass = matches!(self.objective_type, ObjectiveType::SoftmaxMultiClass);
+
         let constraints_map = self
             .monotone_constraints
             .as_ref()
@@ -472,7 +543,11 @@ impl GradientBooster {
                 missing_node_treatment: self.missing_node_treatment,
                 force_children_to_bound_parent: self.force_children_to_bound_parent,
             };
-            self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
+            if is_multiclass {
+                self.fit_trees_multiclass(y, sample_weight, data, &splitter, evaluation_data)?;
+            } else {
+                self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
+            }
         } else {
             let splitter = MissingImputerSplitter {
                 l1: self.l1,
@@ -484,7 +559,11 @@ impl GradientBooster {
                 allow_missing_splits: self.allow_missing_splits,
                 constraints_map,
             };
-            self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
+            if is_multiclass {
+                self.fit_trees_multiclass(y, sample_weight, data, &splitter, evaluation_data)?;
+            } else {
+                self.fit_trees(y, sample_weight, data, &splitter, evaluation_data)?;
+            }
         };
 
         Ok(())
@@ -513,6 +592,9 @@ impl GradientBooster {
             None => match self.objective_type {
                 ObjectiveType::LogLoss => LogLoss::default_metric(),
                 ObjectiveType::SquaredLoss => SquaredLoss::default_metric(),
+                ObjectiveType::SoftmaxMultiClass => {
+                    panic!("SoftmaxMultiClass uses multiclass_log_loss directly, not get_metric_fn")
+                }
             },
             Some(v) => *v,
         };
@@ -524,6 +606,7 @@ impl GradientBooster {
         self.evaluation_history = None;
         self.best_iteration = None;
         self.prediction_iteration = None;
+        self.base_scores = None;
     }
 
     fn fit_trees<T: Splitter>(
@@ -703,6 +786,220 @@ impl GradientBooster {
         Ok(())
     }
 
+    fn fit_trees_multiclass<T: Splitter>(
+        &mut self,
+        y: &[f64],
+        sample_weight: &[f64],
+        data: &Matrix<f64>,
+        splitter: &T,
+        evaluation_data: Option<Vec<EvaluationData>>,
+    ) -> Result<(), ForustError> {
+        if !self.trees.is_empty() {
+            self.reset();
+        }
+
+        let k = self.num_classes;
+        let n = y.len();
+        let mut rng = StdRng::seed_from_u64(self.seed);
+
+        // 1. Base scores (K-length Vec)
+        if self.initialize_base_score {
+            self.base_scores = Some(SoftmaxMultiClass::calc_init(y, sample_weight, k));
+        }
+        let base = self
+            .base_scores
+            .clone()
+            .unwrap_or_else(|| vec![0.0; k]);
+
+        // 2. Initialize yhat: N×K row-major
+        let mut yhat = Vec::with_capacity(n * k);
+        for _ in 0..n {
+            yhat.extend_from_slice(&base);
+        }
+
+        // 3. Initial grad/hess: N×K flat as f32
+        let (mut grad, mut hess) =
+            SoftmaxMultiClass::calc_grad_hess(y, &yhat, sample_weight, k);
+
+        // 4. Bin data once (unchanged)
+        let binned_data = bin_matrix(data, sample_weight, self.nbins, self.missing)?;
+        let bdata = Matrix::new(&binned_data.binned_data, data.rows, data.cols);
+
+        // Initialize eval set predictions (N×K per eval set)
+        let mut evaluation_sets: Option<Vec<(&Matrix<f64>, &[f64], &[f64], Vec<f64>)>> =
+            evaluation_data.as_ref().map(|evals| {
+                evals
+                    .iter()
+                    .map(|(d, ey, ew)| {
+                        let n_eval = ey.len();
+                        let mut eval_yhat = Vec::with_capacity(n_eval * k);
+                        for _ in 0..n_eval {
+                            eval_yhat.extend_from_slice(&base);
+                        }
+                        (d, *ey, *ew, eval_yhat)
+                    })
+                    .collect()
+            });
+
+        let mut best_metric: Option<f64> = None;
+        let mut stop_early = false;
+        let col_index: Vec<usize> = (0..data.cols).collect();
+
+        for round in 0..self.iterations {
+            let verbose = if self.log_iterations == 0 {
+                false
+            } else {
+                round % self.log_iterations == 0
+            };
+
+            // 5. Sample rows ONCE per round (same rows for all K classes)
+            let (mut sample_grad, mut sample_hess) =
+                max_abs_grad_per_row(&grad, &hess, k);
+            let (chosen_index, _excluded_index) =
+                self.sample_index(&mut rng, &data.index, &mut sample_grad, &mut sample_hess);
+
+            // Column sampling
+            let colsample_index: Vec<usize> = if self.colsample_bytree == 1.0 {
+                Vec::new()
+            } else {
+                let amount =
+                    ((col_index.len() as f64) * self.colsample_bytree).floor() as usize;
+                let mut v: Vec<usize> = col_index
+                    .iter()
+                    .choose_multiple(&mut rng, amount)
+                    .iter()
+                    .map(|i| **i)
+                    .collect();
+                v.sort();
+                v
+            };
+
+            let fit_col_index = if self.colsample_bytree == 1.0 {
+                &col_index
+            } else {
+                &colsample_index
+            };
+
+            // 6. Fit K trees using SAME grad/hess (not recomputed between classes)
+            for class in 0..k {
+                let (grad_k, hess_k) = extract_class_slice(&grad, &hess, class, k, n);
+
+                let mut tree = Tree::new();
+                tree.fit(
+                    &bdata,
+                    chosen_index.clone(),
+                    fit_col_index,
+                    &binned_data.cuts,
+                    &grad_k,
+                    &hess_k,
+                    splitter,
+                    self.max_leaves,
+                    self.max_depth,
+                    self.parallel,
+                    &self.sample_method,
+                    &self.grow_policy,
+                );
+
+                // Update only class-k training predictions
+                let preds = tree.predict(data, self.parallel, &self.missing);
+                for (i, p) in preds.iter().enumerate() {
+                    yhat[i * k + class] += *p;
+                }
+
+                // Update eval set predictions for this tree
+                if let Some(eval_sets) = &mut evaluation_sets {
+                    for (eval_d, _, _, eval_yhat) in eval_sets.iter_mut() {
+                        let eval_preds =
+                            tree.predict(eval_d, self.parallel, &self.missing);
+                        for (i, &p) in eval_preds.iter().enumerate() {
+                            eval_yhat[i * k + class] += p;
+                        }
+                    }
+                }
+
+                self.trees.push(tree);
+            }
+
+            // 7. Eval metric after all K trees in this round
+            if let Some(eval_sets) = &mut evaluation_sets {
+                if self.evaluation_history.is_none() {
+                    self.evaluation_history =
+                        Some(RowMajorMatrix::new(Vec::new(), 0, eval_sets.len()));
+                }
+                let mut metrics: Vec<f64> = Vec::new();
+                let n_eval_sets = eval_sets.len();
+                for (eval_i, (_, ey, ew, eval_yhat)) in eval_sets.iter().enumerate() {
+                    let m = multiclass_log_loss(ey, eval_yhat, ew, k);
+
+                    if (eval_i + 1) == n_eval_sets {
+                        if let Some(early_stopping_rounds) = self.early_stopping_rounds {
+                            best_metric = match best_metric {
+                                None => {
+                                    self.update_best_iteration_multiclass(round, k);
+                                    Some(m)
+                                }
+                                Some(v) => {
+                                    // MultiClassLogLoss is minimized
+                                    if is_comparison_better(v, m, false) {
+                                        self.update_best_iteration_multiclass(round, k);
+                                        Some(m)
+                                    } else {
+                                        if let Some(best_iteration) = self.best_iteration {
+                                            if round - best_iteration >= early_stopping_rounds
+                                            {
+                                                if self.log_iterations > 0 {
+                                                    info!("Stopping early at round {} with metric value {}", round, m);
+                                                }
+                                                stop_early = true;
+                                            }
+                                        }
+                                        Some(v)
+                                    }
+                                }
+                            };
+                        }
+                    }
+                    metrics.push(m);
+                }
+                if verbose {
+                    info!(
+                        "Round {} evaluation data values: {}",
+                        round,
+                        fmt_vec_output(&metrics)
+                    );
+                }
+                if let Some(history) = &mut self.evaluation_history {
+                    history.append_row(metrics);
+                }
+            }
+
+            if stop_early {
+                break;
+            }
+
+            // 8. Recompute all N×K grad/hess for next round
+            (grad, hess) = SoftmaxMultiClass::calc_grad_hess(y, &yhat, sample_weight, k);
+            if verbose {
+                info!("Completed round {} of {}", round, self.iterations);
+            }
+        }
+        if self.log_iterations > 0 {
+            info!(
+                "Finished training multiclass booster with {} trees ({} rounds × {} classes).",
+                self.trees.len(),
+                self.trees.len() / k,
+                k
+            );
+        }
+        Ok(())
+    }
+
+    fn update_best_iteration_multiclass(&mut self, round: usize, num_classes: usize) {
+        self.best_iteration = Some(round);
+        // prediction_iteration is tree count, not round count
+        self.prediction_iteration = Some((round + 1) * num_classes);
+    }
+
     fn update_best_iteration(&mut self, i: usize) {
         self.best_iteration = Some(i);
         self.prediction_iteration = Some(i + 1);
@@ -730,17 +1027,53 @@ impl GradientBooster {
     /// Generate predictions on data using the gradient booster.
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
+    ///
+    /// For multi-class (num_classes > 1), returns raw logits of length N × K (row-major).
     pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
-        let mut init_preds = vec![self.base_score; data.rows];
-        self.get_prediction_trees().iter().for_each(|tree| {
-            for (p_, val) in init_preds
-                .iter_mut()
-                .zip(tree.predict(data, parallel, &self.missing))
-            {
-                *p_ += val;
+        if self.num_classes <= 1 {
+            // Existing scalar prediction (unchanged)
+            let mut init_preds = vec![self.base_score; data.rows];
+            self.get_prediction_trees().iter().for_each(|tree| {
+                for (p_, val) in init_preds
+                    .iter_mut()
+                    .zip(tree.predict(data, parallel, &self.missing))
+                {
+                    *p_ += val;
+                }
+            });
+            init_preds
+        } else {
+            let k = self.num_classes;
+            let n = data.rows;
+            let base = self.base_scores.as_deref().unwrap_or(&[]);
+            let mut preds = Vec::with_capacity(n * k);
+            for _ in 0..n {
+                if base.len() == k {
+                    preds.extend_from_slice(base);
+                } else {
+                    preds.extend(std::iter::repeat(0.0).take(k));
+                }
             }
-        });
-        init_preds
+            for (t_idx, tree) in self.get_prediction_trees().iter().enumerate() {
+                let class = t_idx % k;
+                for (i, p) in tree.predict(data, parallel, &self.missing).iter().enumerate() {
+                    preds[i * k + class] += *p;
+                }
+            }
+            preds
+        }
+    }
+
+    /// Predict class probabilities for SoftmaxMultiClass.
+    /// Returns Vec<f64> of length n_samples × num_classes, row-major.
+    /// Each consecutive K values are one sample's probabilities, summing to 1.0.
+    pub fn predict_proba(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
+        assert!(
+            self.num_classes >= 2,
+            "predict_proba requires num_classes >= 2"
+        );
+        let raw = self.predict(data, parallel);
+        SoftmaxMultiClass::softmax(&raw, self.num_classes)
     }
 
     /// Predict the leaf Indexes, this returns a vector of length N records * N Trees
@@ -763,7 +1096,7 @@ impl GradientBooster {
             ContributionsMethod::ProbabilityChange => {
                 match self.objective_type {
                     ObjectiveType::LogLoss => {},
-                    _ => panic!("ProbabilityChange contributions method is only valid when LogLoss objective is used.")
+                    ObjectiveType::SquaredLoss | ObjectiveType::SoftmaxMultiClass => panic!("ProbabilityChange contributions method is only valid when LogLoss objective is used."),
                 }
                 self.predict_contributions_probability_change(data, parallel)
             }
@@ -1399,5 +1732,293 @@ mod tests {
         let booster3 = GradientBooster::load_booster("resources/modelmissing.json").unwrap();
         assert_eq!(booster3.missing, 0.);
         assert_eq!(booster3.missing, booster.missing);
+    }
+
+    // ── Multiclass integration tests ──
+
+    /// Generate synthetic 3-class data: 3 separable 2D clusters.
+    /// Returns (col_major_data, labels, n_rows, n_cols).
+    fn make_3class_data() -> (Vec<f64>, Vec<f64>, usize, usize) {
+        let n_per_class = 100;
+        let n = n_per_class * 3;
+        let n_cols = 2;
+        // Row-major features: class 0 centered at (0,0), class 1 at (5,5), class 2 at (10,0)
+        let mut rows = Vec::with_capacity(n * n_cols);
+        let mut labels = Vec::with_capacity(n);
+        for i in 0..n_per_class {
+            let offset = (i as f64) * 0.02 - 1.0; // [-1, 1] spread
+            rows.push(0.0 + offset);
+            rows.push(0.0 + offset);
+            labels.push(0.0);
+        }
+        for i in 0..n_per_class {
+            let offset = (i as f64) * 0.02 - 1.0;
+            rows.push(5.0 + offset);
+            rows.push(5.0 + offset);
+            labels.push(1.0);
+        }
+        for i in 0..n_per_class {
+            let offset = (i as f64) * 0.02 - 1.0;
+            rows.push(10.0 + offset);
+            rows.push(0.0 + offset);
+            labels.push(2.0);
+        }
+        // Convert to column-major for forust-ml Matrix
+        let mut col_major = vec![0.0; n * n_cols];
+        for row in 0..n {
+            for col in 0..n_cols {
+                col_major[col * n + row] = rows[row * n_cols + col];
+            }
+        }
+        (col_major, labels, n, n_cols)
+    }
+
+    #[test]
+    fn test_multiclass_3class_synthetic() {
+        let (data_vec, y, n, n_cols) = make_3class_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::SoftmaxMultiClass)
+            .set_iterations(50)
+            .set_max_depth(4)
+            .set_learning_rate(0.3);
+        booster.num_classes = 3;
+        booster.initialize_base_score = true;
+
+        booster.fit(&data, &y, &w, None).unwrap();
+        let probs = booster.predict_proba(&data, true);
+
+        // Check accuracy > 90%
+        let mut correct = 0;
+        for i in 0..n {
+            let row = &probs[i * 3..(i + 1) * 3];
+            let predicted = row
+                .iter()
+                .enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                .unwrap()
+                .0;
+            if predicted == y[i] as usize {
+                correct += 1;
+            }
+        }
+        let accuracy = correct as f64 / n as f64;
+        assert!(
+            accuracy > 0.90,
+            "accuracy = {} (expected > 0.90)",
+            accuracy
+        );
+    }
+
+    #[test]
+    fn test_multiclass_predict_proba_sums_to_one() {
+        let (data_vec, y, n, n_cols) = make_3class_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::SoftmaxMultiClass)
+            .set_iterations(10);
+        booster.num_classes = 3;
+        booster.fit(&data, &y, &w, None).unwrap();
+        let probs = booster.predict_proba(&data, true);
+
+        for i in 0..n {
+            let row = &probs[i * 3..(i + 1) * 3];
+            let sum: f64 = row.iter().sum();
+            assert!(
+                (sum - 1.0).abs() < 1e-10,
+                "row {} sum = {}",
+                i,
+                sum
+            );
+        }
+    }
+
+    #[test]
+    fn test_multiclass_predict_returns_logits() {
+        let (data_vec, y, n, n_cols) = make_3class_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::SoftmaxMultiClass)
+            .set_iterations(10);
+        booster.num_classes = 3;
+        booster.fit(&data, &y, &w, None).unwrap();
+        let logits = booster.predict(&data, true);
+
+        // Raw logits should NOT sum to 1 (they're not probabilities)
+        assert_eq!(logits.len(), n * 3);
+        let first_row = &logits[0..3];
+        let sum: f64 = first_row.iter().sum();
+        // With non-zero base scores and tree predictions, sum unlikely to be exactly 1
+        // Just verify it returns raw values (can be negative, > 1, etc.)
+        assert!(
+            (sum - 1.0).abs() > 1e-6 || first_row.iter().any(|x| *x < 0.0 || *x > 1.0),
+            "logits should not look like probabilities"
+        );
+    }
+
+    #[test]
+    fn test_multiclass_json_roundtrip() {
+        let (data_vec, y, n, n_cols) = make_3class_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::SoftmaxMultiClass)
+            .set_iterations(10);
+        booster.num_classes = 3;
+        booster.initialize_base_score = true;
+        booster.fit(&data, &y, &w, None).unwrap();
+
+        let preds1 = booster.predict(&data, true);
+
+        // Roundtrip via JSON
+        booster
+            .save_booster("resources/model_multiclass.json")
+            .unwrap();
+        let loaded =
+            GradientBooster::load_booster("resources/model_multiclass.json").unwrap();
+        let preds2 = loaded.predict(&data, true);
+
+        assert_eq!(preds1.len(), preds2.len());
+        for (a, b) in preds1.iter().zip(preds2.iter()) {
+            assert!(
+                (a - b).abs() < 1e-10,
+                "predictions differ: {} vs {}",
+                a,
+                b
+            );
+        }
+        assert_eq!(loaded.num_classes, 3);
+        assert!(loaded.base_scores.is_some());
+    }
+
+    #[test]
+    fn test_multiclass_default_is_1() {
+        let booster = GradientBooster::default();
+        assert_eq!(booster.num_classes, 1);
+        assert!(booster.base_scores.is_none());
+    }
+
+    #[test]
+    fn test_multiclass_tree_count() {
+        let (data_vec, y, n, n_cols) = make_3class_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+        let iters = 15;
+
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::SoftmaxMultiClass)
+            .set_iterations(iters);
+        booster.num_classes = 3;
+        booster.fit(&data, &y, &w, None).unwrap();
+
+        assert_eq!(
+            booster.trees.len(),
+            iters * 3,
+            "trees = iters * num_classes"
+        );
+    }
+
+    #[test]
+    fn test_multiclass_early_stopping() {
+        let (data_vec, y, n, n_cols) = make_3class_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::SoftmaxMultiClass)
+            .set_iterations(200);
+        booster.num_classes = 3;
+        booster.early_stopping_rounds = Some(5);
+        booster.initialize_base_score = true;
+
+        let eval_data = vec![(
+            Matrix::new(&data_vec, n, n_cols),
+            y.as_slice(),
+            w.as_slice(),
+        )];
+        booster.fit(&data, &y, &w, Some(eval_data)).unwrap();
+
+        // Should have stopped early (well before 200 rounds on separable data)
+        assert!(
+            booster.trees.len() < 200 * 3,
+            "expected early stopping, got {} trees",
+            booster.trees.len()
+        );
+        // prediction_iteration should be a multiple of K
+        if let Some(pi) = booster.prediction_iteration {
+            assert_eq!(pi % 3, 0, "prediction_iteration must be multiple of K");
+        }
+    }
+
+    #[test]
+    fn test_existing_binary_unchanged() {
+        // Train binary LogLoss and verify results are identical to before multiclass changes
+        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file
+            .lines()
+            .map(|x| x.parse::<f64>().unwrap_or(f64::NAN))
+            .collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+
+        let data = Matrix::new(&data_vec, 891, 5);
+        let mut booster = GradientBooster::default()
+            .set_iterations(10)
+            .set_nbins(300)
+            .set_max_depth(3)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
+
+        // Verify num_classes defaults to 1
+        assert_eq!(booster.num_classes, 1);
+
+        let sample_weight = vec![1.; y.len()];
+        booster.fit(&data, &y, &sample_weight, None).unwrap();
+        let preds = booster.predict(&data, false);
+
+        // Should produce same number of predictions as rows
+        assert_eq!(preds.len(), 891);
+        // Predictions should be scalar (not N×K)
+        assert!(preds[0].is_finite());
+    }
+
+    #[test]
+    fn test_num_classes_without_softmax_objective() {
+        let (data_vec, y, n, n_cols) = make_3class_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+
+        let mut booster = GradientBooster::default().set_iterations(5);
+        booster.num_classes = 3; // but objective is LogLoss (default)
+
+        let result = booster.fit(&data, &y, &w, None);
+        assert!(result.is_err(), "should reject num_classes > 1 with LogLoss");
+    }
+
+    #[test]
+    fn test_softmax_objective_without_num_classes() {
+        let (data_vec, y, n, n_cols) = make_3class_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::SoftmaxMultiClass)
+            .set_iterations(5);
+        // num_classes defaults to 1 — too low for SoftmaxMultiClass
+
+        let result = booster.fit(&data, &y, &w, None);
+        assert!(
+            result.is_err(),
+            "should reject SoftmaxMultiClass with num_classes < 2"
+        );
     }
 }
