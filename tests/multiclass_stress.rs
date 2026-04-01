@@ -441,7 +441,7 @@ fn stress_colsample_bytree() {
 
 #[test]
 fn stress_large_dataset() {
-    let (data_vec, y, n, nc) = make_kclass_data(3, 1667, 4, 5.0); // ~5001 samples
+    let (data_vec, y, _n, nc) = make_kclass_data(3, 1667, 4, 5.0); // ~5001 samples
     let n = 5001; // 1667*3
     let data = Matrix::new(&data_vec, n, nc);
     let w = vec![1.0; n];
@@ -561,7 +561,11 @@ fn stress_refit_resets_state() {
 
     // Second fit — should reset, not append
     booster.fit(&data, &y, &w, None).unwrap();
-    assert_eq!(booster.trees.len(), 10 * 3, "trees should be reset, not appended");
+    assert_eq!(
+        booster.trees.len(),
+        10 * 3,
+        "trees should be reset, not appended"
+    );
     let preds2 = booster.predict(&data, true);
 
     // Same seed + same data → identical results
@@ -851,7 +855,7 @@ fn stress_early_stopping_metric_tracking() {
     let mut booster = GradientBooster::default()
         .set_objective_type(ObjectiveType::SoftmaxMultiClass)
         .set_iterations(200)
-        .set_max_depth(6)       // deep trees → easy to overfit
+        .set_max_depth(6) // deep trees → easy to overfit
         .set_learning_rate(0.5); // aggressive → fast convergence then overfit
     booster.num_classes = 3;
     booster.early_stopping_rounds = Some(5);
@@ -862,7 +866,9 @@ fn stress_early_stopping_metric_tracking() {
         eval_y.as_slice(),
         w_eval.as_slice(),
     )];
-    booster.fit(&data, &train_y, &w_train, Some(eval_sets)).unwrap();
+    booster
+        .fit(&data, &train_y, &w_train, Some(eval_sets))
+        .unwrap();
 
     // Evaluation history should exist
     let history = booster.evaluation_history.as_ref().unwrap();
@@ -879,10 +885,17 @@ fn stress_early_stopping_metric_tracking() {
 
     // prediction_iteration must be multiple of K
     let pi = booster.prediction_iteration.unwrap();
-    assert_eq!(pi % 3, 0, "prediction_iteration ({pi}) must be multiple of 3");
+    assert_eq!(
+        pi % 3,
+        0,
+        "prediction_iteration ({pi}) must be multiple of 3"
+    );
 
     // Verify we have a best_iteration set
-    assert!(booster.best_iteration.is_some(), "best_iteration should be set");
+    assert!(
+        booster.best_iteration.is_some(),
+        "best_iteration should be set"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -925,7 +938,10 @@ fn stress_deterministic_seed() {
         .iter()
         .zip(preds_c.iter())
         .any(|(a, c)| (a - c).abs() > 1e-10);
-    assert!(any_different, "different seeds should produce different results");
+    assert!(
+        any_different,
+        "different seeds should produce different results"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════

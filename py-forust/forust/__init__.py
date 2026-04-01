@@ -157,6 +157,7 @@ class BoosterType(Protocol):
     prediction_iteration: None | int
     best_iteration: None | int
     base_score: float
+    num_classes: int
     terminate_missing_features: set[int]
     number_of_trees: int
 
@@ -182,6 +183,15 @@ class BoosterType(Protocol):
         parallel: bool = True,
     ) -> np.ndarray:
         """predict method"""
+
+    def predict_proba(
+        self,
+        flat_data: np.ndarray,
+        rows: int,
+        cols: int,
+        parallel: bool = True,
+    ) -> np.ndarray:
+        """predict_proba method"""
 
     def predict_contributions(
         self,
@@ -317,6 +327,7 @@ class GradientBooster:
         evaluation_metric: str | None = None,
         early_stopping_rounds: int | None = None,
         initialize_base_score: bool = True,
+        num_classes: int = 1,
         terminate_missing_features: Iterable[Any] | None = None,
         missing_node_treatment: str = "None",
         log_iterations: int = 0,
@@ -329,7 +340,8 @@ class GradientBooster:
             objective_type (str, optional): The name of objective function used to optimize.
                 Valid options include "LogLoss" to use logistic loss as the objective function
                 (binary classification), or "SquaredLoss" to use Squared Error as the objective
-                function (continuous regression). Defaults to "LogLoss".
+                function (continuous regression), or "SoftmaxMultiClass" for K-class
+                classification. Defaults to "LogLoss".
             iterations (int, optional): Total number of trees to train in the ensemble.
                 Defaults to 100.
             learning_rate (float, optional): Step size to use at each iteration. Each
@@ -392,14 +404,17 @@ class GradientBooster:
             grow_policy (str, optional): Optional string value that controls the way new nodes are added to the tree. Choices are `DepthWise` to split at nodes closest to the root, or `LossGuide` to split at nodes with the highest loss change.
             evaluation_metric (str | None, optional): Optional string value used to define an evaluation metric
                 that will be calculated at each iteration if a `evaluation_dataset` is provided at fit time.
-                The metric can be one of "AUC", "LogLoss", "RootMeanSquaredLogError", or "RootMeanSquaredError".
+                The metric can be one of "AUC", "LogLoss", "RootMeanSquaredLogError",
+                "RootMeanSquaredError", or "MultiClassLogLoss".
                 If no `evaluation_metric` is passed, but an `evaluation_dataset` is passed, then "LogLoss", will
                 be used with the "LogLoss" objective function, and "RootMeanSquaredLogError" will be used with
-                "SquaredLoss".
+                "SquaredLoss". "SoftmaxMultiClass" uses "MultiClassLogLoss".
             early_stopping_rounds (int | None, optional): If this is specified, and an `evaluation_dataset` is passed
                 during fit, then an improvement in the `evaluation_metric` must be seen after at least this many
                 iterations of training, otherwise training will be cut short.
             initialize_base_score (bool, optional): If this is specified, the `base_score` will be calculated at fit time using the `sample_weight` and y data in accordance with the requested `objective_type`. This will result in the passed `base_score` value being overridden.
+            num_classes (int, optional): Number of target classes when `objective_type="SoftmaxMultiClass"`.
+                Must be at least 2 for multiclass training. Defaults to 1.
             terminate_missing_features (set[Any], optional): An optional iterable of features (either strings, or integer values specifying the feature indices if numpy arrays are used for fitting), for which the missing node will always be terminated, even if `allow_missing_splits` is set to true. This value is only valid if `create_missing_branch` is also True.
             missing_node_treatment (str, optional): Method for selecting the `weight` for the missing node, if `create_missing_branch` is set to `True`. Defaults to "None". Valid options are:
 
@@ -494,6 +509,7 @@ class GradientBooster:
             evaluation_metric=evaluation_metric,
             early_stopping_rounds=early_stopping_rounds,
             initialize_base_score=initialize_base_score,
+            num_classes=num_classes,
             terminate_missing_features=set(),
             missing_node_treatment=missing_node_treatment,
             log_iterations=log_iterations,
@@ -534,6 +550,7 @@ class GradientBooster:
         self.evaluation_metric = evaluation_metric
         self.early_stopping_rounds = early_stopping_rounds
         self.initialize_base_score = initialize_base_score
+        self.num_classes = num_classes
         self.terminate_missing_features = terminate_missing_features_
         self.missing_node_treatment = missing_node_treatment
         self.log_iterations = log_iterations
@@ -545,7 +562,8 @@ class GradientBooster:
         )
 
     def __sklearn_tags__(self) -> dict[str, Any]:
-        # Only considered a regressor in the scikit-learn sense, as it only ever returns a 1d prediction value.
+        # This wrapper returns raw margins/logits rather than class labels, so it does
+        # not behave like a sklearn classifier even for classification objectives.
         from sklearn.utils import Tags, TargetTags
 
         return Tags(
@@ -573,7 +591,9 @@ class GradientBooster:
             y (ArrayLike): Either a pandas Series, or a 1 dimensional numpy array. If "LogLoss"
                 was the objective type specified, then this should only contain 1 or 0 values,
                 where 1 is the positive class being predicted. If "SquaredLoss" is the
-                objective type, then any continuous variable can be provided.
+                objective type, then any continuous variable can be provided. If
+                "SoftmaxMultiClass" is used, then `y` must contain integer class labels
+                in `[0, num_classes)`.
             sample_weight (Union[ArrayLike, None], optional): Instance weights to use when
                 training the model. If None is passed, a weight of 1 will be used for every record.
                 Defaults to None.
@@ -675,12 +695,43 @@ class GradientBooster:
         features_, flat_data, rows, cols = _convert_input_frame(X)
         self._validate_features(features_)
         parallel_ = self.parallel if parallel is None else parallel
-        return self.booster.predict(
+        raw = self.booster.predict(
             flat_data=flat_data,
             rows=rows,
             cols=cols,
             parallel=parallel_,
         )
+        if self.objective_type == "SoftmaxMultiClass" and self.num_classes > 1:
+            return raw.reshape((rows, self.num_classes))
+        return raw
+
+    def predict_proba(self, X: FrameLike, parallel: Union[bool, None] = None) -> np.ndarray:
+        """Predict class probabilities for a fitted SoftmaxMultiClass booster.
+
+        Args:
+            X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
+            parallel (Union[bool, None], optional): Optionally specify if prediction
+                should run in parallel. If `None` is passed, the model's `parallel`
+                attribute will be used.
+
+        Returns:
+            np.ndarray: Probability matrix of shape `(n_samples, num_classes)`.
+        """
+        if self.objective_type != "SoftmaxMultiClass" or self.num_classes < 2:
+            raise ValueError(
+                "predict_proba is only available when objective_type is SoftmaxMultiClass and num_classes >= 2"
+            )
+
+        features_, flat_data, rows, cols = _convert_input_frame(X)
+        self._validate_features(features_)
+        parallel_ = self.parallel if parallel is None else parallel
+        probs = self.booster.predict_proba(
+            flat_data=flat_data,
+            rows=rows,
+            cols=cols,
+            parallel=parallel_,
+        )
+        return probs.reshape((rows, self.num_classes))
 
     @property
     def feature_importances_(self) -> np.ndarray:
@@ -724,6 +775,10 @@ class GradientBooster:
         Returns:
             np.ndarray: Returns a numpy array of the predicted contributions.
         """
+        if self.objective_type == "SoftmaxMultiClass":
+            raise ValueError(
+                "predict_contributions is not supported for SoftmaxMultiClass; explanations are only implemented for scalar-output objectives"
+            )
         features_, flat_data, rows, cols = _convert_input_frame(X)
         self._validate_features(features_)
         parallel_ = self.parallel if parallel is None else parallel
@@ -843,6 +898,10 @@ class GradientBooster:
             ```
             <img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/pdp_plot_age_mono.png">
         """
+        if self.objective_type == "SoftmaxMultiClass":
+            raise ValueError(
+                "partial_dependence is not supported for SoftmaxMultiClass; partial dependence is only implemented for scalar-output objectives"
+            )
         if isinstance(feature, str):
             if not isinstance(X, pd.DataFrame):
                 raise ValueError(

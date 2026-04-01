@@ -279,7 +279,10 @@ mod tests {
         let bad_loss = multiclass_log_loss(&y, &bad_logits, &w, 3);
 
         assert!(good_loss > 0.0, "loss should be positive");
-        assert!(good_loss < bad_loss, "better predictions should have lower loss");
+        assert!(
+            good_loss < bad_loss,
+            "better predictions should have lower loss"
+        );
         // Uniform distribution → log(3) ≈ 1.0986
         assert!((bad_loss - 3.0_f64.ln()).abs() < 1e-6);
     }

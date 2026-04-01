@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import clone
+from sklearn.datasets import load_iris
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import GridSearchCV
 from xgboost import XGBClassifier, XGBRegressor
@@ -27,6 +28,14 @@ def X_y() -> Tuple[pd.DataFrame, pd.Series]:
     df = pd.read_csv("../resources/titanic.csv")
     X = df.select_dtypes("number").drop(columns="survived").reset_index(drop=True)
     y = df["survived"]
+    return X, y
+
+
+@pytest.fixture
+def iris_X_y() -> Tuple[pd.DataFrame, pd.Series]:
+    iris = load_iris(as_frame=True)
+    X = iris.data.reset_index(drop=True)
+    y = iris.target.reset_index(drop=True)
     return X, y
 
 
@@ -100,6 +109,41 @@ def test_booster_no_variance(X_y):
 
     fmod.fit(X.iloc[:, [3]], y)
     assert len(np.unique(fmod.predict(X.iloc[:, [3]]))) == 1
+
+
+def test_softmax_multiclass_predict_shapes(iris_X_y):
+    X, y = iris_X_y
+    fmod = GradientBooster(
+        objective_type="SoftmaxMultiClass",
+        num_classes=3,
+        iterations=25,
+        max_depth=4,
+        initialize_base_score=True,
+    )
+    fmod.fit(X, y)
+
+    logits = fmod.predict(X)
+    probs = fmod.predict_proba(X)
+
+    assert logits.shape == (len(X), 3)
+    assert probs.shape == (len(X), 3)
+    assert np.allclose(probs.sum(axis=1), 1.0)
+
+
+def test_softmax_multiclass_explanations_raise(iris_X_y):
+    X, y = iris_X_y
+    fmod = GradientBooster(
+        objective_type="SoftmaxMultiClass",
+        num_classes=3,
+        iterations=10,
+    )
+    fmod.fit(X, y)
+
+    with pytest.raises(ValueError, match="predict_contributions is not supported"):
+        fmod.predict_contributions(X)
+
+    with pytest.raises(ValueError, match="partial_dependence is not supported"):
+        fmod.partial_dependence(X, feature=0)
 
 
 def test_booster_to_xgboosts(X_y):

@@ -7,10 +7,10 @@
 //! - Base score (InitEstimation) values
 //! - End-to-end training results on the same synthetic 3-class dataset
 
+use forust_ml::objective::ObjectiveType;
 use forust_ml::objective::SoftmaxMultiClass;
 use forust_ml::GradientBooster;
 use forust_ml::Matrix;
-use forust_ml::objective::ObjectiveType;
 use serde_json::Value;
 use std::fs;
 
@@ -185,12 +185,7 @@ fn crossval_end_to_end_accuracy() {
     // Probabilities must sum to 1 for every row
     for i in 0..n {
         let sum: f64 = probs[i * 3..(i + 1) * 3].iter().sum();
-        assert!(
-            (sum - 1.0).abs() < 1e-10,
-            "row {} prob sum = {}",
-            i,
-            sum
-        );
+        assert!((sum - 1.0).abs() < 1e-10, "row {} prob sum = {}", i, sum);
     }
 
     // Compare class predictions: they should agree on most samples

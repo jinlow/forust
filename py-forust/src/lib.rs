@@ -83,6 +83,7 @@ impl GradientBooster {
         missing_node_treatment,
         log_iterations,
         force_children_to_bound_parent,
+        num_classes=1,
     ))]
     pub fn new(
         objective_type: &str,
@@ -116,6 +117,7 @@ impl GradientBooster {
         missing_node_treatment: &str,
         log_iterations: usize,
         force_children_to_bound_parent: bool,
+        num_classes: usize,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = to_value_error(serde_plain::from_str(objective_type))?;
@@ -163,9 +165,9 @@ impl GradientBooster {
             log_iterations,
             force_children_to_bound_parent,
         );
-        Ok(GradientBooster {
-            booster: to_value_error(booster)?,
-        })
+        let mut booster = to_value_error(booster)?;
+        booster.num_classes = num_classes;
+        Ok(GradientBooster { booster })
     }
 
     #[setter]
@@ -187,9 +189,20 @@ impl GradientBooster {
         Ok(())
     }
 
+    #[setter]
+    fn set_num_classes(&mut self, value: usize) -> PyResult<()> {
+        self.booster.num_classes = value;
+        Ok(())
+    }
+
     #[getter]
     fn prediction_iteration(&self) -> PyResult<Option<usize>> {
         Ok(self.booster.prediction_iteration)
+    }
+
+    #[getter]
+    fn num_classes(&self) -> PyResult<usize> {
+        Ok(self.booster.num_classes)
     }
 
     #[getter]
@@ -258,6 +271,29 @@ impl GradientBooster {
         Ok(self.booster.predict(&data, parallel).into_pyarray(py))
     }
 
+    #[pyo3(signature = (flat_data, rows, cols, parallel=None))]
+    pub fn predict_proba<'py>(
+        &self,
+        py: Python<'py>,
+        flat_data: PyReadonlyArray1<f64>,
+        rows: usize,
+        cols: usize,
+        parallel: Option<bool>,
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        if !matches!(self.booster.objective_type, ObjectiveType::SoftmaxMultiClass)
+            || self.booster.num_classes < 2
+        {
+            return Err(PyValueError::new_err(
+                "predict_proba is only available when objective_type is SoftmaxMultiClass and num_classes >= 2",
+            ));
+        }
+
+        let flat_data = flat_data.as_slice()?;
+        let data = Matrix::new(flat_data, rows, cols);
+        let parallel = parallel.unwrap_or(true);
+        Ok(self.booster.predict_proba(&data, parallel).into_pyarray(py))
+    }
+
     #[pyo3(signature = (flat_data, rows, cols, method, parallel=None))]
     pub fn predict_contributions<'py>(
         &self,
@@ -268,6 +304,11 @@ impl GradientBooster {
         method: &str,
         parallel: Option<bool>,
     ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        if matches!(self.booster.objective_type, ObjectiveType::SoftmaxMultiClass) {
+            return Err(PyValueError::new_err(
+                "predict_contributions is not supported for SoftmaxMultiClass; explanations are only implemented for scalar-output objectives",
+            ));
+        }
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let parallel = parallel.unwrap_or(true);
@@ -302,6 +343,11 @@ impl GradientBooster {
     }
 
     pub fn value_partial_dependence(&self, feature: usize, value: f64) -> PyResult<f64> {
+        if matches!(self.booster.objective_type, ObjectiveType::SoftmaxMultiClass) {
+            return Err(PyValueError::new_err(
+                "value_partial_dependence is not supported for SoftmaxMultiClass; partial dependence is only implemented for scalar-output objectives",
+            ));
+        }
         Ok(self.booster.value_partial_dependence(feature, value))
     }
 
@@ -421,6 +467,7 @@ impl GradientBooster {
         dict.set_item("evaluation_metric", evaluation_metric_)?;
         dict.set_item("early_stopping_rounds", self.booster.early_stopping_rounds)?;
         dict.set_item("initialize_base_score", self.booster.initialize_base_score)?;
+        dict.set_item("num_classes", self.booster.num_classes)?;
         dict.set_item(
             "terminate_missing_features",
             self.booster.terminate_missing_features.clone(),

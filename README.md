@@ -38,6 +38,8 @@ For details on all of the methods and their respective parameters, see the [pyth
 
 The [`GradientBooster`](https://jinlow.github.io/forust/#forust.GradientBooster) class is currently the only public facing class in the package, and can be used to train gradient boosted decision tree ensembles with multiple objective functions.
 
+Supported objectives include binary classification with `LogLoss`, regression with `SquaredLoss`, and multiclass classification with `SoftmaxMultiClass` plus `num_classes`.
+
 ### Training and Predicting
 
 Once, the booster has been initialized, it can be fit on a provided dataset, and performance field. After fitting, the model can be used to predict on a dataset.
@@ -81,6 +83,23 @@ model.get_evaluation_history()[0:3]
 # array([[588.9158873 ],
 #        [532.01055803],
 #        [496.76933646]])
+```
+
+### Multi-class Classification
+
+For K-class classification, use `objective_type="SoftmaxMultiClass"` and set `num_classes=K`. `predict` returns raw logits with shape `(n_samples, K)`, while `predict_proba` returns class probabilities with the same shape.
+
+```python
+from forust import GradientBooster
+
+model = GradientBooster(
+    objective_type="SoftmaxMultiClass",
+    num_classes=3,
+)
+model.fit(X, y)
+
+logits = model.predict(X.head())
+probs = model.predict_proba(X.head())
 ```
 
 ### Inspecting the Model

@@ -7,7 +7,10 @@ use forust_ml::{GradientBooster, Matrix};
 use std::time::Instant;
 
 fn make_kclass_data(
-    k: usize, n_per_class: usize, n_features: usize, separation: f64,
+    k: usize,
+    n_per_class: usize,
+    n_features: usize,
+    separation: f64,
 ) -> (Vec<f64>, Vec<f64>, usize, usize) {
     let n = k * n_per_class;
     let mut rows = Vec::with_capacity(n * n_features);
@@ -43,10 +46,14 @@ struct TimingResult {
 fn run_timed(name: &'static str, f: impl FnOnce()) -> TimingResult {
     let start = Instant::now();
     f();
-    TimingResult { name, duration_us: start.elapsed().as_micros() }
+    TimingResult {
+        name,
+        duration_us: start.elapsed().as_micros(),
+    }
 }
 
 #[test]
+#[ignore = "benchmark-style timing coverage; run explicitly when needed"]
 fn timing_all_tests() {
     let mut results: Vec<TimingResult> = Vec::new();
 
@@ -116,20 +123,26 @@ fn timing_all_tests() {
         let w = vec![1.0; n];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(50).set_max_depth(4).set_learning_rate(0.3);
-        b.num_classes = 3; b.initialize_base_score = true;
+            .set_iterations(50)
+            .set_max_depth(4)
+            .set_learning_rate(0.3);
+        b.num_classes = 3;
+        b.initialize_base_score = true;
         b.fit(&d, &y, &w, None).unwrap();
     }));
 
     results.push(run_timed("train K=3 N=5001 iter=20", || {
-        let (dv, y, n, nc) = make_kclass_data(3, 1667, 4, 5.0);
+        let (dv, y, _n, nc) = make_kclass_data(3, 1667, 4, 5.0);
         let n = 5001;
         let d = Matrix::new(&dv, n, nc);
         let w = vec![1.0; n];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(20).set_max_depth(5).set_learning_rate(0.3);
-        b.num_classes = 3; b.initialize_base_score = true;
+            .set_iterations(20)
+            .set_max_depth(5)
+            .set_learning_rate(0.3);
+        b.num_classes = 3;
+        b.initialize_base_score = true;
         b.fit(&d, &y, &w, None).unwrap();
     }));
 
@@ -139,8 +152,11 @@ fn timing_all_tests() {
         let w = vec![1.0; n];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(50).set_max_depth(4).set_learning_rate(0.3);
-        b.num_classes = 10; b.initialize_base_score = true;
+            .set_iterations(50)
+            .set_max_depth(4)
+            .set_learning_rate(0.3);
+        b.num_classes = 10;
+        b.initialize_base_score = true;
         b.fit(&d, &y, &w, None).unwrap();
     }));
 
@@ -150,21 +166,32 @@ fn timing_all_tests() {
         let w = vec![1.0; n];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(30).set_max_depth(4).set_learning_rate(0.3);
-        b.num_classes = 3; b.initialize_base_score = true;
-        b.sample_method = SampleMethod::Goss; b.top_rate = 0.2; b.other_rate = 0.1;
+            .set_iterations(30)
+            .set_max_depth(4)
+            .set_learning_rate(0.3);
+        b.num_classes = 3;
+        b.initialize_base_score = true;
+        b.sample_method = SampleMethod::Goss;
+        b.top_rate = 0.2;
+        b.other_rate = 0.1;
         b.fit(&d, &y, &w, None).unwrap();
     }));
 
     results.push(run_timed("train K=3 N=300 missing 10%", || {
         let (mut dv, y, n, nc) = make_kclass_data(3, 100, 2, 5.0);
-        for i in (0..dv.len()).step_by(10) { dv[i] = f64::NAN; }
+        for i in (0..dv.len()).step_by(10) {
+            dv[i] = f64::NAN;
+        }
         let d = Matrix::new(&dv, n, nc);
         let w = vec![1.0; n];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(30).set_max_depth(4).set_learning_rate(0.3);
-        b.num_classes = 3; b.initialize_base_score = true; b.create_missing_branch = true;
+            .set_iterations(30)
+            .set_max_depth(4)
+            .set_learning_rate(0.3);
+        b.num_classes = 3;
+        b.initialize_base_score = true;
+        b.create_missing_branch = true;
         b.fit(&d, &y, &w, None).unwrap();
     }));
 
@@ -175,10 +202,15 @@ fn timing_all_tests() {
         let w = vec![1.0; n];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(50).set_max_depth(4).set_learning_rate(0.3);
-        b.num_classes = 3; b.initialize_base_score = true;
+            .set_iterations(50)
+            .set_max_depth(4)
+            .set_learning_rate(0.3);
+        b.num_classes = 3;
+        b.initialize_base_score = true;
         b.fit(&d, &y, &w, None).unwrap();
-        for _ in 0..100 { let _ = b.predict(&d, true); }
+        for _ in 0..100 {
+            let _ = b.predict(&d, true);
+        }
     }));
 
     results.push(run_timed("predict_proba K=3 N=300", || {
@@ -187,10 +219,15 @@ fn timing_all_tests() {
         let w = vec![1.0; n];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(50).set_max_depth(4).set_learning_rate(0.3);
-        b.num_classes = 3; b.initialize_base_score = true;
+            .set_iterations(50)
+            .set_max_depth(4)
+            .set_learning_rate(0.3);
+        b.num_classes = 3;
+        b.initialize_base_score = true;
         b.fit(&d, &y, &w, None).unwrap();
-        for _ in 0..100 { let _ = b.predict_proba(&d, true); }
+        for _ in 0..100 {
+            let _ = b.predict_proba(&d, true);
+        }
     }));
 
     results.push(run_timed("predict K=10 N=500 (500 trees)", || {
@@ -199,10 +236,15 @@ fn timing_all_tests() {
         let w = vec![1.0; n];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(50).set_max_depth(4).set_learning_rate(0.3);
-        b.num_classes = 10; b.initialize_base_score = true;
+            .set_iterations(50)
+            .set_max_depth(4)
+            .set_learning_rate(0.3);
+        b.num_classes = 10;
+        b.initialize_base_score = true;
         b.fit(&d, &y, &w, None).unwrap();
-        for _ in 0..100 { let _ = b.predict(&d, true); }
+        for _ in 0..100 {
+            let _ = b.predict(&d, true);
+        }
     }));
 
     // ── JSON roundtrip ──
@@ -212,8 +254,11 @@ fn timing_all_tests() {
         let w = vec![1.0; n];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(50).set_max_depth(4).set_learning_rate(0.3);
-        b.num_classes = 3; b.initialize_base_score = true;
+            .set_iterations(50)
+            .set_max_depth(4)
+            .set_learning_rate(0.3);
+        b.num_classes = 3;
+        b.initialize_base_score = true;
         b.fit(&d, &y, &w, None).unwrap();
         for _ in 0..10 {
             let json = b.json_dump().unwrap();
@@ -228,8 +273,11 @@ fn timing_all_tests() {
         let w = vec![1.0; n];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(30).set_max_depth(4).set_learning_rate(0.3);
-        b.num_classes = 2; b.initialize_base_score = true;
+            .set_iterations(30)
+            .set_max_depth(4)
+            .set_learning_rate(0.3);
+        b.num_classes = 2;
+        b.initialize_base_score = true;
         b.fit(&d, &y, &w, None).unwrap();
     }));
 
@@ -240,8 +288,11 @@ fn timing_all_tests() {
         let w = vec![1.0; 3];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(20).set_max_depth(2).set_learning_rate(0.3);
-        b.num_classes = 3; b.initialize_base_score = true;
+            .set_iterations(20)
+            .set_max_depth(2)
+            .set_learning_rate(0.3);
+        b.num_classes = 3;
+        b.initialize_base_score = true;
         b.fit(&d, &y, &w, None).unwrap();
     }));
 
@@ -252,8 +303,11 @@ fn timing_all_tests() {
         let w = vec![1.0; 5];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(10).set_max_depth(2).set_learning_rate(0.3);
-        b.num_classes = 3; b.initialize_base_score = true;
+            .set_iterations(10)
+            .set_max_depth(2)
+            .set_learning_rate(0.3);
+        b.num_classes = 3;
+        b.initialize_base_score = true;
         b.fit(&d, &y, &w, None).unwrap();
     }));
 
@@ -264,8 +318,11 @@ fn timing_all_tests() {
         let w = vec![1.0; 6];
         let mut b = GradientBooster::default()
             .set_objective_type(ObjectiveType::SoftmaxMultiClass)
-            .set_iterations(20).set_max_depth(3).set_learning_rate(0.3);
-        b.num_classes = 3; b.initialize_base_score = true;
+            .set_iterations(20)
+            .set_max_depth(3)
+            .set_learning_rate(0.3);
+        b.num_classes = 3;
+        b.initialize_base_score = true;
         b.fit(&d, &y, &w, None).unwrap();
     }));
 
@@ -287,5 +344,9 @@ fn timing_all_tests() {
     }
     println!("{}", "-".repeat(57));
     let total: u128 = results.iter().map(|r| r.duration_us).sum();
-    println!("{:<45} {:>10}", "TOTAL", format!("{:.2} ms", total as f64 / 1000.0));
+    println!(
+        "{:<45} {:>10}",
+        "TOTAL",
+        format!("{:.2} ms", total as f64 / 1000.0)
+    );
 }

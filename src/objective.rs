@@ -15,9 +15,9 @@ pub fn gradient_hessian_callables(objective_type: &ObjectiveType) -> ObjFn {
     match objective_type {
         ObjectiveType::LogLoss => LogLoss::calc_grad_hess,
         ObjectiveType::SquaredLoss => SquaredLoss::calc_grad_hess,
-        ObjectiveType::SoftmaxMultiClass => panic!(
-            "SoftmaxMultiClass uses direct calls, not function-pointer dispatch"
-        ),
+        ObjectiveType::SoftmaxMultiClass => {
+            panic!("SoftmaxMultiClass uses direct calls, not function-pointer dispatch")
+        }
     }
 }
 
@@ -25,9 +25,9 @@ pub fn calc_init_callables(objective_type: &ObjectiveType) -> fn(&[f64], &[f64])
     match objective_type {
         ObjectiveType::LogLoss => LogLoss::calc_init,
         ObjectiveType::SquaredLoss => SquaredLoss::calc_init,
-        ObjectiveType::SoftmaxMultiClass => panic!(
-            "SoftmaxMultiClass uses direct calls, not function-pointer dispatch"
-        ),
+        ObjectiveType::SoftmaxMultiClass => {
+            panic!("SoftmaxMultiClass uses direct calls, not function-pointer dispatch")
+        }
     }
 }
 
