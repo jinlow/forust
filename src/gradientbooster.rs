@@ -572,15 +572,28 @@ impl GradientBooster {
         // This will always be false, unless early stopping rounds are used.
         let mut stop_early = false;
         let col_index: Vec<usize> = (0..data.cols).collect();
+        // Pre-allocate index buffer; reused across iterations to avoid
+        // allocating a new Vec<usize> per tree.
+        let mut index_buf: Vec<usize> = Vec::with_capacity(data.rows);
         for i in 0..self.iterations {
             let verbose = if self.log_iterations == 0 {
                 false
             } else {
                 i % self.log_iterations == 0
             };
-            // We will eventually use the excluded index.
-            let (chosen_index, _excluded_index) =
-                self.sample_index(&mut rng, &data.index, &mut grad, &mut hess);
+            // Fill the index buffer for this iteration.
+            match self.sample_method {
+                SampleMethod::None => {
+                    // No sampling: reset to sequential 0..n without reallocating.
+                    index_buf.clear();
+                    index_buf.extend(0..data.rows);
+                }
+                _ => {
+                    let (chosen, _excluded) =
+                        self.sample_index(&mut rng, &data.index, &mut grad, &mut hess);
+                    index_buf = chosen;
+                }
+            }
             let mut tree = Tree::new();
 
             // If we are doing any column sampling...
@@ -606,7 +619,7 @@ impl GradientBooster {
 
             tree.fit(
                 &bdata,
-                chosen_index,
+                &mut index_buf,
                 fit_col_index,
                 &binned_data.cuts,
                 &grad,

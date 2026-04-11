@@ -113,7 +113,7 @@ mod tests {
         let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
             &bdata,
-            data.index.to_owned(),
+            &mut data.index.to_owned(),
             &col_index,
             &b.cuts,
             &g,

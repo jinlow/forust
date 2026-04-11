@@ -33,7 +33,7 @@ impl Tree {
     pub fn fit<T: Splitter>(
         &mut self,
         data: &Matrix<u16>,
-        mut index: Vec<usize>,
+        index: &mut [usize],
         col_index: &[usize],
         cuts: &JaggedMatrix<f64>,
         grad: &[f32],
@@ -77,7 +77,7 @@ impl Tree {
         // Calculate the histograms for the root node.
         let mut sort_buffer = SortBuffer::new();
         let root_hists =
-            HistogramMatrix::new(data, cuts, grad, hess, &index, col_index, parallel, sort, &mut sort_buffer);
+            HistogramMatrix::new(data, cuts, grad, hess, index, col_index, parallel, sort, &mut sort_buffer);
         let root_node = SplittableNode::new(
             0,
             root_hists,
@@ -132,7 +132,7 @@ impl Tree {
             n_leaves -= 1;
 
             let new_nodes = splitter.split_node(
-                &n_nodes, &mut node, &mut index, col_index, data, cuts, grad, hess, parallel,
+                &n_nodes, &mut node, index, col_index, data, cuts, grad, hess, parallel,
                 &mut sort_buffer,
             );
 
@@ -607,13 +607,13 @@ mod tests {
         let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let mut rng = StdRng::seed_from_u64(0);
-        let (index, excluded) =
+        let (mut index, excluded) =
             RandomSampler::new(0.5).sample(&mut rng, &data.index, &mut g, &mut h);
         assert!(excluded.len() > 0);
         let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
             &bdata,
-            index,
+            &mut index,
             &col_index,
             &b.cuts,
             &g,
@@ -657,7 +657,7 @@ mod tests {
         let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
             &bdata,
-            data.index.to_owned(),
+            &mut data.index.to_owned(),
             &col_index,
             &b.cuts,
             &g,
@@ -742,7 +742,7 @@ mod tests {
         let col_index: Vec<usize> = vec![1, 3];
         tree.fit(
             &bdata,
-            data.index.to_owned(),
+            &mut data.index.to_owned(),
             &col_index,
             &b.cuts,
             &g,
@@ -794,7 +794,7 @@ mod tests {
         let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
             &bdata,
-            data.index.to_owned(),
+            &mut data.index.to_owned(),
             &col_index,
             &b.cuts,
             &g,
@@ -878,7 +878,7 @@ mod tests {
         let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
             &bdata,
-            data.index.to_owned(),
+            &mut data.index.to_owned(),
             &col_index,
             &b.cuts,
             &g,

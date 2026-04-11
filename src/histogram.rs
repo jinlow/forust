@@ -133,10 +133,9 @@ pub fn create_feature_histogram(
         .zip(sorted_grad)
         .zip(sorted_hess)
         .for_each(|((i, g), h)| {
-            if let Some(v) = histogram.get_mut(feature[*i] as usize) {
-                v.gradient_sum += f64::from(*g);
-                v.hessian_sum += f64::from(*h);
-            }
+            let bin = feature[*i] as usize;
+            histogram[bin].gradient_sum += f64::from(*g);
+            histogram[bin].hessian_sum += f64::from(*h);
         });
     histogram.iter().map(|b| b.as_f32_bin()).collect()
 }
