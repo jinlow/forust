@@ -159,6 +159,12 @@ where
     pub fn get_row(&self, row: usize) -> Vec<T> {
         self.get_row_iter(row).copied().collect()
     }
+
+    /// Fill an existing buffer with a row of data, avoiding allocation.
+    pub fn get_row_into(&self, row: usize, buf: &mut Vec<T>) {
+        buf.clear();
+        buf.extend(self.get_row_iter(row).copied());
+    }
 }
 
 /// A lightweight row major matrix, this is primarily

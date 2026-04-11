@@ -745,14 +745,34 @@ impl GradientBooster {
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
     pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
         let mut init_preds = vec![self.base_score; data.rows];
-        self.get_prediction_trees().iter().for_each(|tree| {
-            for (p_, val) in init_preds
-                .iter_mut()
-                .zip(tree.predict(data, parallel, &self.missing))
-            {
-                *p_ += val;
+        let trees = self.get_prediction_trees();
+        // Materialize each row into a reusable buffer, then walk all
+        // trees on it. Avoids column-stride random access per tree and
+        // eliminates per-row allocation.
+        if parallel {
+            // par_chunks ensures each rayon task reuses one buffer across
+            // many rows, rather than allocating per row.
+            data.index
+                .par_chunks(512)
+                .zip(init_preds.par_chunks_mut(512))
+                .for_each(|(row_chunk, pred_chunk)| {
+                    let mut row_buf = Vec::with_capacity(data.cols);
+                    for (row, p) in row_chunk.iter().zip(pred_chunk.iter_mut()) {
+                        data.get_row_into(*row, &mut row_buf);
+                        for tree in trees {
+                            *p += tree.predict_row_from_row_slice(&row_buf, &self.missing);
+                        }
+                    }
+                });
+        } else {
+            let mut row_buf = Vec::with_capacity(data.cols);
+            for (row, p) in data.index.iter().zip(init_preds.iter_mut()) {
+                data.get_row_into(*row, &mut row_buf);
+                for tree in trees {
+                    *p += tree.predict_row_from_row_slice(&row_buf, &self.missing);
+                }
             }
-        });
+        }
         init_preds
     }
 
