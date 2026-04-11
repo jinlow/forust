@@ -4,11 +4,17 @@ use serde::{Deserialize, Serialize};
 
 type ObjFn = fn(&[f64], &[f64], &[f64]) -> (Vec<f32>, Vec<f32>);
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum ObjectiveType {
     LogLoss,
     SquaredLoss,
     SoftmaxMultiClass,
+    /// Quantile regression (pinball loss) with configurable alpha ∈ (0, 1).
+    /// alpha = 0.5 is median regression; alpha = 0.70 gives a 70th-percentile
+    /// regressor (used by xgboost-v3 for MFE/MAE quantile heads).
+    QuantileLoss {
+        alpha: f64,
+    },
 }
 
 pub fn gradient_hessian_callables(objective_type: &ObjectiveType) -> ObjFn {
@@ -17,6 +23,9 @@ pub fn gradient_hessian_callables(objective_type: &ObjectiveType) -> ObjFn {
         ObjectiveType::SquaredLoss => SquaredLoss::calc_grad_hess,
         ObjectiveType::SoftmaxMultiClass => {
             panic!("SoftmaxMultiClass uses direct calls, not function-pointer dispatch")
+        }
+        ObjectiveType::QuantileLoss { .. } => {
+            panic!("QuantileLoss uses direct calls, not function-pointer dispatch")
         }
     }
 }
@@ -27,6 +36,9 @@ pub fn calc_init_callables(objective_type: &ObjectiveType) -> fn(&[f64], &[f64])
         ObjectiveType::SquaredLoss => SquaredLoss::calc_init,
         ObjectiveType::SoftmaxMultiClass => {
             panic!("SoftmaxMultiClass uses direct calls, not function-pointer dispatch")
+        }
+        ObjectiveType::QuantileLoss { .. } => {
+            panic!("QuantileLoss uses direct calls, not function-pointer dispatch")
         }
     }
 }
@@ -225,6 +237,84 @@ impl SoftmaxMultiClass {
     }
 }
 
+/// Quantile regression with pinball loss.
+///
+/// The pinball loss for a target y, prediction ŷ, and quantile α is
+/// `ρ_α(r) = max(α·r, (α−1)·r)` where `r = y − ŷ`.
+///
+/// Standard quantile regression gradient is `g = α − I[r > 0]` (i.e.
+/// `α − I[y > ŷ]`); we emit `∂L/∂ŷ` which is the negative of that:
+/// `g_ŷ = I[y > ŷ] − α` (matches XGBoost's `reg:quantileerror`).
+///
+/// Hessian for pinball loss is technically zero everywhere the function
+/// is differentiable, which breaks Newton-style boosting. Following
+/// XGBoost and LightGBM, we use a constant pseudo-hessian of 1.0 per
+/// sample (scaled by weight). This produces first-order gradient steps
+/// similar to absolute-error (MAE) boosting.
+pub struct QuantileLoss;
+
+impl QuantileLoss {
+    /// Pinball loss `ρ_α(y − ŷ)` per sample, weighted.
+    pub fn calc_loss(y: &[f64], yhat: &[f64], sample_weight: &[f64], alpha: f64) -> Vec<f32> {
+        y.iter()
+            .zip(yhat)
+            .zip(sample_weight)
+            .map(|((y_, yhat_), w_)| {
+                let r = *y_ - *yhat_;
+                let loss = if r >= 0.0 { alpha * r } else { (alpha - 1.0) * r };
+                (loss * *w_) as f32
+            })
+            .collect()
+    }
+
+    /// Gradient `∂L/∂ŷ = I[y > ŷ] − α`, hessian = `w_i` (constant pseudo-hessian).
+    pub fn calc_grad_hess(
+        y: &[f64],
+        yhat: &[f64],
+        sample_weight: &[f64],
+        alpha: f64,
+    ) -> (Vec<f32>, Vec<f32>) {
+        y.iter()
+            .zip(yhat)
+            .zip(sample_weight)
+            .map(|((y_, yhat_), w_)| {
+                let indicator = if *y_ > *yhat_ { 1.0 } else { 0.0 };
+                let grad = (indicator - alpha) * *w_;
+                // Constant pseudo-hessian avoids division-by-zero in Newton updates.
+                let hess = *w_;
+                (grad as f32, hess as f32)
+            })
+            .unzip()
+    }
+
+    /// Base score: weighted α-quantile of y. Falls back to the unweighted
+    /// quantile if all weights are equal or zero.
+    pub fn calc_init(y: &[f64], sample_weight: &[f64], alpha: f64) -> f64 {
+        if y.is_empty() {
+            return 0.0;
+        }
+        let mut pairs: Vec<(f64, f64)> = y.iter().zip(sample_weight).map(|(&v, &w)| (v, w)).collect();
+        pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let total_w: f64 = pairs.iter().map(|(_, w)| *w).sum();
+        if total_w <= 0.0 {
+            return pairs[pairs.len() / 2].0;
+        }
+        let target = alpha * total_w;
+        let mut cumulative = 0.0f64;
+        for (v, w) in &pairs {
+            cumulative += *w;
+            if cumulative >= target {
+                return *v;
+            }
+        }
+        pairs.last().unwrap().0
+    }
+
+    pub fn default_metric() -> Metric {
+        Metric::RootMeanSquaredError
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,5 +498,76 @@ mod tests {
         let y = vec![-1.0, -1.0, -1.0, 1., 1., 1.];
         let l4 = SquaredLoss::calc_init(&y, &w);
         assert!(l4 == 0.);
+    }
+
+    #[test]
+    fn test_quantile_init_equal_weights() {
+        let y = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let w = vec![1.0; 5];
+        // α = 0.5 → weighted median = 3.0
+        let q50 = QuantileLoss::calc_init(&y, &w, 0.5);
+        assert_eq!(q50, 3.0);
+        // α = 0.70 → 70th percentile. cum = 0.2,0.4,0.6,0.8,1.0. target=0.7·5=3.5 → 4.0
+        let q70 = QuantileLoss::calc_init(&y, &w, 0.70);
+        assert_eq!(q70, 4.0);
+        // α = 0.0 → smallest
+        let q0 = QuantileLoss::calc_init(&y, &w, 0.0);
+        assert_eq!(q0, 1.0);
+        // α = 1.0 → largest
+        let q1 = QuantileLoss::calc_init(&y, &w, 1.0);
+        assert_eq!(q1, 5.0);
+    }
+
+    #[test]
+    fn test_quantile_grad_sign_for_alpha_70() {
+        let alpha = 0.70;
+        let y = vec![1.0, 1.0];
+        let yhat = vec![0.0, 2.0]; // underprediction, overprediction
+        let w = vec![1.0, 1.0];
+        let (grad, hess) = QuantileLoss::calc_grad_hess(&y, &yhat, &w, alpha);
+        // y=1 > ŷ=0 → indicator=1 → grad = 1 − 0.70 = 0.30
+        // y=1 < ŷ=2 → indicator=0 → grad = 0 − 0.70 = −0.70
+        assert!((grad[0] - 0.30).abs() < 1e-6);
+        assert!((grad[1] + 0.70).abs() < 1e-6);
+        // Hessian = weight
+        assert!((hess[0] - 1.0).abs() < 1e-6);
+        assert!((hess[1] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_quantile_grad_sign_for_alpha_30() {
+        let alpha = 0.30;
+        let y = vec![1.0, 1.0];
+        let yhat = vec![0.0, 2.0];
+        let w = vec![1.0, 1.0];
+        let (grad, _) = QuantileLoss::calc_grad_hess(&y, &yhat, &w, alpha);
+        // y > ŷ → grad = 1 − 0.30 = 0.70 (penalizes under-prediction more lightly)
+        // y < ŷ → grad = 0 − 0.30 = −0.30
+        assert!((grad[0] - 0.70).abs() < 1e-6);
+        assert!((grad[1] + 0.30).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_quantile_loss_pinball() {
+        let y = vec![1.0, 1.0];
+        let yhat = vec![0.0, 2.0];
+        let w = vec![1.0, 1.0];
+        let alpha = 0.70;
+        let losses = QuantileLoss::calc_loss(&y, &yhat, &w, alpha);
+        // r = y − ŷ
+        // r=+1 → α·1 = 0.70
+        // r=−1 → (α−1)·−1 = 0.30
+        assert!((losses[0] - 0.70).abs() < 1e-6);
+        assert!((losses[1] - 0.30).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_quantile_init_weighted_quantile() {
+        let y = vec![1.0, 2.0, 3.0];
+        let w = vec![1.0, 5.0, 1.0]; // heavy weight on 2.0
+        // total_w = 7, α=0.5 target = 3.5
+        // cum after sort: 1 (1.0), 6 (2.0), 7 (3.0) → 2.0
+        let q50 = QuantileLoss::calc_init(&y, &w, 0.5);
+        assert_eq!(q50, 2.0);
     }
 }

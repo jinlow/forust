@@ -6,7 +6,7 @@ use crate::metric::multiclass_log_loss;
 use crate::metric::{is_comparison_better, metric_callables, Metric, MetricFn};
 use crate::objective::{
     calc_init_callables, gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType,
-    SoftmaxMultiClass, SquaredLoss,
+    QuantileLoss, SoftmaxMultiClass, SquaredLoss,
 };
 use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use crate::shapley::predict_contributions_row_shapley;
@@ -608,6 +608,7 @@ impl GradientBooster {
             None => match self.objective_type {
                 ObjectiveType::LogLoss => LogLoss::default_metric(),
                 ObjectiveType::SquaredLoss => SquaredLoss::default_metric(),
+                ObjectiveType::QuantileLoss { .. } => QuantileLoss::default_metric(),
                 ObjectiveType::SoftmaxMultiClass => {
                     panic!("SoftmaxMultiClass uses multiclass_log_loss directly, not get_metric_fn")
                 }
@@ -641,13 +642,30 @@ impl GradientBooster {
 
         let mut rng = StdRng::seed_from_u64(self.seed);
 
+        // QuantileLoss needs access to alpha, so it uses a boxed closure instead
+        // of a bare fn pointer. Cheap to box once outside the loop.
+        let calc_grad_hess: Box<dyn Fn(&[f64], &[f64], &[f64]) -> (Vec<f32>, Vec<f32>)> =
+            match self.objective_type {
+                ObjectiveType::QuantileLoss { alpha } => Box::new(move |y, yhat, w| {
+                    QuantileLoss::calc_grad_hess(y, yhat, w, alpha)
+                }),
+                _ => {
+                    let f = gradient_hessian_callables(&self.objective_type);
+                    Box::new(move |y, yhat, w| f(y, yhat, w))
+                }
+            };
+
         if self.initialize_base_score {
-            self.base_score = calc_init_callables(&self.objective_type)(y, sample_weight);
+            self.base_score = match self.objective_type {
+                ObjectiveType::QuantileLoss { alpha } => {
+                    QuantileLoss::calc_init(y, sample_weight, alpha)
+                }
+                _ => calc_init_callables(&self.objective_type)(y, sample_weight),
+            };
         }
 
         let mut yhat = vec![self.base_score; y.len()];
 
-        let calc_grad_hess = gradient_hessian_callables(&self.objective_type);
         let (mut grad, mut hess) = calc_grad_hess(y, &yhat, sample_weight);
 
         // Generate binned data
@@ -1111,7 +1129,9 @@ impl GradientBooster {
             ContributionsMethod::ProbabilityChange => {
                 match self.objective_type {
                     ObjectiveType::LogLoss => {},
-                    ObjectiveType::SquaredLoss | ObjectiveType::SoftmaxMultiClass => panic!("ProbabilityChange contributions method is only valid when LogLoss objective is used."),
+                    ObjectiveType::SquaredLoss
+                    | ObjectiveType::SoftmaxMultiClass
+                    | ObjectiveType::QuantileLoss { .. } => panic!("ProbabilityChange contributions method is only valid when LogLoss objective is used."),
                 }
                 self.predict_contributions_probability_change(data, parallel)
             }
