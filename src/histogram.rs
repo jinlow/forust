@@ -2,6 +2,41 @@ use crate::data::{FloatData, JaggedMatrix, Matrix};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+/// Reusable scratch buffers for sorting grad/hess by index order.
+/// Allocate once at the tree level, then pass to every `HistogramMatrix::new` call
+/// to avoid repeated heap allocations.
+pub struct SortBuffer {
+    pub grad: Vec<f32>,
+    pub hess: Vec<f32>,
+}
+
+impl SortBuffer {
+    pub fn new() -> Self {
+        SortBuffer {
+            grad: Vec::new(),
+            hess: Vec::new(),
+        }
+    }
+
+    /// Clear and re-fill the buffers with grad/hess values in index order.
+    fn fill_sorted(&mut self, grad: &[f32], hess: &[f32], index: &[usize]) {
+        self.grad.clear();
+        self.hess.clear();
+        self.grad.reserve(index.len().saturating_sub(self.grad.capacity()));
+        self.hess.reserve(index.len().saturating_sub(self.hess.capacity()));
+        for &i in index {
+            self.grad.push(grad[i]);
+            self.hess.push(hess[i]);
+        }
+    }
+}
+
+impl Default for SortBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Struct to hold the information of a given bin.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Bin<T> {
@@ -126,24 +161,19 @@ impl HistogramMatrix {
         col_index: &[usize],
         parallel: bool,
         sort: bool,
+        sort_buffer: &mut SortBuffer,
     ) -> Self {
-        // Sort gradients and hessians to reduce cache hits.
-        // This made a really sizeable difference on larger datasets
-        // Bringing training time down from nearly 6 minutes, to 2 minutes.
-        // Sort gradients and hessians to reduce cache hits.
-        // This made a really sizeable difference on larger datasets
-        // Bringing training time down from nearly 6 minutes, to 2 minutes.
-        let (sorted_grad, sorted_hess) = if !sort {
-            (grad.to_vec(), hess.to_vec())
+        // Sort gradients and hessians to reduce cache misses.
+        // This made a really sizeable difference on larger datasets.
+        // When sort == false (no sampling), grad/hess are already in order
+        // so we just borrow them directly — no allocation needed.
+        // When sort == true, we reuse the caller-provided SortBuffer to
+        // avoid allocating new Vecs on every call.
+        let (sorted_grad, sorted_hess): (&[f32], &[f32]) = if !sort {
+            (grad, hess)
         } else {
-            let mut n_grad = Vec::new();
-            let mut n_hess = Vec::new();
-            for i in index {
-                let i_ = *i;
-                n_grad.push(grad[i_]);
-                n_hess.push(hess[i_]);
-            }
-            (n_grad, n_hess)
+            sort_buffer.fill_sorted(grad, hess, index);
+            (&sort_buffer.grad, &sort_buffer.hess)
         };
 
         let histograms = if parallel {
@@ -153,8 +183,8 @@ impl HistogramMatrix {
                     create_feature_histogram(
                         data.get_col(*col),
                         cuts.get_col(*col),
-                        &sorted_grad,
-                        &sorted_hess,
+                        sorted_grad,
+                        sorted_hess,
                         index,
                     )
                 })
@@ -166,8 +196,8 @@ impl HistogramMatrix {
                     create_feature_histogram(
                         data.get_col(*col),
                         cuts.get_col(*col),
-                        &sorted_grad,
-                        &sorted_hess,
+                        sorted_grad,
+                        sorted_hess,
                         index,
                     )
                 })

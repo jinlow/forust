@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::constraints::{Constraint, ConstraintMap};
 use crate::data::{JaggedMatrix, Matrix};
 use crate::gradientbooster::MissingNodeTreatment;
-use crate::histogram::HistogramMatrix;
+use crate::histogram::{HistogramMatrix, SortBuffer};
 use crate::node::SplittableNode;
 use crate::tree::Tree;
 use crate::utils::{
@@ -214,6 +214,7 @@ pub trait Splitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
+        sort_buffer: &mut SortBuffer,
     ) -> Vec<SplittableNode>;
 
     /// Split the node, if we cant find a best split, we will need to
@@ -230,10 +231,12 @@ pub trait Splitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
+        sort_buffer: &mut SortBuffer,
     ) -> Vec<SplittableNode> {
         match self.best_split(node, col_index) {
             Some(split_info) => self.handle_split_info(
                 split_info, n_nodes, node, index, col_index, data, cuts, grad, hess, parallel,
+                sort_buffer,
             ),
             None => Vec::new(),
         }
@@ -506,6 +509,7 @@ impl Splitter for MissingBranchSplitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
+        sort_buffer: &mut SortBuffer,
     ) -> Vec<SplittableNode> {
         let missing_child = *n_nodes;
         let left_child = missing_child + 1;
@@ -584,6 +588,7 @@ impl Splitter for MissingBranchSplitter {
                     col_index,
                     parallel,
                     true,
+                    sort_buffer,
                 );
                 left_histograms =
                     HistogramMatrix::from_parent_child(&node.histograms, &right_histograms);
@@ -598,6 +603,7 @@ impl Splitter for MissingBranchSplitter {
                     col_index,
                     parallel,
                     true,
+                    sort_buffer,
                 );
                 right_histograms =
                     HistogramMatrix::from_parent_child(&node.histograms, &left_histograms);
@@ -614,6 +620,7 @@ impl Splitter for MissingBranchSplitter {
                 col_index,
                 parallel,
                 true,
+                sort_buffer,
             );
             right_histograms = HistogramMatrix::new(
                 data,
@@ -624,6 +631,7 @@ impl Splitter for MissingBranchSplitter {
                 col_index,
                 parallel,
                 true,
+                sort_buffer,
             );
             missing_histograms = HistogramMatrix::from_parent_two_children(
                 &node.histograms,
@@ -640,6 +648,7 @@ impl Splitter for MissingBranchSplitter {
                 col_index,
                 parallel,
                 true,
+                sort_buffer,
             );
             right_histograms = HistogramMatrix::new(
                 data,
@@ -650,6 +659,7 @@ impl Splitter for MissingBranchSplitter {
                 col_index,
                 parallel,
                 true,
+                sort_buffer,
             );
             left_histograms = HistogramMatrix::from_parent_two_children(
                 &node.histograms,
@@ -667,6 +677,7 @@ impl Splitter for MissingBranchSplitter {
                 col_index,
                 parallel,
                 true,
+                sort_buffer,
             );
             left_histograms = HistogramMatrix::new(
                 data,
@@ -677,6 +688,7 @@ impl Splitter for MissingBranchSplitter {
                 col_index,
                 parallel,
                 true,
+                sort_buffer,
             );
             right_histograms = HistogramMatrix::from_parent_two_children(
                 &node.histograms,
@@ -957,6 +969,7 @@ impl Splitter for MissingImputerSplitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
+        sort_buffer: &mut SortBuffer,
     ) -> Vec<SplittableNode> {
         let left_child = *n_nodes;
         let right_child = left_child + 1;
@@ -1002,6 +1015,7 @@ impl Splitter for MissingImputerSplitter {
                 col_index,
                 parallel,
                 true,
+                sort_buffer,
             );
             right_histograms =
                 HistogramMatrix::from_parent_child(&node.histograms, &left_histograms);
@@ -1015,6 +1029,7 @@ impl Splitter for MissingImputerSplitter {
                 col_index,
                 parallel,
                 true,
+                sort_buffer,
             );
             left_histograms =
                 HistogramMatrix::from_parent_child(&node.histograms, &right_histograms);
@@ -1067,7 +1082,7 @@ mod tests {
         let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
-        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, &[0], true, true);
+        let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, &[0], true, true, &mut SortBuffer::new());
         let splitter = MissingImputerSplitter {
             l1: 0.0,
             l2: 0.0,
@@ -1114,7 +1129,7 @@ mod tests {
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
         let hists =
-            HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, &[0, 1], true, true);
+            HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, &[0, 1], true, true, &mut SortBuffer::new());
         println!("{:?}", hists);
         let splitter = MissingImputerSplitter {
             l1: 0.0,
@@ -1190,7 +1205,7 @@ mod tests {
         let index = data.index.to_owned();
         let col_index: Vec<usize> = (0..data.cols).collect();
         let hists = HistogramMatrix::new(
-            &bdata, &b.cuts, &grad, &hess, &index, &col_index, true, false,
+            &bdata, &b.cuts, &grad, &hess, &index, &col_index, true, false, &mut SortBuffer::new(),
         );
 
         let mut n = SplittableNode::new(

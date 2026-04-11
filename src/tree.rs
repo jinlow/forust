@@ -1,7 +1,7 @@
 use crate::data::{JaggedMatrix, Matrix};
 use crate::gradientbooster::GrowPolicy;
 use crate::grower::Grower;
-use crate::histogram::HistogramMatrix;
+use crate::histogram::{HistogramMatrix, SortBuffer};
 use crate::node::{Node, SplittableNode};
 use crate::partial_dependence::tree_partial_dependence;
 use crate::sampler::SampleMethod;
@@ -75,8 +75,9 @@ impl Tree {
             hessian_sum,
         );
         // Calculate the histograms for the root node.
+        let mut sort_buffer = SortBuffer::new();
         let root_hists =
-            HistogramMatrix::new(data, cuts, grad, hess, &index, col_index, parallel, sort);
+            HistogramMatrix::new(data, cuts, grad, hess, &index, col_index, parallel, sort, &mut sort_buffer);
         let root_node = SplittableNode::new(
             0,
             root_hists,
@@ -132,6 +133,7 @@ impl Tree {
 
             let new_nodes = splitter.split_node(
                 &n_nodes, &mut node, &mut index, col_index, data, cuts, grad, hess, parallel,
+                &mut sort_buffer,
             );
 
             let n_new_nodes = new_nodes.len();
