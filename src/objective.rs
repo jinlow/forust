@@ -267,7 +267,11 @@ impl QuantileLoss {
             .collect()
     }
 
-    /// Gradient `∂L/∂ŷ = I[y > ŷ] − α`, hessian = `w_i` (constant pseudo-hessian).
+    /// Quantile (pinball) loss gradient: `∂L/∂ŷ = α − I[y > ŷ]`.
+    ///
+    /// When `y > ŷ` (under-prediction), `grad = α − 1 < 0` → pushes ŷ up.
+    /// When `y ≤ ŷ` (over-prediction), `grad = α > 0` → pushes ŷ down.
+    /// This is the standard pinball loss gradient for minimization.
     pub fn calc_grad_hess(
         y: &[f64],
         yhat: &[f64],
@@ -279,7 +283,7 @@ impl QuantileLoss {
             .zip(sample_weight)
             .map(|((y_, yhat_), w_)| {
                 let indicator = if *y_ > *yhat_ { 1.0 } else { 0.0 };
-                let grad = (indicator - alpha) * *w_;
+                let grad = (alpha - indicator) * *w_;
                 // Constant pseudo-hessian avoids division-by-zero in Newton updates.
                 let hess = *w_;
                 (grad as f32, hess as f32)
@@ -525,10 +529,10 @@ mod tests {
         let yhat = vec![0.0, 2.0]; // underprediction, overprediction
         let w = vec![1.0, 1.0];
         let (grad, hess) = QuantileLoss::calc_grad_hess(&y, &yhat, &w, alpha);
-        // y=1 > ŷ=0 → indicator=1 → grad = 1 − 0.70 = 0.30
-        // y=1 < ŷ=2 → indicator=0 → grad = 0 − 0.70 = −0.70
-        assert!((grad[0] - 0.30).abs() < 1e-6);
-        assert!((grad[1] + 0.70).abs() < 1e-6);
+        // y=1 > ŷ=0 → indicator=1 → grad = α − 1 = −0.30 (push ŷ up)
+        // y=1 < ŷ=2 → indicator=0 → grad = α − 0 = +0.70 (push ŷ down)
+        assert!((grad[0] + 0.30).abs() < 1e-6);
+        assert!((grad[1] - 0.70).abs() < 1e-6);
         // Hessian = weight
         assert!((hess[0] - 1.0).abs() < 1e-6);
         assert!((hess[1] - 1.0).abs() < 1e-6);
@@ -541,10 +545,10 @@ mod tests {
         let yhat = vec![0.0, 2.0];
         let w = vec![1.0, 1.0];
         let (grad, _) = QuantileLoss::calc_grad_hess(&y, &yhat, &w, alpha);
-        // y > ŷ → grad = 1 − 0.30 = 0.70 (penalizes under-prediction more lightly)
-        // y < ŷ → grad = 0 − 0.30 = −0.30
-        assert!((grad[0] - 0.70).abs() < 1e-6);
-        assert!((grad[1] + 0.30).abs() < 1e-6);
+        // y > ŷ → grad = α − 1 = −0.70 (strongly push ŷ up for low quantile)
+        // y < ŷ → grad = α − 0 = +0.30 (mildly push ŷ down)
+        assert!((grad[0] + 0.70).abs() < 1e-6);
+        assert!((grad[1] - 0.30).abs() < 1e-6);
     }
 
     #[test]
