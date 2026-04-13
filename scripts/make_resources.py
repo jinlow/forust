@@ -52,34 +52,34 @@ if __name__ == "__main__":
         header=False,
     )
 
-    # --- Large realistic benchmark data: 500k rows x 200 columns ---
-    rng = np.random.default_rng(42)
-    n_rows = 500_000
-    n_cols = 200
+    # # --- Large realistic benchmark data: 500k rows x 200 columns ---
+    # rng = np.random.default_rng(42)
+    # n_rows = 500_000
+    # n_cols = 200
 
-    # Mix of feature distributions to be realistic:
-    # - 100 normal features
-    # - 50 uniform features
-    # - 50 exponential features
-    X_large = np.column_stack([
-        rng.standard_normal((n_rows, 100)),
-        rng.uniform(0, 10, (n_rows, 50)),
-        rng.exponential(1.0, (n_rows, 50)),
-    ])
+    # # Mix of feature distributions to be realistic:
+    # # - 100 normal features
+    # # - 50 uniform features
+    # # - 50 exponential features
+    # X_large = np.column_stack([
+    #     rng.standard_normal((n_rows, 100)),
+    #     rng.uniform(0, 10, (n_rows, 50)),
+    #     rng.exponential(1.0, (n_rows, 50)),
+    # ])
 
-    # Binary target from a logistic model using a subset of features
-    logits = X_large[:, :10].sum(axis=1) + rng.standard_normal(n_rows) * 0.5
-    y_large = (1 / (1 + np.exp(-logits)) > 0.5).astype(float)
+    # # Binary target from a logistic model using a subset of features
+    # logits = X_large[:, :10].sum(axis=1) + rng.standard_normal(n_rows) * 0.5
+    # y_large = (1 / (1 + np.exp(-logits)) > 0.5).astype(float)
 
-    # Column-major (Fortran order) flattened, matching the Matrix layout
-    pd.Series(X_large.ravel(order="F")).to_csv(
-        "resources/large_bench_500k_200col.csv",
-        index=False,
-        header=False,
-    )
+    # # Column-major (Fortran order) flattened, matching the Matrix layout
+    # pd.Series(X_large.ravel(order="F")).to_csv(
+    #     "resources/large_bench_500k_200col.csv",
+    #     index=False,
+    #     header=False,
+    # )
 
-    pd.Series(y_large).to_csv(
-        "resources/large_bench_500k_200col_y.csv",
-        index=False,
-        header=False,
-    )
+    # pd.Series(y_large).to_csv(
+    #     "resources/large_bench_500k_200col_y.csv",
+    #     index=False,
+    #     header=False,
+    # )

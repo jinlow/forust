@@ -4,6 +4,14 @@ Only depends on forust + numpy (both available in maturin's temp PGO venv).
 Exercises all hot code paths so the compiler collects useful branch/call data.
 """
 
+import sys
+import os
+
+# Remove the source directory from sys.path so Python imports the installed
+# wheel from site-packages, not the local forust/ source directory.
+source_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path = [p for p in sys.path if os.path.abspath(p) != source_dir]
+
 import numpy as np
 
 from forust import GradientBooster
