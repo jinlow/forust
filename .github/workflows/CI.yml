@@ -51,8 +51,8 @@ jobs:
       - name: Lint and test
         working-directory: py-forust
         run: |
-          ruff check .
-          ruff format --check .
+          ruff check forust
+          ruff format --check forust
           pytest --cov-fail-under=90 tests
       - uses: actions/upload-artifact@v4
         with:
@@ -99,8 +99,8 @@ jobs:
       - name: Lint and test
         working-directory: py-forust
         run: |
-          ruff check .
-          ruff format --check .
+          ruff check forust
+          ruff format --check forust
           pytest --cov-fail-under=90 tests
       - uses: actions/upload-artifact@v4
         with:
@@ -148,8 +148,8 @@ jobs:
       - name: Lint and test
         working-directory: py-forust
         run: |
-          ruff check .
-          ruff format --check .
+          ruff check forust
+          ruff format --check forust
           pytest --cov-fail-under=90 tests
       - uses: actions/upload-artifact@v4
         with:
@@ -197,8 +197,8 @@ jobs:
       - name: Lint and test
         working-directory: py-forust
         run: |
-          ruff check .
-          ruff format --check .
+          ruff check forust
+          ruff format --check forust
           pytest --cov-fail-under=90 tests
       - uses: actions/upload-artifact@v4
         with:
