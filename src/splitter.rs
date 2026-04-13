@@ -70,7 +70,15 @@ pub trait Splitter: Sync {
             .par_iter()
             .enumerate()
             .filter_map(|(idx, &feature)| self.best_feature_split(node, feature, idx))
-            .reduce_with(|a, b| if b.split_gain > a.split_gain { b } else { a })
+            .reduce_with(|a, b| {
+                if b.split_gain > a.split_gain
+                    || (b.split_gain == a.split_gain && b.split_feature < a.split_feature)
+                {
+                    b
+                } else {
+                    a
+                }
+            })
     }
 
     /// Evaluate a split, returning the node info for the left, and right splits,
@@ -287,10 +295,15 @@ impl MissingBranchSplitter {
             )
         };
 
-        let update = (right_avg_weight * right_hessian
-            + left_avg_weight * left_hessian
-            + missing_avg_weight * missing_hessian)
-            / (left_hessian + right_hessian + missing_hessian);
+        let denom = left_hessian + right_hessian + missing_hessian;
+        let update = if denom == 0.0 {
+            tree.nodes[current_node].weight_value as f64
+        } else {
+            (right_avg_weight * right_hessian
+                + left_avg_weight * left_hessian
+                + missing_avg_weight * missing_hessian)
+                / denom
+        };
 
         // Update current node, and the missing value
         if let Some(n) = tree.nodes.get_mut(current_node) {
@@ -416,8 +429,12 @@ impl Splitter for MissingBranchSplitter {
             // Calculate the local leaf average for now, after training the tree.
             // Recursively assign to the leaf weights underneath.
             MissingNodeTreatment::AverageLeafWeight | MissingNodeTreatment::AverageNodeWeight => {
-                (right_weight * right_hessian + left_weight * left_hessian)
-                    / (right_hessian + left_hessian)
+                let denom = right_hessian + left_hessian;
+                if denom == 0.0 {
+                    parent_weight
+                } else {
+                    (right_weight * right_hessian + left_weight * left_hessian) / denom
+                }
             }
             MissingNodeTreatment::None => {
                 // If there are no missing records, just default

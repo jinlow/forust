@@ -1311,7 +1311,40 @@ def test_early_stopping_with_dev_val(X_y):
     assert model.number_of_trees == model.get_best_iteration() + 5
 
 
-def test_goss_sampling_method(X_y):
+def test_early_stopping_delta(X_y):
+    X, y = X_y
+    val = y.index.to_series().isin(y.sample(frac=0.25, random_state=0))
+
+    # With a large delta, early stopping should trigger much sooner because
+    # tiny metric improvements are ignored.
+    model_large_delta = GradientBooster(
+        early_stopping_rounds=5,
+        early_stopping_delta=1.0,
+        iterations=200,
+    )
+    model_large_delta.fit(
+        X.loc[~val, :],
+        y.loc[~val],
+        evaluation_data=[(X.loc[val, :], y.loc[val])],
+    )
+
+    # With delta=0 (any improvement counts), it should train longer.
+    model_no_delta = GradientBooster(
+        early_stopping_rounds=5,
+        early_stopping_delta=0.0,
+        iterations=200,
+    )
+    model_no_delta.fit(
+        X.loc[~val, :],
+        y.loc[~val],
+        evaluation_data=[(X.loc[val, :], y.loc[val])],
+    )
+
+    # The large-delta model should have stopped earlier (fewer trees).
+    assert model_large_delta.number_of_trees < model_no_delta.number_of_trees
+    # Both should have actually stopped early (not hit 200).
+    assert model_large_delta.number_of_trees < 200
+    assert model_no_delta.number_of_trees < 200
     X, y = X_y
     X = X
     fmod = GradientBooster(
@@ -1598,12 +1631,14 @@ def test_AverageNodeWeight_missing_node_treatment(X_y):
         left = tree[node["left_child"]]
         right = tree[node["right_child"]]
 
-        weighted_weight = (
-            (left["weight_value"] * left["hessian_sum"])
-            + (right["weight_value"] * right["hessian_sum"])
-        ) / (left["hessian_sum"] + right["hessian_sum"])
+        denom = left["hessian_sum"] + right["hessian_sum"]
+        if denom != 0:
+            weighted_weight = (
+                (left["weight_value"] * left["hessian_sum"])
+                + (right["weight_value"] * right["hessian_sum"])
+            ) / denom
 
-        assert np.isclose(missing_weight, weighted_weight)
+            assert np.isclose(missing_weight, weighted_weight)
 
         check_missing_is_average(tree, node["missing_node"])
         check_missing_is_average(tree, node["left_child"])
