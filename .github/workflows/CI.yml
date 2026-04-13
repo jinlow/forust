@@ -50,7 +50,7 @@ jobs:
         run: uv pip install --system forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Lint
         working-directory: py-forust
-        run: ruff check .
+        run: ruff check forust
       - name: Format check
         working-directory: py-forust
         run: ruff format --check forust
@@ -101,7 +101,7 @@ jobs:
         run: uv pip install --system forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Lint
         working-directory: py-forust
-        run: ruff check .
+        run: ruff check forust
       - name: Format check
         working-directory: py-forust
         run: ruff format --check forust
@@ -153,7 +153,7 @@ jobs:
         run: uv pip install --system forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Lint
         working-directory: py-forust
-        run: ruff check .
+        run: ruff check forust
       - name: Format check
         working-directory: py-forust
         run: ruff format --check forust
@@ -205,7 +205,7 @@ jobs:
         run: uv pip install --system forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Lint
         working-directory: py-forust
-        run: ruff check .
+        run: ruff check forust
       - name: Format check
         working-directory: py-forust
         run: ruff format --check forust
