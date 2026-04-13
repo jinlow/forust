@@ -48,12 +48,15 @@ jobs:
           args: --release --pgo --strip --interpreter python --manifest-path py-forust/Cargo.toml --out dist
       - name: Install wheel
         run: uv pip install --system forust --no-index --find-links dist --no-deps --force-reinstall
-      - name: Lint and test
+      - name: Lint
         working-directory: py-forust
-        run: |
-          ruff check forust
-          ruff format --check forust
-          pytest --cov-fail-under=90 tests
+        run: ruff check .
+      - name: Format check
+        working-directory: py-forust
+        run: ruff format --check forust
+      - name: Run package tests
+        working-directory: py-forust
+        run: pytest --cov-fail-under=90 tests
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-windows-${{ matrix.pyversion }}
@@ -96,12 +99,15 @@ jobs:
           args: --release --pgo --strip --interpreter python --manifest-path py-forust/Cargo.toml --out dist
       - name: Install wheel
         run: uv pip install --system forust --no-index --find-links dist --no-deps --force-reinstall
-      - name: Lint and test
+      - name: Lint
         working-directory: py-forust
-        run: |
-          ruff check forust
-          ruff format --check forust
-          pytest --cov-fail-under=90 tests
+        run: ruff check .
+      - name: Format check
+        working-directory: py-forust
+        run: ruff format --check forust
+      - name: Run package tests
+        working-directory: py-forust
+        run: pytest --cov-fail-under=90 tests
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-macos-${{ matrix.pyversion }}
@@ -145,12 +151,15 @@ jobs:
           args: --release --pgo --strip --interpreter python --manifest-path py-forust/Cargo.toml --out dist
       - name: Install wheel
         run: uv pip install --system forust --no-index --find-links dist --no-deps --force-reinstall
-      - name: Lint and test
+      - name: Lint
         working-directory: py-forust
-        run: |
-          ruff check forust
-          ruff format --check forust
-          pytest --cov-fail-under=90 tests
+        run: ruff check .
+      - name: Format check
+        working-directory: py-forust
+        run: ruff format --check forust
+      - name: Run package tests
+        working-directory: py-forust
+        run: pytest --cov-fail-under=90 tests
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-macos-intel-${{ matrix.pyversion }}
@@ -194,12 +203,15 @@ jobs:
           args: --release --pgo --strip --interpreter python${{ matrix.pyversion }} --manifest-path py-forust/Cargo.toml --out dist
       - name: Install wheel
         run: uv pip install --system forust --no-index --find-links dist --no-deps --force-reinstall
-      - name: Lint and test
+      - name: Lint
         working-directory: py-forust
-        run: |
-          ruff check forust
-          ruff format --check forust
-          pytest --cov-fail-under=90 tests
+        run: ruff check .
+      - name: Format check
+        working-directory: py-forust
+        run: ruff format --check forust
+      - name: Run package tests
+        working-directory: py-forust
+        run: pytest --cov-fail-under=90 tests
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.pyversion }}
