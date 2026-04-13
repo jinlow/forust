@@ -31,7 +31,7 @@ jobs:
       - name: Install llvm tools
         run: rustup component add llvm-tools
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<=1.8' toml
+        run: pip install numpy pandas pytest pytest-cov seaborn xgboost=='1.7.1' 'scikit-learn<=1.8' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -84,7 +84,7 @@ jobs:
       - name: Install llvm tools
         run: rustup component add llvm-tools
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
+        run: pip install numpy pandas pytest pytest-cov seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -137,7 +137,7 @@ jobs:
       - name: Install llvm tools
         run: rustup component add llvm-tools
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
+        run: pip install numpy pandas pytest pytest-cov seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -192,7 +192,7 @@ jobs:
       - name: Install llvm tools
         run: rustup component add llvm-tools
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
+        run: pip install numpy pandas pytest pytest-cov seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -284,7 +284,7 @@ jobs:
           python-version: "3.10"
           architecture: x64
       - name: Install deps
-        run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
+        run: pip install numpy pandas pytest pytest-cov seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
