@@ -30,7 +30,7 @@ dev = ["maturin", "pytest", "seaborn", "xgboost<2.0", "scikit-learn", "mkdocs-ma
 
 [tool.maturin]
 sdist-include = ["LICENSE", "README.md"]
-pgo-command = "pytest ."
+pgo-command = "python pgo_profile.py"
 
 [tool.uv]
 # Rebuild package when any rust files change

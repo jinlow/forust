@@ -17,21 +17,19 @@ jobs:
       fail-fast: false
       matrix:
         pyversion: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
-    runs-on: "windows-latest"
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install latest stable Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup component add llvm-tools
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
-          architecture: x64
-      - name: Install llvm tools
-        run: rustup component add llvm-tools
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
       - name: Install deps
-        run: pip install numpy pandas pytest pytest-cov seaborn xgboost=='1.7.1' 'scikit-learn<=1.8' toml
+        run: uv pip install --system numpy pandas pytest pytest-cov seaborn 'xgboost==1.7.1' 'scikit-learn<=1.8' toml ruff
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -40,54 +38,46 @@ jobs:
         run: python scripts/remove-optional-deps.py
       - name: Build test data
         run: python scripts/make_resources.py
-      - name: Run tests
+      - name: Run Rust tests
         run: cargo test --verbose
-      - name: change directory
-        run: cd py-forust
-      - name: Install forust
-        run: pip install -e .
-      - name: Build Wheels with maturin
+      - name: Build PGO wheel
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
           command: build
           args: --release --pgo --strip --interpreter python --manifest-path py-forust/Cargo.toml --out dist
       - name: Install wheel
-        run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
-      - name: Run Package Tests
+        run: uv pip install --system forust --no-index --find-links dist --no-deps --force-reinstall
+      - name: Lint and test
+        working-directory: py-forust
         run: |
-          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
           ruff check .
-          black --check .
+          ruff format --check .
           pytest --cov-fail-under=90 tests
-          cd ..
-      - name: Save Artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: wheels-windows-${{ matrix.pyversion }}
           path: dist/*.whl
           overwrite: true
-# "3.9", "3.10",
+
   macos-build-test:
     strategy:
       fail-fast: false
       matrix:
         pyversion: ["3.11", "3.12", "3.13", "3.14"]
-    runs-on: "macos-latest"
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install latest stable Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup component add llvm-tools
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
-          architecture: x64
-      - name: Install llvm tools
-        run: rustup component add llvm-tools
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
       - name: Install deps
-        run: pip install numpy pandas pytest pytest-cov seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
+        run: uv pip install --system numpy pandas pytest pytest-cov seaborn 'xgboost==1.7.1' 'scikit-learn==1.6.1' toml ruff
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -96,54 +86,47 @@ jobs:
         run: python scripts/remove-optional-deps.py
       - name: Build test data
         run: python scripts/make_resources.py
-      - name: Run tests
+      - name: Run Rust tests
         run: cargo test --verbose
-      - name: change directory
-        run: cd py-forust
-      - name: Install forust
-        run: pip install -e .
-      - name: Build Wheels with maturin
+      - name: Build PGO wheel
         uses: PyO3/maturin-action@v1
         with:
-          target: x86_64
+          target: aarch64-apple-darwin
           command: build
           args: --release --pgo --strip --interpreter python --manifest-path py-forust/Cargo.toml --out dist
       - name: Install wheel
-        run: cd py-forust; pip install --no-deps --force-reinstall -e .; cd ..
-      - name: Run Package Tests
+        run: uv pip install --system forust --no-index --find-links dist --no-deps --force-reinstall
+      - name: Lint and test
+        working-directory: py-forust
         run: |
-          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
           ruff check .
-          black --check .
+          ruff format --check .
           pytest --cov-fail-under=90 tests
-          cd ..
-      - name: Save Artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: wheels-macos-${{ matrix.pyversion }}
           path: dist/*.whl
           overwrite: true
 
-  macos-15-intel-build-test:
+  macos-intel-build-test:
     strategy:
       fail-fast: false
       matrix:
         pyversion: ["3.9", "3.10"]
-    runs-on: "macos-15-intel"
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
-      - name: Install latest stable Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup component add llvm-tools
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
-      - name: Install llvm tools
-        run: rustup component add llvm-tools
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
       - name: Install deps
-        run: pip install numpy pandas pytest pytest-cov seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
+        run: uv pip install --system numpy pandas pytest pytest-cov seaborn 'xgboost==1.7.1' 'scikit-learn==1.6.1' toml ruff
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -152,34 +135,27 @@ jobs:
         run: python scripts/remove-optional-deps.py
       - name: Build test data
         run: python scripts/make_resources.py
-      - name: Run tests
+      - name: Run Rust tests
         run: cargo test --verbose
-      - name: change directory
-        run: cd py-forust
-      - name: Install forust
-        run: pip install -e .
-      - name: Build Wheels with maturin
+      - name: Build PGO wheel
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
           command: build
           args: --release --pgo --strip --interpreter python --manifest-path py-forust/Cargo.toml --out dist
       - name: Install wheel
-        run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
-      - name: Run Package Tests
+        run: uv pip install --system forust --no-index --find-links dist --no-deps --force-reinstall
+      - name: Lint and test
+        working-directory: py-forust
         run: |
-          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
           ruff check .
-          black --check .
+          ruff format --check .
           pytest --cov-fail-under=90 tests
-          cd ..
-      - name: Save Artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-15-intel-${{ matrix.pyversion }}
+          name: wheels-macos-intel-${{ matrix.pyversion }}
           path: dist/*.whl
           overwrite: true
-
 
   linux-build-test:
     runs-on: ubuntu-latest
@@ -187,21 +163,18 @@ jobs:
       fail-fast: false
       matrix:
         pyversion: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
-        # target: [x86_64, i686]
     steps:
       - uses: actions/checkout@v4
-      - name: Install latest stable Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup component add llvm-tools
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.pyversion }}
-          architecture: x64
-      - name: Install llvm tools
-        run: rustup component add llvm-tools
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
       - name: Install deps
-        run: pip install numpy pandas pytest pytest-cov seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
+        run: uv pip install --system numpy pandas pytest pytest-cov seaborn 'xgboost==1.7.1' 'scikit-learn==1.6.1' toml ruff
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -210,13 +183,9 @@ jobs:
         run: python scripts/remove-optional-deps.py
       - name: Build test data
         run: python scripts/make_resources.py
-      - name: Run tests
+      - name: Run Rust tests
         run: cargo test --verbose
-      - name: change directory
-        run: cd py-forust
-      - name: Install forust
-        run: pip install -e .
-      - name: Build Wheels with maturin
+      - name: Build PGO wheel
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
@@ -224,16 +193,14 @@ jobs:
           command: build
           args: --release --pgo --strip --interpreter python${{ matrix.pyversion }} --manifest-path py-forust/Cargo.toml --out dist
       - name: Install wheel
-        run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
-      - name: Run Package Tests
+        run: uv pip install --system forust --no-index --find-links dist --no-deps --force-reinstall
+      - name: Lint and test
+        working-directory: py-forust
         run: |
-          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
           ruff check .
-          black --check .
+          ruff format --check .
           pytest --cov-fail-under=90 tests
-          cd ..
-      - name: Save Artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.pyversion }}
           path: dist/*.whl
@@ -242,10 +209,7 @@ jobs:
   sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
+      - uses: actions/checkout@v4
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -256,8 +220,7 @@ jobs:
           command: sdist
           args: --out dist
           working-directory: py-forust
-      - name: Upload sdist
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: wheels-sdist
           path: py-forust/dist
@@ -265,38 +228,34 @@ jobs:
 
   release-wheels:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [windows-build-tests, macos-build-test, macos-15-intel-build-test, linux-build-test, sdist]
+    needs: [windows-build-tests, macos-build-test, macos-intel-build-test, linux-build-test, sdist]
     runs-on: ubuntu-latest
     steps:
-      - name: Download wheel artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
           path: dist
           merge-multiple: true
-      - name: List downloaded wheels
-        run: ls -la dist
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - run: ls -la dist
+      - uses: astral-sh/setup-uv@v7
       - name: Publish to PyPI
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
-        run: uv publish
+        run: uv publish dist/*
 
   cargo-build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install latest stable Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
-          architecture: x64
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
       - name: Install deps
-        run: pip install numpy pandas pytest pytest-cov seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
+        run: uv pip install --system numpy pandas seaborn toml
       - name: Sync package metadata files
         run: |
           cp README.md py-forust/README.md
@@ -305,9 +264,9 @@ jobs:
         run: python scripts/remove-optional-deps.py
       - name: Build test data
         run: python scripts/make_resources.py
-      - name: Run tests
+      - name: Run Rust tests
         run: cargo test --verbose
-      - if: "startsWith(github.ref, 'refs/tags/')"
+      - if: startsWith(github.ref, 'refs/tags/')
         name: Publish Crate
         run: cargo publish --token ${CRATES_TOKEN} --allow-dirty
         env:

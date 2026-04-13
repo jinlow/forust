@@ -1,0 +1,28 @@
+"""Lightweight PGO profiling script for maturin --pgo builds.
+
+Only depends on forust + numpy (both available in maturin's temp PGO venv).
+Exercises all hot code paths so the compiler collects useful branch/call data.
+"""
+
+import numpy as np
+
+from forust import GradientBooster
+
+rng = np.random.default_rng(42)
+X = rng.standard_normal((5000, 20))
+y = rng.integers(0, 2, 5000).astype(np.float64)
+
+# Train — exercises histogram construction, split finding, index pivoting
+booster = GradientBooster(iterations=50, learning_rate=0.3, max_depth=5)
+booster.fit(X, y)
+
+# Predict — single-threaded and parallel paths
+booster.predict(X)
+booster.predict(X, parallel=True)
+
+# Contributions — exercises the tree-walk contribution paths
+booster.predict_contributions(X, method="Weight")
+booster.predict_contributions(X, method="Average")
+booster.predict_contributions(X, method="Shapley")
+
+print("PGO profiling complete")

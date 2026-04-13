@@ -49,7 +49,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     let col_index: Vec<usize> = (0..data.cols).collect();
     tree.fit(
         &bdata,
-        data.index.to_owned(),
+        &mut data.index.to_owned(),
         &col_index,
         &bindata.cuts,
         &g,
@@ -67,7 +67,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
             let mut train_tree: Tree = Tree::new();
             train_tree.fit(
                 black_box(&bdata),
-                black_box(data.index.to_owned()),
+                black_box(&mut data.index.to_owned()),
                 black_box(&col_index),
                 black_box(&bindata.cuts),
                 black_box(&g),
@@ -86,7 +86,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
             let mut train_tree: Tree = Tree::new();
             train_tree.fit(
                 black_box(&bdata),
-                black_box(data.index.to_owned()),
+                black_box(&mut data.index.to_owned()),
                 black_box(&[1, 3, 4]),
                 black_box(&bindata.cuts),
                 black_box(&g),
@@ -146,6 +146,90 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     booster_train.bench_function("Predict Booster", |b| {
         b.iter(|| booster.predict(black_box(&data), false))
     });
+    booster_train.finish();
+
+    // ---- Large realistic benchmarks: 500k rows x 200 columns ----
+    let file = fs::read_to_string("resources/large_bench_500k_200col.csv")
+        .expect("Something went wrong reading the file");
+    let large_data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+    let file = fs::read_to_string("resources/large_bench_500k_200col_y.csv")
+        .expect("Something went wrong reading the file");
+    let large_y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+    let large_yhat = vec![0.5; large_y.len()];
+    let large_w = vec![1.; large_y.len()];
+    let (large_g, large_h) = LogLoss::calc_grad_hess(&large_y, &large_yhat, &large_w);
+
+    let large_data = Matrix::new(&large_data_vec, large_y.len(), 200);
+    let large_splitter = MissingImputerSplitter {
+        l1: 0.0,
+        l2: 1.0,
+        max_delta_step: 0.,
+        gamma: 3.0,
+        min_leaf_weight: 1.0,
+        learning_rate: 0.3,
+        allow_missing_splits: true,
+        constraints_map: ConstraintMap::new(),
+    };
+
+    let large_bindata = bin_matrix(&large_data, &large_w, 300, f64::NAN).unwrap();
+    let large_bdata = Matrix::new(&large_bindata.binned_data, large_data.rows, large_data.cols);
+    let large_col_index: Vec<usize> = (0..large_data.cols).collect();
+
+    let mut large_group = c.benchmark_group("large-500k-200col");
+    large_group.warm_up_time(Duration::from_secs(15));
+    large_group.measurement_time(Duration::from_secs(30));
+    large_group.sample_size(10);
+
+    large_group.bench_function("Train Tree (large)", |b| {
+        b.iter(|| {
+            let mut train_tree = Tree::new();
+            train_tree.fit(
+                black_box(&large_bdata),
+                black_box(&mut large_data.index.to_owned()),
+                black_box(&large_col_index),
+                black_box(&large_bindata.cuts),
+                black_box(&large_g),
+                black_box(&large_h),
+                black_box(&large_splitter),
+                black_box(usize::MAX),
+                black_box(8),
+                black_box(true),
+                black_box(&SampleMethod::None),
+                black_box(&GrowPolicy::DepthWise),
+            );
+        })
+    });
+
+    large_group.bench_function("Train Booster 100 iters (large)", |b| {
+        b.iter(|| {
+            let mut booster = GradientBooster::default()
+                .set_iterations(100)
+                .set_parallel(true);
+            booster
+                .fit(
+                    black_box(&large_data),
+                    black_box(&large_y),
+                    black_box(&large_w),
+                    black_box(None),
+                )
+                .unwrap();
+        })
+    });
+
+    let mut large_booster = GradientBooster::default().set_iterations(100);
+    large_booster
+        .fit(&large_data, &large_y, &large_w, None)
+        .unwrap();
+
+    large_group.bench_function("Predict Booster (large)", |b| {
+        b.iter(|| large_booster.predict(black_box(&large_data), false))
+    });
+
+    large_group.bench_function("Predict Booster parallel (large)", |b| {
+        b.iter(|| large_booster.predict(black_box(&large_data), true))
+    });
+
+    large_group.finish();
 }
 
 criterion_group!(benches, tree_benchmarks);
