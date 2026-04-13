@@ -6,18 +6,40 @@ import json
 import sys
 import warnings
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Protocol, Union, cast
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Protocol, Union, cast
 
 import numpy as np
-import pandas as pd
 
 from forust.forust import GradientBooster as CrateGradientBooster  # type: ignore
 from forust.serialize import BaseSerializer, ObjectSerializer
 
 __all__ = ["GradientBooster"]
 
-ArrayLike = Union[pd.Series, np.ndarray]
-FrameLike = Union[pd.DataFrame, np.ndarray]
+if TYPE_CHECKING:
+    import pandas as pd
+
+ArrayLike = Union["pd.Series", np.ndarray]
+FrameLike = Union["pd.DataFrame", np.ndarray]
+
+
+def _is_pandas_dataframe(obj: object) -> bool:
+    """isinstance check that returns False if pandas is not installed."""
+    try:
+        import pandas as pd
+
+        return isinstance(obj, pd.DataFrame)
+    except ImportError:
+        return False
+
+
+def _is_pandas_series(obj: object) -> bool:
+    """isinstance check that returns False if pandas is not installed."""
+    try:
+        import pandas as pd
+
+        return isinstance(obj, pd.Series)
+    except ImportError:
+        return False
 
 CONTRIBUTION_METHODS = {
     "weight": "Weight",
@@ -251,9 +273,9 @@ def _convert_input_frame(X: FrameLike) -> tuple[list[str], np.ndarray, int, int]
     Returns:
         tuple[list[str], np.ndarray, int, int, ]: Return column names, the flat data, number of rows, and the number of columns
     """
-    if isinstance(X, pd.DataFrame):
-        X_ = X.to_numpy()
-        features_ = X.columns.to_list()
+    if _is_pandas_dataframe(X):
+        X_ = X.to_numpy() # type: ignore
+        features_ = X.columns.to_list() # type: ignore
     else:
         # Assume it's a numpy array.
         X_ = X
@@ -266,8 +288,8 @@ def _convert_input_frame(X: FrameLike) -> tuple[list[str], np.ndarray, int, int]
 
 
 def _convert_input_array(x: ArrayLike) -> np.ndarray:
-    if isinstance(x, pd.Series):
-        x_ = x.to_numpy()
+    if _is_pandas_series(x):
+        x_ = x.to_numpy() # type: ignore
     else:
         x_ = x
     if not np.issubdtype(x_.dtype, "float64"):
@@ -844,7 +866,7 @@ class GradientBooster:
             <img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/pdp_plot_age_mono.png">
         """
         if isinstance(feature, str):
-            if not isinstance(X, pd.DataFrame):
+            if not _is_pandas_dataframe(X):
                 raise ValueError(
                     "If `feature` is a string, then the object passed as `X` must be a pandas DataFrame."
                 )
@@ -863,7 +885,7 @@ class GradientBooster:
                 [feature_idx] = [i for i, v in enumerate(X.columns) if v == feature]
         elif isinstance(feature, int):
             feature_idx = feature
-            if isinstance(X, pd.DataFrame):
+            if _is_pandas_dataframe(X):
                 values = X.iloc[:, feature].to_numpy()
             else:
                 values = X[:, feature]
@@ -1212,6 +1234,8 @@ class GradientBooster:
     def trees_to_dataframe(self) -> pd.DataFrame:
         """Return the tree structure as a pandas DataFrame object.
 
+        Requires pandas to be installed.
+
         Returns:
             pd.DataFrame: Trees in a pandas dataframe.
 
@@ -1247,6 +1271,8 @@ class GradientBooster:
                 Gain=n.weight_value if n.is_leaf else n.split_gain,
                 Cover=n.hessian_sum,
             )
+
+        import pandas as pd
 
         # Flatten list of lists using list comprehension
         vals = [
