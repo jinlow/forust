@@ -128,15 +128,12 @@ pub fn create_feature_histogram(
     // This value is needed initially for binning, but we don't need to count it as
     // a histogram bin.
     histogram.extend(cuts[..(cuts.len() - 1)].iter().map(|c| Bin::new_f64(*c)));
-    // Pre-gather feature bin indices into contiguous order so all three
-    // input streams (feature, grad, hess) are sequential in the hot loop.
-    let sorted_feature: Vec<u16> = index.iter().map(|&i| feature[i]).collect();
-    sorted_feature
+    index
         .iter()
         .zip(sorted_grad)
         .zip(sorted_hess)
-        .for_each(|((bin, g), h)| {
-            let bin = *bin as usize;
+        .for_each(|((i, g), h)| {
+            let bin = feature[*i] as usize;
             histogram[bin].gradient_sum += f64::from(*g);
             histogram[bin].hessian_sum += f64::from(*h);
         });
