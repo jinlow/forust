@@ -10,6 +10,7 @@ use crate::utils::{
     between, bound_to_parent, constrained_weight, cull_gain, gain_given_weight, pivot_on_split,
     pivot_on_split_exclude_missing,
 };
+use rayon::prelude::*;
 
 #[derive(Debug)]
 pub struct SplitInfo {
@@ -39,7 +40,7 @@ pub enum MissingInfo {
     Branch(NodeInfo),
 }
 
-pub trait Splitter {
+pub trait Splitter: Sync {
     /// When a split happens, how many leaves will the tree increase by?
     /// For example, if a binary split happens, the split will increase the
     /// number of leaves by 1, if a ternary split happens, the number of leaves will
@@ -65,21 +66,11 @@ pub trait Splitter {
     /// If we wanted to add Column sampling, this is probably where
     /// we would need to do it, otherwise, it would be at the tree level.
     fn best_split(&self, node: &SplittableNode, col_index: &[usize]) -> Option<SplitInfo> {
-        let mut best_split_info = None;
-        let mut best_gain = 0.0;
-        for (idx, feature) in col_index.iter().enumerate() {
-            let split_info = self.best_feature_split(node, *feature, idx);
-            match split_info {
-                Some(info) => {
-                    if info.split_gain > best_gain {
-                        best_gain = info.split_gain;
-                        best_split_info = Some(info);
-                    }
-                }
-                None => continue,
-            }
-        }
-        best_split_info
+        col_index
+            .par_iter()
+            .enumerate()
+            .filter_map(|(idx, &feature)| self.best_feature_split(node, feature, idx))
+            .reduce_with(|a, b| if b.split_gain > a.split_gain { b } else { a })
     }
 
     /// Evaluate a split, returning the node info for the left, and right splits,
