@@ -44,18 +44,13 @@ pub struct Bin<T> {
     pub gradient_sum: T,
     /// The sum of the hession values for this bin.
     pub hessian_sum: T,
-    /// The value used to split at, this is for deciding
-    /// the split value for non-binned values.
-    /// This value will be missing for the missing bin.
-    pub cut_value: f64,
 }
 
 impl Bin<f32> {
-    pub fn new_f32(cut_value: f64) -> Self {
+    pub fn new_f32() -> Self {
         Bin {
             gradient_sum: f32::ZERO,
             hessian_sum: f32::ZERO,
-            cut_value,
         }
     }
 
@@ -65,7 +60,6 @@ impl Bin<f32> {
         Bin {
             gradient_sum: root_bin.gradient_sum - child_bin.gradient_sum,
             hessian_sum: root_bin.hessian_sum - child_bin.hessian_sum,
-            cut_value: root_bin.cut_value,
         }
     }
 
@@ -81,17 +75,15 @@ impl Bin<f32> {
                 - (first_child_bin.gradient_sum + second_child_bin.gradient_sum),
             hessian_sum: root_bin.hessian_sum
                 - (first_child_bin.hessian_sum + second_child_bin.hessian_sum),
-            cut_value: root_bin.cut_value,
         }
     }
 }
 
 impl Bin<f64> {
-    pub fn new_f64(cut_value: f64) -> Self {
+    pub fn new_f64() -> Self {
         Bin {
             gradient_sum: f64::ZERO,
             hessian_sum: f64::ZERO,
-            cut_value,
         }
     }
 
@@ -99,7 +91,6 @@ impl Bin<f64> {
         Bin {
             gradient_sum: self.gradient_sum as f32,
             hessian_sum: self.hessian_sum as f32,
-            cut_value: self.cut_value,
         }
     }
 }
@@ -123,11 +114,11 @@ pub fn create_feature_histogram(
     // The first value is missing, it seems to not matter that we are using
     // Missing here, rather than the booster "missing" definition, because
     // we just always assume the first bin of the histogram is missing.
-    histogram.push(Bin::new_f64(f64::NAN));
+    histogram.push(Bin::new_f64());
     // The last cut value is simply the maximum possible value, so we don't need it.
     // This value is needed initially for binning, but we don't need to count it as
     // a histogram bin.
-    histogram.extend(cuts[..(cuts.len() - 1)].iter().map(|c| Bin::new_f64(*c)));
+    histogram.extend((0..(cuts.len() - 1)).map(|_| Bin::new_f64()));
     index
         .iter()
         .zip(sorted_grad)
