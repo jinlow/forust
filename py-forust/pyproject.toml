@@ -14,7 +14,11 @@ keywords = [
 ]
 authors = [{ name = "James Inlow" }]
 readme = "README.md"
-dependencies = ["numpy>=1.21", "pandas>=1.3"]
+dependencies = [
+  "numpy>=1.21",
+  "pandas>=1.3,<2.1; python_version < '3.11'",
+  "pandas>=1.3; python_version >= '3.11'",
+]
 requires-python = ">=3.9"
 classifiers = [
   "Programming Language :: Rust",
