@@ -42,6 +42,10 @@ jobs:
         run: python scripts/make_resources.py
       - name: Run tests
         run: cargo test --verbose
+      - name: change directory
+        run: cd py-forust
+      - name: Install forust
+        run: pip install -e .
       - name: Build Wheels with maturin
         uses: PyO3/maturin-action@v1
         with:
@@ -53,7 +57,6 @@ jobs:
       - name: Run Package Tests
         run: |
           pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
-          cd py-forust
           ruff check .
           black --check .
           pytest --cov-fail-under=90 tests
@@ -95,6 +98,10 @@ jobs:
         run: python scripts/make_resources.py
       - name: Run tests
         run: cargo test --verbose
+      - name: change directory
+        run: cd py-forust
+      - name: Install forust
+        run: pip install -e .
       - name: Build Wheels with maturin
         uses: PyO3/maturin-action@v1
         with:
@@ -106,7 +113,6 @@ jobs:
       - name: Run Package Tests
         run: |
           pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
-          cd py-forust
           ruff check .
           black --check .
           pytest --cov-fail-under=90 tests
@@ -148,6 +154,10 @@ jobs:
         run: python scripts/make_resources.py
       - name: Run tests
         run: cargo test --verbose
+      - name: change directory
+        run: cd py-forust
+      - name: Install forust
+        run: pip install -e .
       - name: Build Wheels with maturin
         uses: PyO3/maturin-action@v1
         with:
@@ -159,7 +169,6 @@ jobs:
       - name: Run Package Tests
         run: |
           pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
-          cd py-forust
           ruff check .
           black --check .
           pytest --cov-fail-under=90 tests
@@ -203,6 +212,10 @@ jobs:
         run: python scripts/make_resources.py
       - name: Run tests
         run: cargo test --verbose
+      - name: change directory
+        run: cd py-forust
+      - name: Install forust
+        run: pip install -e .
       - name: Build Wheels with maturin
         uses: PyO3/maturin-action@v1
         with:
@@ -215,7 +228,6 @@ jobs:
       - name: Run Package Tests
         run: |
           pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
-          cd py-forust
           ruff check .
           black --check .
           pytest --cov-fail-under=90 tests
