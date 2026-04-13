@@ -43,7 +43,7 @@ cache-keys = [{file = "pyproject.toml"}, {file = "rust/Cargo.toml"}, {file = "**
 # Uncomment to build rust code in development mode
 # config-settings = { build-args = '--profile=dev' }
 
-[tool.ruff]
+[tool.ruff.lint]
 # Never enforce `E501` (line length violations).
 ignore = ["E501"]
 

@@ -41,6 +41,7 @@ def _is_pandas_series(obj: object) -> bool:
     except Exception:
         return False
 
+
 CONTRIBUTION_METHODS = {
     "weight": "Weight",
     "Weight": "Weight",
@@ -274,8 +275,8 @@ def _convert_input_frame(X: FrameLike) -> tuple[list[str], np.ndarray, int, int]
         tuple[list[str], np.ndarray, int, int, ]: Return column names, the flat data, number of rows, and the number of columns
     """
     if _is_pandas_dataframe(X):
-        X_ = X.to_numpy() # type: ignore
-        features_ = X.columns.to_list() # type: ignore
+        X_ = X.to_numpy()  # type: ignore
+        features_ = X.columns.to_list()  # type: ignore
     else:
         # Assume it's a numpy array.
         X_ = X
@@ -289,7 +290,7 @@ def _convert_input_frame(X: FrameLike) -> tuple[list[str], np.ndarray, int, int]
 
 def _convert_input_array(x: ArrayLike) -> np.ndarray:
     if _is_pandas_series(x):
-        x_ = x.to_numpy() # type: ignore
+        x_ = x.to_numpy()  # type: ignore
     else:
         x_ = x
     if not np.issubdtype(x_.dtype, "float64"):
