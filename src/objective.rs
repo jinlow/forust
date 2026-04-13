@@ -3,8 +3,30 @@ use crate::{data::FloatData, metric::Metric};
 use serde::{Deserialize, Serialize};
 
 type ObjFn = fn(&[f64], &[f64], &[f64]) -> (Vec<f32>, Vec<f32>);
+const LOG_LOSS_EPS: f64 = 1e-16;
+const XGBOOST_RT_EPS: f64 = 1e-6;
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[inline]
+fn logistic_probability(margin: f64) -> f64 {
+    f64::ONE / (f64::ONE + (-margin).exp())
+}
+
+#[inline]
+fn xlogy(x: f64, y: f64) -> f64 {
+    if x == 0.0 {
+        0.0
+    } else {
+        x * y.max(LOG_LOSS_EPS).ln()
+    }
+}
+
+#[inline]
+fn binary_log_loss(label: f64, margin: f64) -> f64 {
+    let prob = logistic_probability(margin).clamp(LOG_LOSS_EPS, 1.0 - LOG_LOSS_EPS);
+    -(xlogy(label, prob) + xlogy(1.0 - label, 1.0 - prob))
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub enum ObjectiveType {
     LogLoss,
     SquaredLoss,
@@ -53,16 +75,28 @@ pub trait ObjectiveFunction {
 #[derive(Default)]
 pub struct LogLoss {}
 
+impl LogLoss {
+    /// Validate logistic labels using XGBoost's `[0, 1]` convention.
+    pub fn validate_labels(y: &[f64]) -> Result<(), ForustError> {
+        for (i, &yi) in y.iter().enumerate() {
+            if !yi.is_finite() || !(0.0..=1.0).contains(&yi) {
+                return Err(ForustError::InvalidInput(format!(
+                    "LogLoss: label[{}] = {} is not a valid value in [0, 1]",
+                    i, yi
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 impl ObjectiveFunction for LogLoss {
     #[inline]
     fn calc_loss(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> Vec<f32> {
         y.iter()
             .zip(yhat)
             .zip(sample_weight)
-            .map(|((y_, yhat_), w_)| {
-                let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
-                (-(*y_ * yhat_.ln() + (f64::ONE - *y_) * ((f64::ONE - yhat_).ln())) * *w_) as f32
-            })
+            .map(|((y_, yhat_), w_)| (binary_log_loss(*y_, *yhat_) * *w_) as f32)
             .collect()
     }
 
@@ -73,7 +107,11 @@ impl ObjectiveFunction for LogLoss {
             ytot += sample_weight[i] * y[i];
             ntot += sample_weight[i];
         }
-        f64::ln(ytot / (ntot - ytot))
+        if !ntot.is_finite() || ntot <= 0.0 {
+            return 0.0;
+        }
+        let p = (ytot / ntot).clamp(XGBOOST_RT_EPS, 1.0 - XGBOOST_RT_EPS);
+        f64::ln(p / (1.0 - p))
     }
 
     #[inline]
@@ -82,10 +120,10 @@ impl ObjectiveFunction for LogLoss {
             .zip(yhat)
             .zip(sample_weight)
             .map(|((y_, yhat_), w_)| {
-                let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
+                let yhat_ = logistic_probability(*yhat_);
                 (
                     ((yhat_ - *y_) * *w_) as f32,
-                    (yhat_ * (f64::ONE - yhat_) * *w_) as f32,
+                    ((yhat_ * (f64::ONE - yhat_)).max(LOG_LOSS_EPS) * *w_) as f32,
                 )
             })
             .unzip()
@@ -119,6 +157,9 @@ impl ObjectiveFunction for SquaredLoss {
             ytot += sample_weight[i] * y[i];
             ntot += sample_weight[i];
         }
+        if !ntot.is_finite() || ntot <= 0.0 {
+            return 0.0;
+        }
 
         ytot / ntot
     }
@@ -132,7 +173,7 @@ impl ObjectiveFunction for SquaredLoss {
             .unzip()
     }
     fn default_metric() -> Metric {
-        Metric::RootMeanSquaredLogError
+        Metric::RootMeanSquaredError
     }
 }
 
@@ -200,7 +241,6 @@ impl SoftmaxMultiClass {
     /// Base score: log of class priors, centered by mean.
     /// Matches xgboost InitEstimation: ln(prob_k) - mean(ln(prob)).
     pub fn calc_init(y: &[f64], w: &[f64], num_classes: usize) -> Vec<f64> {
-        const RT_EPS: f64 = 1e-15;
         let mut class_weights = vec![0.0f64; num_classes];
         let mut total = 0.0f64;
         for (&yi, &wi) in y.iter().zip(w.iter()) {
@@ -210,9 +250,12 @@ impl SoftmaxMultiClass {
             }
             total += wi;
         }
+        if !total.is_finite() || total <= 0.0 {
+            return vec![0.0; num_classes];
+        }
         let logs: Vec<f64> = class_weights
             .iter()
-            .map(|cw| (cw / total).max(RT_EPS).ln())
+            .map(|cw| (cw / total).max(XGBOOST_RT_EPS).ln())
             .collect();
         let mean_log: f64 = logs.iter().sum::<f64>() / num_classes as f64;
         logs.iter().map(|l| l - mean_log).collect()
@@ -242,9 +285,10 @@ impl SoftmaxMultiClass {
 /// The pinball loss for a target y, prediction ŷ, and quantile α is
 /// `ρ_α(r) = max(α·r, (α−1)·r)` where `r = y − ŷ`.
 ///
-/// Standard quantile regression gradient is `g = α − I[r > 0]` (i.e.
-/// `α − I[y > ŷ]`); we emit `∂L/∂ŷ` which is the negative of that:
-/// `g_ŷ = I[y > ŷ] − α` (matches XGBoost's `reg:quantileerror`).
+/// XGBoost emits gradients with respect to prediction `ŷ`, using
+/// `d = ŷ - y`:
+/// `g_ŷ = 1 - α` when `d >= 0` (over-prediction) and `g_ŷ = -α`
+/// when `d < 0` (under-prediction).
 ///
 /// Hessian for pinball loss is technically zero everywhere the function
 /// is differentiable, which breaks Newton-style boosting. Following
@@ -261,17 +305,21 @@ impl QuantileLoss {
             .zip(sample_weight)
             .map(|((y_, yhat_), w_)| {
                 let r = *y_ - *yhat_;
-                let loss = if r >= 0.0 { alpha * r } else { (alpha - 1.0) * r };
+                let loss = if r >= 0.0 {
+                    alpha * r
+                } else {
+                    (alpha - 1.0) * r
+                };
                 (loss * *w_) as f32
             })
             .collect()
     }
 
-    /// Quantile (pinball) loss gradient: `∂L/∂ŷ = α − I[y > ŷ]`.
+    /// Quantile (pinball) loss gradient emitted in the XGBoost-compatible form
+    /// used by this crate.
     ///
-    /// When `y > ŷ` (under-prediction), `grad = α − 1 < 0` → pushes ŷ up.
-    /// When `y ≤ ŷ` (over-prediction), `grad = α > 0` → pushes ŷ down.
-    /// This is the standard pinball loss gradient for minimization.
+    /// When `y > ŷ` (under-prediction), `grad = -α < 0` → pushes ŷ up.
+    /// When `y ≤ ŷ` (over-prediction), `grad = 1 - α > 0` → pushes ŷ down.
     pub fn calc_grad_hess(
         y: &[f64],
         yhat: &[f64],
@@ -282,8 +330,7 @@ impl QuantileLoss {
             .zip(yhat)
             .zip(sample_weight)
             .map(|((y_, yhat_), w_)| {
-                let indicator = if *y_ > *yhat_ { 1.0 } else { 0.0 };
-                let grad = (alpha - indicator) * *w_;
+                let grad = if *yhat_ >= *y_ { 1.0 - alpha } else { -alpha } * *w_;
                 // Constant pseudo-hessian avoids division-by-zero in Newton updates.
                 let hess = *w_;
                 (grad as f32, hess as f32)
@@ -297,7 +344,8 @@ impl QuantileLoss {
         if y.is_empty() {
             return 0.0;
         }
-        let mut pairs: Vec<(f64, f64)> = y.iter().zip(sample_weight).map(|(&v, &w)| (v, w)).collect();
+        let mut pairs: Vec<(f64, f64)> =
+            y.iter().zip(sample_weight).map(|(&v, &w)| (v, w)).collect();
         pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         let total_w: f64 = pairs.iter().map(|(_, w)| *w).sum();
         if total_w <= 0.0 {
@@ -315,7 +363,30 @@ impl QuantileLoss {
     }
 
     pub fn default_metric() -> Metric {
-        Metric::RootMeanSquaredError
+        Metric::QuantileLoss
+    }
+
+    pub fn calculate_metric(y: &[f64], yhat: &[f64], sample_weight: &[f64], alpha: f64) -> f64 {
+        let total_weight: f64 = sample_weight.iter().sum();
+        let total_loss = y
+            .iter()
+            .zip(yhat)
+            .zip(sample_weight)
+            .map(|((y_, yhat_), w_)| {
+                let r = *y_ - *yhat_;
+                let loss = if r >= 0.0 {
+                    alpha * r
+                } else {
+                    (alpha - 1.0) * r
+                };
+                loss * *w_
+            })
+            .sum::<f64>();
+        if total_weight == 0.0 {
+            total_loss
+        } else {
+            total_loss / total_weight
+        }
     }
 }
 
@@ -356,6 +427,26 @@ mod tests {
     }
 
     #[test]
+    fn test_logloss_hess_is_floored_for_extreme_margins() {
+        let y = vec![1.0];
+        let yhat = vec![1000.0];
+        let w = vec![1.0];
+        let (_, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
+        assert!(hess[0].is_finite());
+        assert!(hess[0] >= LOG_LOSS_EPS as f32);
+    }
+
+    #[test]
+    fn test_logloss_loss_is_finite_for_extreme_margins() {
+        let y = vec![0.0, 1.0];
+        let yhat = vec![-1000.0, 1000.0];
+        let w = vec![1.0, 1.0];
+        let loss = LogLoss::calc_loss(&y, &yhat, &w);
+        assert!(loss.iter().all(|v| v.is_finite()));
+        assert!(loss.iter().all(|v| *v >= 0.0));
+    }
+
+    #[test]
     fn test_logloss_init() {
         let y = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
         let w = vec![1.; y.len()];
@@ -364,15 +455,37 @@ mod tests {
 
         let y = vec![1.0; 6];
         let l2 = LogLoss::calc_init(&y, &w);
-        assert!(l2 == f64::INFINITY);
+        assert!(l2.is_finite());
+        assert!((l2 - f64::ln((1.0 - XGBOOST_RT_EPS) / XGBOOST_RT_EPS)).abs() < 1e-10);
 
         let y = vec![0.0; 6];
         let l3 = LogLoss::calc_init(&y, &w);
-        assert!(l3 == f64::NEG_INFINITY);
+        assert!(l3.is_finite());
+        assert!((l3 - f64::ln(XGBOOST_RT_EPS / (1.0 - XGBOOST_RT_EPS))).abs() < 1e-10);
 
         let y = vec![0., 0., 0., 0., 1., 1.];
         let l4 = LogLoss::calc_init(&y, &w);
-        assert!(l4 == f64::ln(2. / 4.));
+        assert!((l4 - f64::ln(2. / 4.)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_logloss_init_zero_sum_weights_is_neutral() {
+        let y = vec![0.0, 1.0];
+        let w = vec![0.0, 0.0];
+        assert_eq!(LogLoss::calc_init(&y, &w), 0.0);
+    }
+
+    #[test]
+    fn test_logloss_validate_labels_rejects_bad() {
+        assert!(LogLoss::validate_labels(&[-1.0]).is_err());
+        assert!(LogLoss::validate_labels(&[2.0]).is_err());
+        assert!(LogLoss::validate_labels(&[f64::NAN]).is_err());
+        assert!(LogLoss::validate_labels(&[f64::INFINITY]).is_err());
+    }
+
+    #[test]
+    fn test_logloss_validate_labels_accepts_xgboost_style_soft_labels() {
+        assert!(LogLoss::validate_labels(&[0.0, 0.25, 0.5, 1.0]).is_ok());
     }
 
     #[test]
@@ -471,6 +584,13 @@ mod tests {
     }
 
     #[test]
+    fn test_calc_init_zero_sum_weights_is_neutral() {
+        let y = vec![0.0, 1.0, 2.0];
+        let w = vec![0.0, 0.0, 0.0];
+        assert_eq!(SoftmaxMultiClass::calc_init(&y, &w, 3), vec![0.0, 0.0, 0.0]);
+    }
+
+    #[test]
     fn test_validate_labels_rejects_bad() {
         assert!(SoftmaxMultiClass::validate_labels(&[-1.0], 3).is_err());
         assert!(SoftmaxMultiClass::validate_labels(&[3.0], 3).is_err());
@@ -505,6 +625,29 @@ mod tests {
     }
 
     #[test]
+    fn test_squared_loss_default_metric_is_rmse() {
+        assert!(matches!(
+            SquaredLoss::default_metric(),
+            Metric::RootMeanSquaredError
+        ));
+    }
+
+    #[test]
+    fn test_squaredloss_init_zero_sum_weights_is_zero() {
+        let y = vec![1.0, 2.0];
+        let w = vec![0.0, 0.0];
+        assert_eq!(SquaredLoss::calc_init(&y, &w), 0.0);
+    }
+
+    #[test]
+    fn test_quantile_default_metric_is_quantile_loss() {
+        assert!(matches!(
+            QuantileLoss::default_metric(),
+            Metric::QuantileLoss
+        ));
+    }
+
+    #[test]
     fn test_quantile_init_equal_weights() {
         let y = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let w = vec![1.0; 5];
@@ -529,10 +672,10 @@ mod tests {
         let yhat = vec![0.0, 2.0]; // underprediction, overprediction
         let w = vec![1.0, 1.0];
         let (grad, hess) = QuantileLoss::calc_grad_hess(&y, &yhat, &w, alpha);
-        // y=1 > ŷ=0 → indicator=1 → grad = α − 1 = −0.30 (push ŷ up)
-        // y=1 < ŷ=2 → indicator=0 → grad = α − 0 = +0.70 (push ŷ down)
-        assert!((grad[0] + 0.30).abs() < 1e-6);
-        assert!((grad[1] - 0.70).abs() < 1e-6);
+        // y=1 > ŷ=0 → underprediction → grad = -0.70
+        // y=1 < ŷ=2 → overprediction → grad = 1 - 0.70 = 0.30
+        assert!((grad[0] + 0.70).abs() < 1e-6);
+        assert!((grad[1] - 0.30).abs() < 1e-6);
         // Hessian = weight
         assert!((hess[0] - 1.0).abs() < 1e-6);
         assert!((hess[1] - 1.0).abs() < 1e-6);
@@ -545,10 +688,10 @@ mod tests {
         let yhat = vec![0.0, 2.0];
         let w = vec![1.0, 1.0];
         let (grad, _) = QuantileLoss::calc_grad_hess(&y, &yhat, &w, alpha);
-        // y > ŷ → grad = α − 1 = −0.70 (strongly push ŷ up for low quantile)
-        // y < ŷ → grad = α − 0 = +0.30 (mildly push ŷ down)
-        assert!((grad[0] + 0.70).abs() < 1e-6);
-        assert!((grad[1] - 0.30).abs() < 1e-6);
+        // y > ŷ → underprediction → grad = -0.30
+        // y < ŷ → overprediction → grad = 0.70
+        assert!((grad[0] + 0.30).abs() < 1e-6);
+        assert!((grad[1] - 0.70).abs() < 1e-6);
     }
 
     #[test]
@@ -566,11 +709,19 @@ mod tests {
     }
 
     #[test]
+    fn test_quantile_metric_zero_sum_weights_returns_zero() {
+        let y = vec![1.0, 2.0];
+        let yhat = vec![1.5, 2.5];
+        let w = vec![0.0, 0.0];
+        assert_eq!(QuantileLoss::calculate_metric(&y, &yhat, &w, 0.5), 0.0);
+    }
+
+    #[test]
     fn test_quantile_init_weighted_quantile() {
         let y = vec![1.0, 2.0, 3.0];
         let w = vec![1.0, 5.0, 1.0]; // heavy weight on 2.0
-        // total_w = 7, α=0.5 target = 3.5
-        // cum after sort: 1 (1.0), 6 (2.0), 7 (3.0) → 2.0
+                                     // total_w = 7, α=0.5 target = 3.5
+                                     // cum after sort: 1 (1.0), 6 (2.0), 7 (3.0) → 2.0
         let q50 = QuantileLoss::calc_init(&y, &w, 0.5);
         assert_eq!(q50, 2.0);
     }

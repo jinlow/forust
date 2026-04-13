@@ -3,7 +3,7 @@ use crate::constraints::ConstraintMap;
 use crate::data::{Matrix, RowMajorMatrix};
 use crate::errors::ForustError;
 use crate::metric::multiclass_log_loss;
-use crate::metric::{is_comparison_better, metric_callables, Metric, MetricFn};
+use crate::metric::{is_comparison_better, metric_callables, Metric};
 use crate::objective::{
     calc_init_callables, gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType,
     QuantileLoss, SoftmaxMultiClass, SquaredLoss,
@@ -200,6 +200,10 @@ pub struct GradientBooster {
     /// None for binary/regression (uses existing scalar base_score field).
     #[serde(default)]
     pub base_scores: Option<Vec<f64>>,
+    /// Number of feature columns seen during training.
+    /// Older serialized models may omit this and fall back to the tree layout.
+    #[serde(default)]
+    pub trained_feature_count: Option<usize>,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -280,12 +284,14 @@ fn extract_class_slice(
     class: usize,
     num_classes: usize,
     n: usize,
+    row_scales: Option<&[f32]>,
 ) -> (Vec<f32>, Vec<f32>) {
     let mut g = Vec::with_capacity(n);
     let mut h = Vec::with_capacity(n);
     for i in 0..n {
-        g.push(grad[i * num_classes + class]);
-        h.push(hess[i * num_classes + class]);
+        let scale = row_scales.map_or(1.0, |scales| scales[i]);
+        g.push(grad[i * num_classes + class] * scale);
+        h.push(hess[i * num_classes + class] * scale);
     }
     (g, h)
 }
@@ -348,6 +354,116 @@ impl Default for GradientBooster {
 }
 
 impl GradientBooster {
+    fn validate_dataset_lengths(
+        &self,
+        dataset_name: &str,
+        data: &Matrix<f64>,
+        y: &[f64],
+        sample_weight: &[f64],
+    ) -> Result<(), ForustError> {
+        if y.len() != data.rows {
+            return Err(ForustError::InvalidInput(format!(
+                "{} label length mismatch: got {} labels for {} rows",
+                dataset_name,
+                y.len(),
+                data.rows
+            )));
+        }
+        if sample_weight.len() != data.rows {
+            return Err(ForustError::InvalidInput(format!(
+                "{} sample_weight length mismatch: got {} weights for {} rows",
+                dataset_name,
+                sample_weight.len(),
+                data.rows
+            )));
+        }
+        Ok(())
+    }
+
+    fn validate_weight_sum(
+        &self,
+        sample_weight: &[f64],
+        dataset_name: &str,
+    ) -> Result<(), ForustError> {
+        let total_weight: f64 = sample_weight.iter().sum();
+        if !total_weight.is_finite() || total_weight <= 0.0 {
+            return Err(ForustError::InvalidInput(format!(
+                "{} sample_weight must have a positive, finite sum, got {}",
+                dataset_name, total_weight
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn required_prediction_cols(&self) -> usize {
+        self.get_prediction_trees()
+            .iter()
+            .map(Tree::required_prediction_cols)
+            .max()
+            .unwrap_or(0)
+    }
+
+    pub fn validate_prediction_data(&self, data: &Matrix<f64>) -> Result<(), ForustError> {
+        self.validate_prediction_state()?;
+        let required_cols = self
+            .trained_feature_count
+            .unwrap_or_else(|| self.required_prediction_cols())
+            .max(self.required_prediction_cols());
+        if data.cols < required_cols {
+            return Err(ForustError::InvalidInput(format!(
+                "prediction data has {} columns, but model was trained with {}",
+                data.cols, required_cols
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn validate_prediction_state(&self) -> Result<(), ForustError> {
+        match self.objective_type {
+            ObjectiveType::SoftmaxMultiClass => {
+                if self.num_classes < 2 {
+                    return Err(ForustError::InvalidInput(format!(
+                        "SoftmaxMultiClass requires num_classes >= 2, got {}",
+                        self.num_classes
+                    )));
+                }
+                if !self.trees.is_empty() && self.trees.len() % self.num_classes != 0 {
+                    return Err(ForustError::InvalidInput(format!(
+                        "multiclass model has {} trees, which is not divisible by num_classes={}",
+                        self.trees.len(),
+                        self.num_classes
+                    )));
+                }
+                if let Some(base_scores) = &self.base_scores {
+                    if base_scores.len() != self.num_classes {
+                        return Err(ForustError::InvalidInput(format!(
+                            "multiclass model has {} base_scores, but num_classes={}",
+                            base_scores.len(),
+                            self.num_classes
+                        )));
+                    }
+                }
+            }
+            _ => {
+                if self.num_classes > 1 {
+                    return Err(ForustError::InvalidInput(format!(
+                        "model has num_classes={} but objective {:?} is scalar",
+                        self.num_classes, self.objective_type
+                    )));
+                }
+                if let Some(base_scores) = &self.base_scores {
+                    if !base_scores.is_empty() {
+                        return Err(ForustError::InvalidInput(format!(
+                            "scalar model has unexpected multiclass base_scores of length {}",
+                            base_scores.len()
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Gradient Booster object
     ///
     /// * `objective_type` - The name of objective function used to optimize.
@@ -462,6 +578,7 @@ impl GradientBooster {
             force_children_to_bound_parent,
             num_classes: 1,
             base_scores: None,
+            trained_feature_count: None,
             trees: Vec::new(),
             metadata: HashMap::new(),
         };
@@ -476,10 +593,48 @@ impl GradientBooster {
         validate_positive_float_field!(self.gamma);
         validate_positive_float_field!(self.max_delta_step);
         validate_positive_float_field!(self.min_leaf_weight);
-        validate_positive_float_field!(self.subsample);
         validate_positive_float_field!(self.top_rate);
         validate_positive_float_field!(self.other_rate);
-        validate_positive_float_field!(self.colsample_bytree);
+        if !self.subsample.is_finite() || self.subsample <= 0.0 || self.subsample > 1.0 {
+            return Err(ForustError::InvalidParameter(
+                "subsample".to_string(),
+                "a finite value in (0, 1]".to_string(),
+                self.subsample.to_string(),
+            ));
+        }
+        if !self.colsample_bytree.is_finite()
+            || self.colsample_bytree <= 0.0
+            || self.colsample_bytree > 1.0
+        {
+            return Err(ForustError::InvalidParameter(
+                "colsample_bytree".to_string(),
+                "a finite value in (0, 1]".to_string(),
+                self.colsample_bytree.to_string(),
+            ));
+        }
+        if matches!(self.sample_method, SampleMethod::Goss) {
+            if !self.top_rate.is_finite() || self.top_rate < 0.0 || self.top_rate >= 1.0 {
+                return Err(ForustError::InvalidParameter(
+                    "top_rate".to_string(),
+                    "a finite value in [0, 1) when sample_method is Goss".to_string(),
+                    self.top_rate.to_string(),
+                ));
+            }
+            if !self.other_rate.is_finite() || self.other_rate <= 0.0 || self.other_rate > 1.0 {
+                return Err(ForustError::InvalidParameter(
+                    "other_rate".to_string(),
+                    "a finite value in (0, 1] when sample_method is Goss".to_string(),
+                    self.other_rate.to_string(),
+                ));
+            }
+            if self.top_rate + self.other_rate > 1.0 {
+                return Err(ForustError::InvalidParameter(
+                    "top_rate/other_rate".to_string(),
+                    "top_rate + other_rate <= 1 when sample_method is Goss".to_string(),
+                    format!("{} + {}", self.top_rate, self.other_rate),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -497,8 +652,19 @@ impl GradientBooster {
         evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
         // Validate inputs
+        self.validate_parameters()?;
+        self.validate_dataset_lengths("training data", data, y, sample_weight)?;
         validate_not_nan_vec(y, "y".to_string())?;
         validate_positive_not_nan_vec(sample_weight, "sample_weight".to_string())?;
+        self.validate_weight_sum(sample_weight, "training data")?;
+        if let ObjectiveType::QuantileLoss { alpha } = self.objective_type {
+            if !alpha.is_finite() || !(0.0..=1.0).contains(&alpha) {
+                return Err(ForustError::InvalidInput(format!(
+                    "QuantileLoss alpha must be in [0, 1], got {}",
+                    alpha
+                )));
+            }
+        }
         // Multi-class consistency guards
         if matches!(self.objective_type, ObjectiveType::SoftmaxMultiClass) {
             if self.num_classes < 2 {
@@ -507,11 +673,29 @@ impl GradientBooster {
                 ));
             }
             SoftmaxMultiClass::validate_labels(y, self.num_classes)?;
+        } else if matches!(self.objective_type, ObjectiveType::LogLoss) {
+            LogLoss::validate_labels(y)?;
         } else if self.num_classes > 1 {
             return Err(ForustError::InvalidInput(format!(
                 "num_classes={} requires ObjectiveType::SoftmaxMultiClass, got {:?}",
                 self.num_classes, self.objective_type
             )));
+        }
+        if matches!(self.evaluation_metric, Some(Metric::QuantileLoss))
+            && !matches!(self.objective_type, ObjectiveType::QuantileLoss { .. })
+        {
+            return Err(ForustError::InvalidInput(
+                "evaluation_metric QuantileLoss is only supported with ObjectiveType::QuantileLoss"
+                    .into(),
+            ));
+        }
+        if matches!(self.evaluation_metric, Some(Metric::MultiClassLogLoss))
+            && !matches!(self.objective_type, ObjectiveType::SoftmaxMultiClass)
+        {
+            return Err(ForustError::InvalidInput(
+                "evaluation_metric MultiClassLogLoss is only supported with ObjectiveType::SoftmaxMultiClass"
+                    .into(),
+            ));
         }
 
         let is_multiclass = matches!(self.objective_type, ObjectiveType::SoftmaxMultiClass);
@@ -528,17 +712,34 @@ impl GradientBooster {
         }
 
         if let Some(eval_data) = &evaluation_data {
-            for (i, (_, eval_y, eval_sample_weight)) in eval_data.iter().enumerate() {
+            for (i, (eval_d, eval_y, eval_sample_weight)) in eval_data.iter().enumerate() {
+                self.validate_dataset_lengths(
+                    &format!("evaluation set {}", i),
+                    eval_d,
+                    eval_y,
+                    eval_sample_weight,
+                )?;
+                if eval_d.cols != data.cols {
+                    return Err(ForustError::InvalidInput(format!(
+                        "evaluation set {} has {} columns, but training data has {}",
+                        i, eval_d.cols, data.cols
+                    )));
+                }
                 validate_not_nan_vec(eval_y, format!("eval set {} y", i).to_string())?;
                 validate_positive_not_nan_vec(
                     eval_sample_weight,
                     format!("eval set {} sample_weight", i).to_string(),
                 )?;
+                self.validate_weight_sum(eval_sample_weight, &format!("evaluation set {}", i))?;
                 if is_multiclass {
                     SoftmaxMultiClass::validate_labels(eval_y, self.num_classes)?;
+                } else if matches!(self.objective_type, ObjectiveType::LogLoss) {
+                    LogLoss::validate_labels(eval_y)?;
                 }
             }
         }
+
+        self.trained_feature_count = Some(data.cols);
 
         let constraints_map = self
             .monotone_constraints
@@ -592,7 +793,7 @@ impl GradientBooster {
         grad: &mut [f32],
         hess: &mut [f32],
     ) -> (Vec<usize>, Vec<usize>) {
-        match self.sample_method {
+        match self.effective_sample_method() {
             SampleMethod::None => (index.to_owned(), Vec::new()),
             SampleMethod::Random => {
                 RandomSampler::new(self.subsample).sample(rng, index, grad, hess)
@@ -603,7 +804,14 @@ impl GradientBooster {
         }
     }
 
-    fn get_metric_fn(&self) -> (MetricFn, bool) {
+    fn effective_sample_method(&self) -> SampleMethod {
+        match self.sample_method {
+            SampleMethod::None if self.subsample < 1.0 => SampleMethod::Random,
+            sample_method => sample_method,
+        }
+    }
+
+    fn get_metric_fn(&self) -> (Box<dyn Fn(&[f64], &[f64], &[f64]) -> f64>, bool) {
         let metric = match &self.evaluation_metric {
             None => match self.objective_type {
                 ObjectiveType::LogLoss => LogLoss::default_metric(),
@@ -615,7 +823,26 @@ impl GradientBooster {
             },
             Some(v) => *v,
         };
-        metric_callables(&metric)
+        match metric {
+            Metric::QuantileLoss => {
+                let alpha = match self.objective_type {
+                    ObjectiveType::QuantileLoss { alpha } => alpha,
+                    _ => {
+                        panic!(
+                            "QuantileLoss evaluation metric is only supported when objective_type is QuantileLoss"
+                        )
+                    }
+                };
+                (
+                    Box::new(move |y, yhat, w| QuantileLoss::calculate_metric(y, yhat, w, alpha)),
+                    false,
+                )
+            }
+            _ => {
+                let (metric_fn, maximize) = metric_callables(&metric);
+                (Box::new(metric_fn), maximize)
+            }
+        }
     }
 
     fn reset(&mut self) {
@@ -646,9 +873,9 @@ impl GradientBooster {
         // of a bare fn pointer. Cheap to box once outside the loop.
         let calc_grad_hess: Box<dyn Fn(&[f64], &[f64], &[f64]) -> (Vec<f32>, Vec<f32>)> =
             match self.objective_type {
-                ObjectiveType::QuantileLoss { alpha } => Box::new(move |y, yhat, w| {
-                    QuantileLoss::calc_grad_hess(y, yhat, w, alpha)
-                }),
+                ObjectiveType::QuantileLoss { alpha } => {
+                    Box::new(move |y, yhat, w| QuantileLoss::calc_grad_hess(y, yhat, w, alpha))
+                }
                 _ => {
                     let f = gradient_hessian_callables(&self.objective_type);
                     Box::new(move |y, yhat, w| f(y, yhat, w))
@@ -689,6 +916,7 @@ impl GradientBooster {
         // This will always be false, unless early stopping rounds are used.
         let mut stop_early = false;
         let col_index: Vec<usize> = (0..data.cols).collect();
+        let sample_method = self.effective_sample_method();
         for i in 0..self.iterations {
             let verbose = if self.log_iterations == 0 {
                 false
@@ -704,7 +932,9 @@ impl GradientBooster {
             let colsample_index: Vec<usize> = if self.colsample_bytree == 1.0 {
                 Vec::new()
             } else {
-                let amount = ((col_index.len() as f64) * self.colsample_bytree).floor() as usize;
+                let amount = ((col_index.len() as f64) * self.colsample_bytree)
+                    .floor()
+                    .max(1.0) as usize;
                 let mut v: Vec<usize> = col_index
                     .iter()
                     .choose_multiple(&mut rng, amount)
@@ -732,7 +962,7 @@ impl GradientBooster {
                 self.max_leaves,
                 self.max_depth,
                 self.parallel,
-                &self.sample_method,
+                &sample_method,
                 &self.grow_policy,
             );
 
@@ -874,6 +1104,7 @@ impl GradientBooster {
         let mut best_metric: Option<f64> = None;
         let mut stop_early = false;
         let col_index: Vec<usize> = (0..data.cols).collect();
+        let sample_method = self.effective_sample_method();
 
         for round in 0..self.iterations {
             let verbose = if self.log_iterations == 0 {
@@ -884,14 +1115,27 @@ impl GradientBooster {
 
             // 5. Sample rows ONCE per round (same rows for all K classes)
             let (mut sample_grad, mut sample_hess) = max_abs_grad_per_row(&grad, &hess, k);
+            let original_sample_hess =
+                matches!(sample_method, SampleMethod::Goss).then(|| sample_hess.clone());
             let (chosen_index, _excluded_index) =
                 self.sample_index(&mut rng, &data.index, &mut sample_grad, &mut sample_hess);
+            let row_scales = original_sample_hess.map(|original_hess| {
+                let mut row_scales = vec![1.0f32; n];
+                for &row_idx in &chosen_index {
+                    if original_hess[row_idx] > 0.0 {
+                        row_scales[row_idx] = sample_hess[row_idx] / original_hess[row_idx];
+                    }
+                }
+                row_scales
+            });
 
             // Column sampling
             let colsample_index: Vec<usize> = if self.colsample_bytree == 1.0 {
                 Vec::new()
             } else {
-                let amount = ((col_index.len() as f64) * self.colsample_bytree).floor() as usize;
+                let amount = ((col_index.len() as f64) * self.colsample_bytree)
+                    .floor()
+                    .max(1.0) as usize;
                 let mut v: Vec<usize> = col_index
                     .iter()
                     .choose_multiple(&mut rng, amount)
@@ -910,7 +1154,8 @@ impl GradientBooster {
 
             // 6. Fit K trees using SAME grad/hess (not recomputed between classes)
             for class in 0..k {
-                let (grad_k, hess_k) = extract_class_slice(&grad, &hess, class, k, n);
+                let (grad_k, hess_k) =
+                    extract_class_slice(&grad, &hess, class, k, n, row_scales.as_deref());
 
                 let mut tree = Tree::new();
                 tree.fit(
@@ -924,7 +1169,7 @@ impl GradientBooster {
                     self.max_leaves,
                     self.max_depth,
                     self.parallel,
-                    &self.sample_method,
+                    &sample_method,
                     &self.grow_policy,
                 );
 
@@ -1055,6 +1300,9 @@ impl GradientBooster {
     ///
     /// For multi-class (num_classes > 1), returns raw logits of length N × K (row-major).
     pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
+        if let Err(e) = self.validate_prediction_data(data) {
+            panic!("{}", e);
+        }
         if self.num_classes <= 1 {
             // Existing scalar prediction (unchanged)
             let mut init_preds = vec![self.base_score; data.rows];
@@ -1098,6 +1346,9 @@ impl GradientBooster {
     /// Returns Vec<f64> of length n_samples × num_classes, row-major.
     /// Each consecutive K values are one sample's probabilities, summing to 1.0.
     pub fn predict_proba(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
+        if let Err(e) = self.validate_prediction_data(data) {
+            panic!("{}", e);
+        }
         assert!(
             self.num_classes >= 2,
             "predict_proba requires num_classes >= 2"
@@ -1108,6 +1359,9 @@ impl GradientBooster {
 
     /// Predict the leaf Indexes, this returns a vector of length N records * N Trees
     pub fn predict_leaf_indices(&self, data: &Matrix<f64>) -> Vec<usize> {
+        if let Err(e) = self.validate_prediction_data(data) {
+            panic!("{}", e);
+        }
         self.get_prediction_trees()
             .iter()
             .flat_map(|tree| tree.predict_leaf_indices(data, &self.missing))
@@ -1121,6 +1375,9 @@ impl GradientBooster {
         method: ContributionsMethod,
         parallel: bool,
     ) -> Vec<f64> {
+        if let Err(e) = self.validate_prediction_data(data) {
+            panic!("{}", e);
+        }
         if matches!(self.objective_type, ObjectiveType::SoftmaxMultiClass) {
             panic!("{}", MULTICLASS_CONTRIBUTIONS_UNSUPPORTED);
         }
@@ -1497,6 +1754,10 @@ impl GradientBooster {
     /// Set the objective_type on the booster.
     /// * `objective_type` - The objective type of the booster.
     pub fn set_objective_type(mut self, objective_type: ObjectiveType) -> Self {
+        assert!(
+            self.trees.is_empty() || self.objective_type == objective_type,
+            "cannot change objective_type after fit/load; it would reinterpret the stored model semantics"
+        );
         self.objective_type = objective_type;
         self
     }
@@ -1670,6 +1931,10 @@ impl GradientBooster {
     /// Set the number of classes used by SoftmaxMultiClass.
     /// * `num_classes` - Total number of target classes.
     pub fn set_num_classes(mut self, num_classes: usize) -> Self {
+        assert!(
+            self.trees.is_empty() || self.num_classes == num_classes,
+            "cannot change num_classes on a fitted model; it would reinterpret the stored tree layout"
+        );
         self.num_classes = num_classes;
         self
     }
@@ -1712,7 +1977,33 @@ impl GradientBooster {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::SeedableRng;
     use std::fs;
+
+    fn make_binary_feature1_data() -> (Vec<f64>, Vec<f64>, usize, usize) {
+        let n_per_class = 32;
+        let n_rows = n_per_class * 2;
+        let n_cols = 2;
+        let mut rows = Vec::with_capacity(n_rows * n_cols);
+        let mut labels = Vec::with_capacity(n_rows);
+        for _ in 0..n_per_class {
+            rows.push(0.0);
+            rows.push(0.0);
+            labels.push(0.0);
+        }
+        for _ in 0..n_per_class {
+            rows.push(0.0);
+            rows.push(1.0);
+            labels.push(1.0);
+        }
+        let mut col_major = vec![0.0; n_rows * n_cols];
+        for row in 0..n_rows {
+            for col in 0..n_cols {
+                col_major[col * n_rows + row] = rows[row * n_cols + col];
+            }
+        }
+        (col_major, labels, n_rows, n_cols)
+    }
 
     #[test]
     fn test_booster_fit_subsample() {
@@ -1744,6 +2035,244 @@ mod tests {
         println!("{}", booster.trees[0].nodes.len());
         println!("{}", booster.trees.last().unwrap().nodes.len());
         println!("{:?}", &preds[0..10]);
+    }
+
+    #[test]
+    fn test_subsample_without_sample_method_samples_rows() {
+        let booster = GradientBooster::default().set_subsample(0.5);
+        let mut rng = StdRng::seed_from_u64(0);
+        let index: Vec<usize> = (0..256).collect();
+        let mut grad = vec![1.0f32; index.len()];
+        let mut hess = vec![1.0f32; index.len()];
+        let (chosen, excluded) = booster.sample_index(&mut rng, &index, &mut grad, &mut hess);
+        assert!(!chosen.is_empty());
+        assert!(!excluded.is_empty());
+        assert!(chosen.len() < index.len());
+    }
+
+    #[test]
+    fn test_subsample_without_sample_method_matches_random_training() {
+        let (data_vec, y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+
+        let mut implicit_random = GradientBooster::default()
+            .set_iterations(5)
+            .set_subsample(0.5)
+            .set_seed(7)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
+        implicit_random.fit(&data, &y, &w, None).unwrap();
+
+        let mut explicit_random = GradientBooster::default()
+            .set_iterations(5)
+            .set_subsample(0.5)
+            .set_sample_method(SampleMethod::Random)
+            .set_seed(7)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
+        explicit_random.fit(&data, &y, &w, None).unwrap();
+
+        assert_eq!(
+            implicit_random.predict(&data, false),
+            explicit_random.predict(&data, false)
+        );
+    }
+
+    #[test]
+    fn test_fit_rejects_training_length_mismatch() {
+        let (data_vec, y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+        let result = GradientBooster::default().fit(&data, &y[..n - 1], &w, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fit_rejects_zero_sum_weights() {
+        let (data_vec, y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![0.0; n];
+        let result = GradientBooster::default().fit(&data, &y, &w, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_quantile_rejects_invalid_alpha() {
+        let (data_vec, y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::QuantileLoss { alpha: 1.5 });
+        let result = booster.fit(&data, &y, &w, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fit_rejects_invalid_subsample_range() {
+        let (data_vec, y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+        let mut booster = GradientBooster::default().set_subsample(1.5);
+        let result = booster.fit(&data, &y, &w, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fit_rejects_invalid_colsample_range() {
+        let (data_vec, y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+        let mut booster = GradientBooster::default().set_colsample_bytree(1.5);
+        let result = booster.fit(&data, &y, &w, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fit_rejects_invalid_goss_rates() {
+        let (data_vec, y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+        let mut booster = GradientBooster::default().set_sample_method(SampleMethod::Goss);
+        booster.top_rate = 0.8;
+        booster.other_rate = 0.4;
+        let result = booster.fit(&data, &y, &w, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_logloss_rejects_invalid_labels() {
+        let (data_vec, _y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+        let y = vec![0.0, 1.0, 2.0, 0.0];
+        let result = GradientBooster::default().fit(&data, &y, &w, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_colsample_bytree_keeps_at_least_one_feature() {
+        let feature = vec![0.0; 32]
+            .into_iter()
+            .chain(vec![1.0; 32])
+            .collect::<Vec<_>>();
+        let y = vec![0.0; 32]
+            .into_iter()
+            .chain(vec![1.0; 32])
+            .collect::<Vec<_>>();
+        let w = vec![1.0; y.len()];
+        let data = Matrix::new(&feature, y.len(), 1);
+        let mut booster = GradientBooster::default()
+            .set_iterations(3)
+            .set_max_depth(2)
+            .set_colsample_bytree(0.5)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
+        booster.fit(&data, &y, &w, None).unwrap();
+        assert!(
+            booster.trees[0].nodes.len() > 1,
+            "expected a split with one sampled feature"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "prediction data has 1 columns, but model was trained with 2")]
+    fn test_predict_rejects_narrow_matrix() {
+        let (data_vec, y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+        let mut booster = GradientBooster::default()
+            .set_iterations(3)
+            .set_max_depth(2)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
+        booster.fit(&data, &y, &w, None).unwrap();
+        assert_eq!(booster.required_prediction_cols(), 2);
+        let narrow_data = Matrix::new(data.get_col(0), n, 1);
+        let _ = booster.predict(&narrow_data, false);
+    }
+
+    #[test]
+    #[should_panic(expected = "prediction data has 1 columns, but model was trained with 2")]
+    fn test_predict_contributions_rejects_narrow_matrix() {
+        let (data_vec, y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+        let mut booster = GradientBooster::default()
+            .set_iterations(3)
+            .set_max_depth(2)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
+        booster.fit(&data, &y, &w, None).unwrap();
+        assert_eq!(booster.required_prediction_cols(), 2);
+        let narrow_data = Matrix::new(data.get_col(0), n, 1);
+        let _ = booster.predict_contributions(&narrow_data, ContributionsMethod::Average, false);
+    }
+
+    #[test]
+    #[should_panic(expected = "prediction data has 2 columns, but model was trained with 3")]
+    fn test_predict_rejects_matrix_narrower_than_training_data_even_if_unused() {
+        let n_rows = 8;
+        let n_cols = 3;
+        let rows = vec![
+            0.0, 0.0, 0.0, //
+            0.0, 0.0, 0.0, //
+            0.0, 0.0, 0.0, //
+            0.0, 0.0, 0.0, //
+            1.0, 0.0, 0.0, //
+            1.0, 0.0, 0.0, //
+            1.0, 0.0, 0.0, //
+            1.0, 0.0, 0.0, //
+        ];
+        let y = vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
+        let mut col_major = vec![0.0; n_rows * n_cols];
+        for row in 0..n_rows {
+            for col in 0..n_cols {
+                col_major[col * n_rows + row] = rows[row * n_cols + col];
+            }
+        }
+        let data = Matrix::new(&col_major, n_rows, n_cols);
+        let w = vec![1.0; n_rows];
+        let mut booster = GradientBooster::default()
+            .set_iterations(1)
+            .set_max_depth(1)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
+        booster.fit(&data, &y, &w, None).unwrap();
+        assert!(booster.required_prediction_cols() < 3);
+        assert_eq!(booster.trained_feature_count, Some(3));
+        let narrow_col_major = vec![
+            0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, //
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, //
+        ];
+        let narrow_data = Matrix::new(&narrow_col_major, n_rows, 2);
+        let _ = booster.predict(&narrow_data, false);
+    }
+
+    #[test]
+    fn test_quantile_uses_pinball_metric_by_default() {
+        let (data_vec, _y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let y = (0..n).map(|i| (i as f64) / 10.0).collect::<Vec<_>>();
+        let w = vec![1.0; n];
+        let alpha = 0.8;
+        let eval_data = vec![(
+            Matrix::new(&data_vec, n, n_cols),
+            y.as_slice(),
+            w.as_slice(),
+        )];
+
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::QuantileLoss { alpha })
+            .set_iterations(1)
+            .set_base_score(0.0)
+            .set_initialize_base_score(false);
+        booster.fit(&data, &y, &w, Some(eval_data)).unwrap();
+
+        let history = booster.evaluation_history.as_ref().unwrap();
+        let preds = booster.predict(&data, false);
+        let expected = QuantileLoss::calculate_metric(&y, &preds, &w, alpha);
+        assert!((history.get(0, 0) - expected).abs() < 1e-12);
     }
 
     #[test]
@@ -2224,6 +2753,25 @@ mod tests {
     }
 
     #[test]
+    fn test_scalar_rejects_multiclass_evaluation_metric() {
+        let (data_vec, y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+
+        let mut booster = GradientBooster::default()
+            .set_iterations(3)
+            .set_evaluation_metric(Some(Metric::MultiClassLogLoss));
+
+        let eval_data = vec![(
+            Matrix::new(&data_vec, n, n_cols),
+            y.as_slice(),
+            w.as_slice(),
+        )];
+        let result = booster.fit(&data, &y, &w, Some(eval_data));
+        assert!(result.is_err());
+    }
+
+    #[test]
     #[should_panic(expected = "predict_contributions is not supported for SoftmaxMultiClass")]
     fn test_multiclass_predict_contributions_panics() {
         let (data_vec, y, n, n_cols) = make_3class_data();
@@ -2237,6 +2785,54 @@ mod tests {
         booster.fit(&data, &y, &w, None).unwrap();
 
         let _ = booster.predict_contributions(&data, ContributionsMethod::Average, false);
+    }
+
+    #[test]
+    #[should_panic(expected = "model has num_classes=2 but objective LogLoss is scalar")]
+    fn test_predict_panics_on_corrupted_num_classes_state() {
+        let (data_vec, y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+        let mut booster = GradientBooster::default()
+            .set_iterations(3)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
+        booster.fit(&data, &y, &w, None).unwrap();
+        booster.num_classes = 2;
+
+        let _ = booster.predict(&data, false);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot change num_classes on a fitted model")]
+    fn test_set_num_classes_panics_after_fit() {
+        let (data_vec, y, n, n_cols) = make_3class_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+
+        let mut booster = GradientBooster::default()
+            .set_objective_type(ObjectiveType::SoftmaxMultiClass)
+            .set_num_classes(3)
+            .set_iterations(5);
+        booster.fit(&data, &y, &w, None).unwrap();
+
+        let _ = booster.set_num_classes(4);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot change objective_type after fit/load")]
+    fn test_set_objective_type_panics_after_fit() {
+        let (data_vec, y, n, n_cols) = make_binary_feature1_data();
+        let data = Matrix::new(&data_vec, n, n_cols);
+        let w = vec![1.0; n];
+        let mut booster = GradientBooster::default()
+            .set_iterations(1)
+            .set_max_depth(1)
+            .set_base_score(0.5)
+            .set_initialize_base_score(false);
+        booster.fit(&data, &y, &w, None).unwrap();
+
+        let _ = booster.set_objective_type(ObjectiveType::SquaredLoss);
     }
 
     #[test]

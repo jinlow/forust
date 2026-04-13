@@ -25,6 +25,35 @@ impl Default for Tree {
 }
 
 impl Tree {
+    pub fn required_prediction_cols(&self) -> usize {
+        self.nodes
+            .iter()
+            .filter(|node| !node.is_leaf)
+            .map(|node| node.split_feature + 1)
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn assert_prediction_cols(&self, cols: usize) {
+        let required_cols = self.required_prediction_cols();
+        assert!(
+            cols >= required_cols,
+            "prediction data has {} columns, but tree requires at least {}",
+            cols,
+            required_cols
+        );
+    }
+
+    pub(crate) fn row_value<'a>(&self, row: &'a [f64], feature: usize) -> &'a f64 {
+        row.get(feature).unwrap_or_else(|| {
+            panic!(
+                "prediction row has {} columns, but tree requires at least {}",
+                row.len(),
+                self.required_prediction_cols().max(feature + 1)
+            )
+        })
+    }
+
     pub fn new() -> Self {
         Tree { nodes: Vec::new() }
     }
@@ -173,7 +202,7 @@ impl Tree {
                 break;
             }
             // Get change of weight given child's weight.
-            let child_idx = node.get_child_idx(&row[node.split_feature], missing);
+            let child_idx = node.get_child_idx(self.row_value(row, node.split_feature), missing);
             let child_odds = odds(self.nodes[child_idx].weight_value as f64 + current_logodds);
             let delta = child_odds - node_odds;
             contribs[node.split_feature] += delta;
@@ -205,7 +234,7 @@ impl Tree {
             // where l < r and we are going down r
             // The contribution for a would be r - l.
 
-            let child_idx = node.get_child_idx(&row[node.split_feature], missing);
+            let child_idx = node.get_child_idx(self.row_value(row, node.split_feature), missing);
             let child = &self.nodes[child_idx];
             // If we are going down the missing branch, do nothing and leave
             // it at zero.
@@ -250,7 +279,7 @@ impl Tree {
             // where l < r and we are going down r
             // The contribution for a would be r - l.
 
-            let child_idx = node.get_child_idx(&row[node.split_feature], missing);
+            let child_idx = node.get_child_idx(self.row_value(row, node.split_feature), missing);
             // If we are going down the missing branch, do nothing and leave
             // it at zero.
             if node.has_missing_branch() && child_idx == node.missing_node {
@@ -284,7 +313,7 @@ impl Tree {
                 break;
             }
 
-            let child_idx = node.get_child_idx(&row[node.split_feature], missing);
+            let child_idx = node.get_child_idx(self.row_value(row, node.split_feature), missing);
             // If we are going down the missing branch, do nothing and leave
             // it at zero.
             if node.has_missing_branch() && child_idx == node.missing_node {
@@ -322,7 +351,7 @@ impl Tree {
                 break;
             }
             // Get change of weight given child's weight.
-            let child_idx = node.get_child_idx(&row[node.split_feature], missing);
+            let child_idx = node.get_child_idx(self.row_value(row, node.split_feature), missing);
             let node_weight = self.nodes[node_idx].weight_value as f64;
             let child_weight = self.nodes[child_idx].weight_value as f64;
             let delta = child_weight - node_weight;
@@ -337,6 +366,7 @@ impl Tree {
         contribs: &mut [f64],
         missing: &f64,
     ) {
+        self.assert_prediction_cols(data.cols);
         // There needs to always be at least 2 trees
         data.index
             .par_iter()
@@ -363,7 +393,7 @@ impl Tree {
                 break;
             }
             // Get change of weight given child's weight.
-            let child_idx = node.get_child_idx(&row[node.split_feature], missing);
+            let child_idx = node.get_child_idx(self.row_value(row, node.split_feature), missing);
             let node_weight = weights[node_idx];
             let child_weight = weights[child_idx];
             let delta = child_weight - node_weight;
@@ -379,6 +409,7 @@ impl Tree {
         weights: &[f64],
         missing: &f64,
     ) {
+        self.assert_prediction_cols(data.cols);
         // There needs to always be at least 2 trees
         data.index
             .par_iter()
@@ -412,7 +443,7 @@ impl Tree {
             if node.is_leaf {
                 return node.weight_value as f64;
             } else {
-                node_idx = node.get_child_idx(&row[node.split_feature], missing);
+                node_idx = node.get_child_idx(self.row_value(row, node.split_feature), missing);
             }
         }
     }
@@ -432,6 +463,7 @@ impl Tree {
     }
 
     pub fn predict(&self, data: &Matrix<f64>, parallel: bool, missing: &f64) -> Vec<f64> {
+        self.assert_prediction_cols(data.cols);
         if parallel {
             self.predict_parallel(data, missing)
         } else {
@@ -440,6 +472,7 @@ impl Tree {
     }
 
     pub fn predict_leaf_indices(&self, data: &Matrix<f64>, missing: &f64) -> Vec<usize> {
+        self.assert_prediction_cols(data.cols);
         data.index
             .par_iter()
             .map(|i| self.predict_leaf(data, *i, missing).num)

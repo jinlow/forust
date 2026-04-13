@@ -2,7 +2,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SampleMethod {
     None,
     Random,
@@ -51,6 +51,10 @@ impl Sampler for RandomSampler {
                 excluded.push(*i)
             }
         }
+        if chosen.is_empty() && !excluded.is_empty() {
+            let forced_idx = rng.gen_range(0..excluded.len());
+            chosen.push(excluded.swap_remove(forced_idx));
+        }
         (chosen, excluded)
     }
 }
@@ -87,24 +91,75 @@ impl Sampler for GossSampler {
         let rand_n = (self.b * index.len() as f64) as usize;
 
         // sort gradient by absolute value from highest to lowest
-        let mut sorted = (0..index.len()).collect::<Vec<_>>();
+        let mut sorted = index.to_vec();
         sorted.sort_unstable_by(|&a, &b| grad[b].abs().total_cmp(&grad[a].abs()));
 
         // select the topN largest gradients
         let mut used_set = sorted[0..top_n].to_vec();
 
         // sample the rest based on randN
-        let subsample = rand_n as f64 / (index.len() as f64 - top_n as f64);
+        let remainder = index.len().saturating_sub(top_n);
+        let subsample = if remainder == 0 {
+            0.0
+        } else {
+            rand_n as f64 / remainder as f64
+        };
 
         // weight the sampled "small gradients" by fact and append indices to used_set
-        for i in &sorted[top_n..sorted.len()] {
+        for i in &sorted[top_n..] {
             if rng.gen_range(0.0..1.0) < subsample {
                 grad[*i] *= fact;
                 hess[*i] *= fact;
                 used_set.push(*i);
             }
         }
+        if used_set.is_empty() && !sorted.is_empty() {
+            used_set.push(sorted[0]);
+        }
 
         (used_set, Vec::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::SeedableRng;
+
+    #[test]
+    fn test_random_sampler_keeps_at_least_one_row() {
+        let index = vec![7];
+        let mut grad = Vec::<f32>::new();
+        let mut hess = Vec::<f32>::new();
+        let mut rng = StdRng::seed_from_u64(0);
+        let (chosen, excluded) =
+            RandomSampler::new(0.0).sample(&mut rng, &index, &mut grad, &mut hess);
+        assert_eq!(chosen, vec![7]);
+        assert!(excluded.is_empty());
+    }
+
+    #[test]
+    fn test_goss_sampler_returns_original_row_ids() {
+        let index = vec![10, 20, 30];
+        let mut grad = vec![0.0f32; 31];
+        grad[10] = 1.0;
+        grad[20] = 10.0;
+        grad[30] = 2.0;
+        let mut hess = vec![1.0f32; 31];
+        let mut rng = StdRng::seed_from_u64(0);
+        let (chosen, _) =
+            GossSampler::new(0.34, 0.1).sample(&mut rng, &index, &mut grad, &mut hess);
+        assert_eq!(chosen, vec![20]);
+    }
+
+    #[test]
+    fn test_goss_sampler_keeps_at_least_one_row() {
+        let index = vec![7];
+        let mut grad = vec![0.0f32; 8];
+        grad[7] = 1.0;
+        let mut hess = vec![1.0f32; 8];
+        let mut rng = StdRng::seed_from_u64(0);
+        let (chosen, _) = GossSampler::new(0.0, 0.1).sample(&mut rng, &index, &mut grad, &mut hess);
+        assert_eq!(chosen, vec![7]);
     }
 }

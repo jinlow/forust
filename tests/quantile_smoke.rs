@@ -85,10 +85,7 @@ fn quantile_alpha_70_predicts_above_alpha_30_on_average() {
     let cov30 = above(&p30);
     let cov70 = above(&p70);
     // alpha=0.30 → ~70% of y should exceed the prediction; alpha=0.70 → ~30%.
-    assert!(
-        cov30 > cov70,
-        "expected cov30 ({cov30}) > cov70 ({cov70})"
-    );
+    assert!(cov30 > cov70, "expected cov30 ({cov30}) > cov70 ({cov70})");
     assert!(cov30 > 0.55 && cov30 < 0.85, "cov30 = {cov30}");
     assert!(cov70 > 0.15 && cov70 < 0.45, "cov70 = {cov70}");
 }

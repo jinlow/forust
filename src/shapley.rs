@@ -170,7 +170,7 @@ fn tree_shap(
                 f64::from(w * (el.one_fraction - el.zero_fraction) * node.weight_value);
         }
     } else {
-        let next_node_idx = node.get_child_idx(&row[node.split_feature], missing);
+        let next_node_idx = node.get_child_idx(tree.row_value(row, node.split_feature), missing);
         let hot_cold_children = get_hot_cold_children(next_node_idx, node);
         let mut incoming_zero_fraction = 1.0;
         let mut incoming_one_fraction = 1.0;

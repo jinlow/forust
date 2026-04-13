@@ -170,6 +170,28 @@ def test_softmax_multiclass_prediction_iteration_uses_rounds(iris_X_y):
     assert not np.allclose(truncated_logits, full_logits)
 
 
+def test_predict_uses_booster_state_not_mutated_wrapper_attrs(X_y):
+    X, y = X_y
+    fmod = GradientBooster(
+        iterations=5,
+        max_depth=3,
+        objective_type="LogLoss",
+        initialize_base_score=False,
+    )
+    fmod.fit(X, y)
+
+    baseline = fmod.predict(X)
+    fmod.objective_type = "SoftmaxMultiClass"
+    fmod.num_classes = 3
+
+    mutated = fmod.predict(X)
+    assert mutated.shape == baseline.shape
+    assert np.allclose(mutated, baseline)
+
+    with pytest.raises(ValueError, match="predict_proba is only available"):
+        fmod.predict_proba(X)
+
+
 def test_booster_to_xgboosts(X_y):
     X, y = X_y
     X = X.fillna(0)
@@ -1017,10 +1039,37 @@ def test_partial_dependence_errors(X_y):
         fmod.partial_dependence(X.to_numpy(), pclass_n),
     )
 
+    with pytest.raises(ValueError, match="must be a non-negative column index"):
+        fmod.partial_dependence(X, -1)
+
+    with pytest.raises(ValueError, match="must be smaller than the number of columns"):
+        fmod.partial_dependence(X, X.shape[1])
+
+    with pytest.raises(ValueError, match="`samples` must be a positive integer"):
+        fmod.partial_dependence(X, "pclass", samples=0)
+
+    with pytest.raises(ValueError, match="`percentile_bounds` must contain values in \\[0, 1\\]"):
+        fmod.partial_dependence(X, "pclass", percentile_bounds=(0.9, 0.1))
+
     with pytest.raises(
         ValueError, match="The parameter `feature` must be a string, or an int"
     ):
         fmod.partial_dependence(X, 1.0)
+
+    with pytest.raises(ValueError, match="was not found exactly once"):
+        fmod.partial_dependence(X, "not_a_column")
+
+    X_missing = X.assign(all_missing=np.nan)
+    fmod = GradientBooster()
+    fmod.fit(X_missing, y=y)
+    with pytest.raises(ValueError, match="has no non-missing values available"):
+        fmod.partial_dependence(X_missing, "all_missing")
+
+    pd_missing_only = fmod.partial_dependence(
+        X_missing, "all_missing", exclude_missing=False
+    )
+    assert pd_missing_only.shape == (1, 2)
+    assert np.isnan(pd_missing_only[0, 0])
 
 
 def test_partial_dependence_exclude_missing(X_y):
@@ -1244,6 +1293,85 @@ def test_from_xgboost(X_y, growth_policy):
     fmod = forust._from_xgboost_model(xmod)
     assert np.allclose(
         xmod.predict(X, output_margin=True), fmod.predict(X), atol=0.00001
+    )
+
+
+def test_from_raw_xgboost_booster(X_y):
+    X, y = X_y
+    X = X.astype(np.float32)
+    xmod = XGBClassifier(
+        n_estimators=50,
+        learning_rate=0.1,
+        max_depth=6,
+        objective="binary:logitraw",
+        eval_metric="auc",
+        tree_method="hist",
+        base_score=0.5,
+    )
+    xmod.fit(X, y)
+
+    raw_booster = xmod.get_booster()
+    fmod = forust._from_xgboost_model(raw_booster)
+    assert np.allclose(
+        xmod.predict(X, output_margin=True), fmod.predict(X), atol=0.00001
+    )
+
+
+def test_from_xgboost_multiclass(iris_X_y):
+    X, y = iris_X_y
+    X = X.astype(np.float32)
+    xmod = XGBClassifier(
+        n_estimators=40,
+        learning_rate=0.1,
+        max_depth=4,
+        objective="multi:softprob",
+        eval_metric="mlogloss",
+        tree_method="hist",
+    )
+    xmod.fit(X, y)
+
+    fmod = forust._from_xgboost_model(xmod)
+    assert fmod.objective_type == "SoftmaxMultiClass"
+    assert fmod.num_classes == 3
+    assert np.allclose(
+        xmod.predict(X, output_margin=True), fmod.predict(X), atol=0.00001
+    )
+    assert np.allclose(xmod.predict_proba(X), fmod.predict_proba(X), atol=0.00001)
+
+
+def test_parse_xgboost_base_score_formats():
+    assert forust._parse_xgboost_base_score("0.25") == 0.25
+    assert forust._parse_xgboost_base_score("[2.5E-1]") == 0.25
+    assert forust._parse_xgboost_base_score("[0E0,0E0,0E0]") == [0.0, 0.0, 0.0]
+
+
+def test_from_xgboost_quantile():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(64, 4)).astype(np.float32)
+    y = rng.normal(size=64).astype(np.float32)
+
+    import xgboost as xgb
+
+    dtrain = xgb.DMatrix(X, label=y)
+    alpha = 0.8
+    xmod = xgb.train(
+        {
+            "objective": "reg:quantileerror",
+            "quantile_alpha": alpha,
+            "eval_metric": "quantile",
+            "tree_method": "hist",
+            "max_depth": 4,
+            "eta": 0.1,
+        },
+        dtrain,
+        num_boost_round=20,
+    )
+
+    fmod = forust._from_xgboost_model(xmod)
+    assert fmod.objective_type == "QuantileLoss"
+    assert fmod.quantile_alpha == pytest.approx(alpha)
+    assert np.allclose(
+        xmod.predict(dtrain, output_margin=True), fmod.predict(X), atol=0.00001
     )
 
 
@@ -1712,6 +1840,13 @@ def test_get_params(X_y):
     assert fmod.get_params()["learning_rate"] == r
 
 
+def test_get_params_quantile_alpha():
+    fmod = GradientBooster(objective_type="QuantileLoss", quantile_alpha=0.8)
+    params = fmod.get_params()
+    assert params["objective_type"] == "QuantileLoss"
+    assert params["quantile_alpha"] == pytest.approx(0.8)
+
+
 def test_set_params(X_y):
     X, y = X_y
     r = 0.00001
@@ -1720,6 +1855,20 @@ def test_set_params(X_y):
     assert fmod.set_params(learning_rate=r)
     assert fmod.get_params()["learning_rate"] == r
     fmod.fit(X, y)
+
+
+def test_invalid_sample_method_raises():
+    with pytest.raises(ValueError):
+        GradientBooster(sample_method="not-a-method")
+
+
+def test_subsample_without_sample_method_reports_random():
+    fmod = GradientBooster(subsample=0.5)
+    assert fmod.sample_method == "Random"
+
+
+def test_shapley_alias_is_exposed():
+    assert forust.CONTRIBUTION_METHODS["shapley"] == "Shapley"
 
 
 def test_compat_gridsearch(X_y):
