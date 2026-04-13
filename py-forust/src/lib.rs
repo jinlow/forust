@@ -83,6 +83,8 @@ impl GradientBooster {
         missing_node_treatment,
         log_iterations,
         force_children_to_bound_parent,
+        num_classes=1,
+        quantile_alpha=0.5,
     ))]
     pub fn new(
         objective_type: &str,
@@ -116,9 +118,17 @@ impl GradientBooster {
         missing_node_treatment: &str,
         log_iterations: usize,
         force_children_to_bound_parent: bool,
+        num_classes: usize,
+        quantile_alpha: f64,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
-        let objective_ = to_value_error(serde_plain::from_str(objective_type))?;
+        let objective_ = if objective_type == "QuantileLoss" {
+            ObjectiveType::QuantileLoss {
+                alpha: quantile_alpha,
+            }
+        } else {
+            to_value_error(serde_plain::from_str(objective_type))?
+        };
         let sample_method_ = match sample_method {
             Some(s) => to_value_error(serde_plain::from_str(s))?,
             None => SampleMethod::None,
@@ -163,9 +173,9 @@ impl GradientBooster {
             log_iterations,
             force_children_to_bound_parent,
         );
-        Ok(GradientBooster {
-            booster: to_value_error(booster)?,
-        })
+        let mut booster = to_value_error(booster)?;
+        booster.num_classes = num_classes;
+        Ok(GradientBooster { booster })
     }
 
     #[setter]
@@ -187,9 +197,25 @@ impl GradientBooster {
         Ok(())
     }
 
+    #[setter]
+    fn set_num_classes(&mut self, value: usize) -> PyResult<()> {
+        if !self.booster.trees.is_empty() && self.booster.num_classes != value {
+            return Err(PyValueError::new_err(
+                "cannot change num_classes after fit/load; it would reinterpret the stored tree layout",
+            ));
+        }
+        self.booster.num_classes = value;
+        Ok(())
+    }
+
     #[getter]
     fn prediction_iteration(&self) -> PyResult<Option<usize>> {
-        Ok(self.booster.prediction_iteration)
+        Ok(self.booster.prediction_iteration_limit())
+    }
+
+    #[getter]
+    fn num_classes(&self) -> PyResult<usize> {
+        Ok(self.booster.num_classes)
     }
 
     #[getter]
@@ -255,7 +281,36 @@ impl GradientBooster {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let parallel = parallel.unwrap_or(true);
+        to_value_error(self.booster.validate_prediction_state())?;
+        to_value_error(self.booster.validate_prediction_data(&data))?;
         Ok(self.booster.predict(&data, parallel).into_pyarray(py))
+    }
+
+    #[pyo3(signature = (flat_data, rows, cols, parallel=None))]
+    pub fn predict_proba<'py>(
+        &self,
+        py: Python<'py>,
+        flat_data: PyReadonlyArray1<f64>,
+        rows: usize,
+        cols: usize,
+        parallel: Option<bool>,
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        if !matches!(
+            self.booster.objective_type,
+            ObjectiveType::SoftmaxMultiClass
+        ) || self.booster.num_classes < 2
+        {
+            return Err(PyValueError::new_err(
+                "predict_proba is only available when objective_type is SoftmaxMultiClass and num_classes >= 2",
+            ));
+        }
+
+        let flat_data = flat_data.as_slice()?;
+        let data = Matrix::new(flat_data, rows, cols);
+        let parallel = parallel.unwrap_or(true);
+        to_value_error(self.booster.validate_prediction_state())?;
+        to_value_error(self.booster.validate_prediction_data(&data))?;
+        Ok(self.booster.predict_proba(&data, parallel).into_pyarray(py))
     }
 
     #[pyo3(signature = (flat_data, rows, cols, method, parallel=None))]
@@ -268,9 +323,19 @@ impl GradientBooster {
         method: &str,
         parallel: Option<bool>,
     ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        if matches!(
+            self.booster.objective_type,
+            ObjectiveType::SoftmaxMultiClass
+        ) {
+            return Err(PyValueError::new_err(
+                "predict_contributions is not supported for SoftmaxMultiClass; explanations are only implemented for scalar-output objectives",
+            ));
+        }
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
         let parallel = parallel.unwrap_or(true);
+        to_value_error(self.booster.validate_prediction_state())?;
+        to_value_error(self.booster.validate_prediction_data(&data))?;
         let method_ = to_value_error(serde_plain::from_str(method))?;
         Ok(self
             .booster
@@ -287,6 +352,8 @@ impl GradientBooster {
     ) -> PyResult<Bound<'py, PyArray1<usize>>> {
         let flat_data = flat_data.as_slice()?;
         let data = Matrix::new(flat_data, rows, cols);
+        to_value_error(self.booster.validate_prediction_state())?;
+        to_value_error(self.booster.validate_prediction_data(&data))?;
         Ok(self.booster.predict_leaf_indices(&data).into_pyarray(py))
     }
 
@@ -302,6 +369,14 @@ impl GradientBooster {
     }
 
     pub fn value_partial_dependence(&self, feature: usize, value: f64) -> PyResult<f64> {
+        if matches!(
+            self.booster.objective_type,
+            ObjectiveType::SoftmaxMultiClass
+        ) {
+            return Err(PyValueError::new_err(
+                "value_partial_dependence is not supported for SoftmaxMultiClass; partial dependence is only implemented for scalar-output objectives",
+            ));
+        }
         Ok(self.booster.value_partial_dependence(feature, value))
     }
 
@@ -361,9 +436,13 @@ impl GradientBooster {
     }
 
     pub fn get_params(&self, py: Python) -> PyResult<Py<PyAny>> {
-        let objective_ = to_value_error(serde_plain::to_string::<ObjectiveType>(
-            &self.booster.objective_type,
-        ))?;
+        let (objective_, quantile_alpha_) = match &self.booster.objective_type {
+            ObjectiveType::QuantileLoss { alpha } => ("QuantileLoss".to_string(), *alpha),
+            objective_type => (
+                to_value_error(serde_plain::to_string::<ObjectiveType>(objective_type))?,
+                0.5,
+            ),
+        };
         let sample_method_: Option<String> = match self.booster.sample_method {
             SampleMethod::None => None,
             _ => serde_plain::to_string::<SampleMethod>(&self.booster.sample_method).ok(),
@@ -395,6 +474,7 @@ impl GradientBooster {
         )?;
         let dict = PyDict::new(py);
         dict.set_item("objective_type", objective_)?;
+        dict.set_item("quantile_alpha", quantile_alpha_)?;
         dict.set_item("iterations", self.booster.iterations)?;
         dict.set_item("learning_rate", self.booster.learning_rate)?;
         dict.set_item("max_depth", self.booster.max_depth)?;
@@ -421,6 +501,7 @@ impl GradientBooster {
         dict.set_item("evaluation_metric", evaluation_metric_)?;
         dict.set_item("early_stopping_rounds", self.booster.early_stopping_rounds)?;
         dict.set_item("initialize_base_score", self.booster.initialize_base_score)?;
+        dict.set_item("num_classes", self.booster.num_classes)?;
         dict.set_item(
             "terminate_missing_features",
             self.booster.terminate_missing_features.clone(),

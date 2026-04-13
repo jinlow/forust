@@ -1,10 +1,35 @@
 use crate::data::FloatData;
 use crate::errors::ForustError;
+use crate::objective::SoftmaxMultiClass;
 use crate::utils::items_to_strings;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 pub type MetricFn = fn(&[f64], &[f64], &[f64]) -> f64;
+const LOG_LOSS_EPS: f64 = 1e-16;
+
+#[inline]
+fn xlogy(x: f64, y: f64) -> f64 {
+    if x == 0.0 {
+        0.0
+    } else {
+        x * y.max(LOG_LOSS_EPS).ln()
+    }
+}
+
+#[inline]
+fn weighted_mean(total: f64, weight_sum: f64) -> f64 {
+    if weight_sum == 0.0 {
+        total
+    } else {
+        total / weight_sum
+    }
+}
+
+#[inline]
+fn weighted_root_mean(total: f64, weight_sum: f64) -> f64 {
+    weighted_mean(total, weight_sum).sqrt()
+}
 
 /// Compare to metric values, determining if b is better.
 /// If one of them is NaN favor the non NaN value.
@@ -35,8 +60,10 @@ pub fn is_comparison_better(value: f64, comparison: f64, maximize: bool) -> bool
 pub enum Metric {
     AUC,
     LogLoss,
+    QuantileLoss,
     RootMeanSquaredLogError,
     RootMeanSquaredError,
+    MultiClassLogLoss,
 }
 
 impl FromStr for Metric {
@@ -46,8 +73,10 @@ impl FromStr for Metric {
         match s {
             "AUC" => Ok(Metric::AUC),
             "LogLoss" => Ok(Metric::LogLoss),
+            "QuantileLoss" => Ok(Metric::QuantileLoss),
             "RootMeanSquaredLogError" => Ok(Metric::RootMeanSquaredLogError),
             "RootMeanSquaredError" => Ok(Metric::RootMeanSquaredError),
+            "MultiClassLogLoss" => Ok(Metric::MultiClassLogLoss),
 
             _ => Err(ForustError::ParseString(
                 s.to_string(),
@@ -55,8 +84,10 @@ impl FromStr for Metric {
                 items_to_strings(vec![
                     "AUC",
                     "LogLoss",
+                    "QuantileLoss",
                     "RootMeanSquaredLogError",
                     "RootMeanSquaredError",
+                    "MultiClassLogLoss",
                 ]),
             )),
         }
@@ -67,6 +98,9 @@ pub fn metric_callables(metric_type: &Metric) -> (MetricFn, bool) {
     match metric_type {
         Metric::AUC => (AUCMetric::calculate_metric, AUCMetric::maximize()),
         Metric::LogLoss => (LogLossMetric::calculate_metric, LogLossMetric::maximize()),
+        Metric::QuantileLoss => {
+            panic!("QuantileLoss uses objective-aware dispatch because the metric depends on alpha")
+        }
         Metric::RootMeanSquaredLogError => (
             RootMeanSquaredLogErrorMetric::calculate_metric,
             RootMeanSquaredLogErrorMetric::maximize(),
@@ -74,6 +108,9 @@ pub fn metric_callables(metric_type: &Metric) -> (MetricFn, bool) {
         Metric::RootMeanSquaredError => (
             RootMeanSquaredErrorMetric::calculate_metric,
             RootMeanSquaredErrorMetric::maximize(),
+        ),
+        Metric::MultiClassLogLoss => panic!(
+            "MultiClassLogLoss uses multiclass_log_loss() directly, not function-pointer dispatch"
         ),
     }
 }
@@ -131,11 +168,12 @@ pub fn log_loss(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> f64 {
         .zip(sample_weight)
         .map(|((y_, yhat_), w_)| {
             w_sum += *w_;
-            let yhat_ = f64::ONE / (f64::ONE + (-*yhat_).exp());
-            -(*y_ * yhat_.ln() + (f64::ONE - *y_) * ((f64::ONE - yhat_).ln())) * *w_
+            let yhat_ =
+                (f64::ONE / (f64::ONE + (-*yhat_).exp())).clamp(LOG_LOSS_EPS, 1.0 - LOG_LOSS_EPS);
+            -(xlogy(*y_, yhat_) + xlogy(f64::ONE - *y_, f64::ONE - yhat_)) * *w_
         })
         .sum::<f64>();
-    res / w_sum
+    weighted_mean(res, w_sum)
 }
 
 pub fn root_mean_squared_log_error(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> f64 {
@@ -149,7 +187,7 @@ pub fn root_mean_squared_log_error(y: &[f64], yhat: &[f64], sample_weight: &[f64
             (y_.ln_1p() - yhat_.ln_1p()).powi(2) * *w_
         })
         .sum::<f64>();
-    (res / w_sum).sqrt()
+    weighted_root_mean(res, w_sum)
 }
 
 pub fn root_mean_squared_error(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -> f64 {
@@ -163,7 +201,23 @@ pub fn root_mean_squared_error(y: &[f64], yhat: &[f64], sample_weight: &[f64]) -
             (y_ - yhat_).powi(2) * *w_
         })
         .sum::<f64>();
-    (res / w_sum).sqrt()
+    weighted_root_mean(res, w_sum)
+}
+
+/// Multi-class log loss (cross-entropy).
+/// y: labels (N), yhat: raw logits (N×K), w: weights (N).
+pub fn multiclass_log_loss(y: &[f64], yhat: &[f64], w: &[f64], num_classes: usize) -> f64 {
+    let probs = SoftmaxMultiClass::softmax(yhat, num_classes);
+    let n = y.len();
+    let mut loss = 0.0;
+    let mut w_sum = 0.0;
+    for i in 0..n {
+        let k = y[i] as usize;
+        let p = probs[i * num_classes + k].max(1e-15);
+        loss -= p.ln() * w[i];
+        w_sum += w[i];
+    }
+    weighted_mean(loss, w_sum)
 }
 
 fn trapezoid_area(x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
@@ -235,12 +289,59 @@ mod tests {
     }
 
     #[test]
+    fn test_log_loss_is_finite_for_extreme_margins() {
+        let y = vec![0.0, 1.0];
+        let yhat = vec![-1000.0, 1000.0];
+        let sample_weight = vec![1.0, 1.0];
+        let res = log_loss(&y, &yhat, &sample_weight);
+        assert!(res.is_finite());
+        assert!(res >= 0.0);
+    }
+
+    #[test]
+    fn test_log_loss_zero_weight_sum_returns_zero() {
+        let y = vec![0.0, 1.0];
+        let yhat = vec![0.0, 0.0];
+        let sample_weight = vec![0.0, 0.0];
+        assert_eq!(log_loss(&y, &yhat, &sample_weight), 0.0);
+    }
+
+    #[test]
     fn test_auc_real_data() {
         let y = vec![1., 0., 1., 0., 0., 0., 0.];
         let yhat = vec![0.5, 0.01, -0., 1.05, 0., -4., 0.];
         let sample_weight = vec![1., 1., 1., 1., 1., 2., 2.];
         let res = roc_auc_score(&y, &yhat, &sample_weight);
         assert_eq!(precision_round(res, 5), 0.67857);
+    }
+
+    #[test]
+    fn test_multiclass_log_loss() {
+        // Perfect predictions → low loss
+        let y = vec![0.0, 1.0, 2.0];
+        let good_logits = vec![10.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0];
+        let w = vec![1.0; 3];
+        let good_loss = multiclass_log_loss(&y, &good_logits, &w, 3);
+
+        // Random predictions → higher loss
+        let bad_logits = vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let bad_loss = multiclass_log_loss(&y, &bad_logits, &w, 3);
+
+        assert!(good_loss > 0.0, "loss should be positive");
+        assert!(
+            good_loss < bad_loss,
+            "better predictions should have lower loss"
+        );
+        // Uniform distribution → log(3) ≈ 1.0986
+        assert!((bad_loss - 3.0_f64.ln()).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_multiclass_log_loss_zero_weight_sum_returns_zero() {
+        let y = vec![0.0, 1.0];
+        let logits = vec![0.0, 0.0, 0.0, 0.0];
+        let w = vec![0.0, 0.0];
+        assert_eq!(multiclass_log_loss(&y, &logits, &w, 2), 0.0);
     }
 
     #[test]

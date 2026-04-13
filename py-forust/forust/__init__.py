@@ -33,6 +33,8 @@ CONTRIBUTION_METHODS = {
     "mode-difference": "ModeDifference",
     "modedifference": "ModeDifference",
     "ModeDifference": "ModeDifference",
+    "shapley": "Shapley",
+    "Shapley": "Shapley",
     "ProbabilityChange": "ProbabilityChange",
     "probabilitychange": "ProbabilityChange",
     "probability-change": "ProbabilityChange",
@@ -108,6 +110,19 @@ def _xgboost_tree_to_nodes(
     return node_list
 
 
+def _parse_xgboost_base_score(raw: str) -> float | list[float]:
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return float(raw)
+    if isinstance(parsed, list):
+        values = [float(v) for v in parsed]
+        if len(values) == 1:
+            return values[0]
+        return values
+    return float(parsed)
+
+
 def _from_xgboost_model(model: Any) -> GradientBooster:
     import xgboost
 
@@ -129,23 +144,90 @@ def _from_xgboost_model(model: Any) -> GradientBooster:
         nodes = _xgboost_tree_to_nodes(tree=json.loads(tree), feature_map=feature_map)
         trees.append({"nodes": nodes})
 
-    # This is would be wrong, for models trained with "binary:logistic"
-    # because the base score is modified prior to predictions.
-    # We would need to modify prior to handing it to the forust
-    # model.
-    learner_config = json.loads(model.get_booster().save_config())["learner"]
-    base_score = float(learner_config["learner_model_param"]["base_score"])
-    if learner_config["objective"]["name"] == "binary:logistic":
+    learner_config = json.loads(booster.save_config())["learner"]
+    objective_name = learner_config["objective"]["name"]
+    model_params = learner_config["learner_model_param"]
+    num_features = int(model_params.get("num_feature", 0))
+    parsed_base_score = _parse_xgboost_base_score(model_params["base_score"])
+
+    if objective_name in {"binary:logistic", "binary:logitraw"}:
+        model_json = json.loads(GradientBooster(objective_type="LogLoss").json_dump())
+        if isinstance(parsed_base_score, list):
+            if len(parsed_base_score) != 1:
+                raise ValueError(
+                    "XGBoost scalar objective returned a vector base_score"
+                )
+            base_score = parsed_base_score[0]
+        else:
+            base_score = parsed_base_score
+    elif objective_name == "reg:squarederror":
+        model_json = json.loads(GradientBooster(objective_type="SquaredLoss").json_dump())
+        if isinstance(parsed_base_score, list):
+            if len(parsed_base_score) != 1:
+                raise ValueError(
+                    "XGBoost scalar objective returned a vector base_score"
+                )
+            base_score = parsed_base_score[0]
+        else:
+            base_score = parsed_base_score
+    elif objective_name == "reg:quantileerror":
+        alpha = _parse_xgboost_base_score(
+            learner_config["objective"]["quantile_loss_param"]["quantile_alpha"]
+        )
+        if isinstance(alpha, list):
+            if len(alpha) != 1:
+                raise ValueError("XGBoost quantile objective returned multiple alphas")
+            alpha = alpha[0]
+        model_json = json.loads(
+            GradientBooster(
+                objective_type="QuantileLoss", quantile_alpha=float(alpha)
+            ).json_dump()
+        )
+        if isinstance(parsed_base_score, list):
+            if len(parsed_base_score) != 1:
+                raise ValueError(
+                    "XGBoost scalar objective returned a vector base_score"
+                )
+            base_score = parsed_base_score[0]
+        else:
+            base_score = parsed_base_score
+    elif objective_name in {"multi:softmax", "multi:softprob"}:
+        num_classes = int(model_params["num_class"])
+        model_json = json.loads(
+            GradientBooster(
+                objective_type="SoftmaxMultiClass", num_classes=num_classes
+            ).json_dump()
+        )
+        if isinstance(parsed_base_score, list):
+            if len(parsed_base_score) == 1:
+                model_json["base_scores"] = parsed_base_score * num_classes
+            else:
+                model_json["base_scores"] = parsed_base_score
+        else:
+            model_json["base_scores"] = [parsed_base_score] * num_classes
+        base_score = 0.0
+    else:
+        raise ValueError(f"Unsupported XGBoost objective {objective_name!r}")
+
+    # XGBoost stores binary:logistic base_score in probability space.
+    if objective_name == "binary:logistic":
+        eps = 1e-6
+        base_score = float(np.clip(base_score, eps, 1.0 - eps))
         base_score = np.log(base_score / (1 - base_score))
 
     # Get initial dump
-    model_json = json.loads(GradientBooster().json_dump())
     model_json["base_score"] = base_score
+    if num_features > 0:
+        model_json["trained_feature_count"] = num_features
     model_json["trees"] = trees
 
-    # Populate booster from json
-    final_model = GradientBooster()
-    final_model.booster = CrateGradientBooster.from_json(json.dumps(model_json))
+    # Populate booster from json and mirror the effective params onto the Python wrapper.
+    crate_booster = CrateGradientBooster.from_json(json.dumps(model_json))
+    params = crate_booster.get_params()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        final_model = GradientBooster(**params)
+    final_model.booster = crate_booster
     if features is not None:
         final_model.feature_names_in_ = features
         final_model.n_features_ = len(features)
@@ -157,8 +239,13 @@ class BoosterType(Protocol):
     prediction_iteration: None | int
     best_iteration: None | int
     base_score: float
+    quantile_alpha: float
+    num_classes: int
     terminate_missing_features: set[int]
     number_of_trees: int
+
+    def get_params(self) -> dict[str, Any]:
+        """Return booster parameters."""
 
     def fit(
         self,
@@ -182,6 +269,15 @@ class BoosterType(Protocol):
         parallel: bool = True,
     ) -> np.ndarray:
         """predict method"""
+
+    def predict_proba(
+        self,
+        flat_data: np.ndarray,
+        rows: int,
+        cols: int,
+        parallel: bool = True,
+    ) -> np.ndarray:
+        """predict_proba method"""
 
     def predict_contributions(
         self,
@@ -291,6 +387,7 @@ class GradientBooster:
         self,
         *,
         objective_type: str = "LogLoss",
+        quantile_alpha: float = 0.5,
         iterations: int = 100,
         learning_rate: float = 0.3,
         max_depth: int = 5,
@@ -317,6 +414,7 @@ class GradientBooster:
         evaluation_metric: str | None = None,
         early_stopping_rounds: int | None = None,
         initialize_base_score: bool = True,
+        num_classes: int = 1,
         terminate_missing_features: Iterable[Any] | None = None,
         missing_node_treatment: str = "None",
         log_iterations: int = 0,
@@ -329,7 +427,10 @@ class GradientBooster:
             objective_type (str, optional): The name of objective function used to optimize.
                 Valid options include "LogLoss" to use logistic loss as the objective function
                 (binary classification), or "SquaredLoss" to use Squared Error as the objective
-                function (continuous regression). Defaults to "LogLoss".
+                function (continuous regression), or "SoftmaxMultiClass" for K-class
+                classification, or "QuantileLoss" for quantile regression. Defaults to "LogLoss".
+            quantile_alpha (float, optional): Quantile used when `objective_type="QuantileLoss"`.
+                Valid values are in `[0, 1]`. Defaults to 0.5.
             iterations (int, optional): Total number of trees to train in the ensemble.
                 Defaults to 100.
             learning_rate (float, optional): Step size to use at each iteration. Each
@@ -392,14 +493,19 @@ class GradientBooster:
             grow_policy (str, optional): Optional string value that controls the way new nodes are added to the tree. Choices are `DepthWise` to split at nodes closest to the root, or `LossGuide` to split at nodes with the highest loss change.
             evaluation_metric (str | None, optional): Optional string value used to define an evaluation metric
                 that will be calculated at each iteration if a `evaluation_dataset` is provided at fit time.
-                The metric can be one of "AUC", "LogLoss", "RootMeanSquaredLogError", or "RootMeanSquaredError".
-                If no `evaluation_metric` is passed, but an `evaluation_dataset` is passed, then "LogLoss", will
-                be used with the "LogLoss" objective function, and "RootMeanSquaredLogError" will be used with
-                "SquaredLoss".
+                The metric can be one of "AUC", "LogLoss", "QuantileLoss", "RootMeanSquaredLogError",
+                "RootMeanSquaredError", or "MultiClassLogLoss". "QuantileLoss" is only valid when
+                `objective_type="QuantileLoss"`.
+                If no `evaluation_metric` is passed, but an `evaluation_dataset` is passed, then the default
+                metric follows the objective: "LogLoss" for "LogLoss", "RootMeanSquaredError" for
+                "SquaredLoss", "QuantileLoss" for "QuantileLoss", and "MultiClassLogLoss" for
+                "SoftmaxMultiClass".
             early_stopping_rounds (int | None, optional): If this is specified, and an `evaluation_dataset` is passed
                 during fit, then an improvement in the `evaluation_metric` must be seen after at least this many
                 iterations of training, otherwise training will be cut short.
             initialize_base_score (bool, optional): If this is specified, the `base_score` will be calculated at fit time using the `sample_weight` and y data in accordance with the requested `objective_type`. This will result in the passed `base_score` value being overridden.
+            num_classes (int, optional): Number of target classes when `objective_type="SoftmaxMultiClass"`.
+                Must be at least 2 for multiclass training. Defaults to 1.
             terminate_missing_features (set[Any], optional): An optional iterable of features (either strings, or integer values specifying the feature indices if numpy arrays are used for fitting), for which the missing node will always be terminated, even if `allow_missing_splits` is set to true. This value is only valid if `create_missing_branch` is also True.
             missing_node_treatment (str, optional): Method for selecting the `weight` for the missing node, if `create_missing_branch` is set to `True`. Defaults to "None". Valid options are:
 
@@ -444,11 +550,16 @@ class GradientBooster:
             ```
 
         """
-        sample_method_ = (
-            "None"
-            if sample_method is None
-            else SAMPLE_METHODS.get(sample_method, "Random")
-        )
+        if sample_method is None:
+            sample_method_ = "None"
+        else:
+            try:
+                sample_method_ = SAMPLE_METHODS[sample_method]
+            except KeyError as exc:
+                valid = ", ".join(sorted(SAMPLE_METHODS))
+                raise ValueError(
+                    f"Invalid sample_method {sample_method!r}. Valid options are: {valid}"
+                ) from exc
         sample_method_ = (
             "Random"
             if (subsample < 1) and (sample_method_ == "None")
@@ -468,6 +579,7 @@ class GradientBooster:
 
         booster = CrateGradientBooster(
             objective_type=objective_type,
+            quantile_alpha=quantile_alpha,
             iterations=iterations,
             learning_rate=learning_rate,
             max_depth=max_depth,
@@ -494,6 +606,7 @@ class GradientBooster:
             evaluation_metric=evaluation_metric,
             early_stopping_rounds=early_stopping_rounds,
             initialize_base_score=initialize_base_score,
+            num_classes=num_classes,
             terminate_missing_features=set(),
             missing_node_treatment=missing_node_treatment,
             log_iterations=log_iterations,
@@ -504,6 +617,7 @@ class GradientBooster:
         )
         self.booster = cast(BoosterType, booster)
         self.objective_type = objective_type
+        self.quantile_alpha = quantile_alpha
         self.iterations = iterations
         self.learning_rate = learning_rate
         self.max_depth = max_depth
@@ -527,13 +641,14 @@ class GradientBooster:
         self.seed = seed
         self.missing = missing
         self.create_missing_branch = create_missing_branch
-        self.sample_method = sample_method
+        self.sample_method = None if sample_method_ == "None" else sample_method_
         self.grow_policy = grow_policy
         self.top_rate = top_rate
         self.other_rate = other_rate
         self.evaluation_metric = evaluation_metric
         self.early_stopping_rounds = early_stopping_rounds
         self.initialize_base_score = initialize_base_score
+        self.num_classes = num_classes
         self.terminate_missing_features = terminate_missing_features_
         self.missing_node_treatment = missing_node_treatment
         self.log_iterations = log_iterations
@@ -545,7 +660,8 @@ class GradientBooster:
         )
 
     def __sklearn_tags__(self) -> dict[str, Any]:
-        # Only considered a regressor in the scikit-learn sense, as it only ever returns a 1d prediction value.
+        # This wrapper returns raw margins/logits rather than class labels, so it does
+        # not behave like a sklearn classifier even for classification objectives.
         from sklearn.utils import Tags, TargetTags
 
         return Tags(
@@ -573,7 +689,9 @@ class GradientBooster:
             y (ArrayLike): Either a pandas Series, or a 1 dimensional numpy array. If "LogLoss"
                 was the objective type specified, then this should only contain 1 or 0 values,
                 where 1 is the positive class being predicted. If "SquaredLoss" is the
-                objective type, then any continuous variable can be provided.
+                objective type, then any continuous variable can be provided. If
+                "SoftmaxMultiClass" is used, then `y` must contain integer class labels
+                in `[0, num_classes)`.
             sample_weight (Union[ArrayLike, None], optional): Instance weights to use when
                 training the model. If None is passed, a weight of 1 will be used for every record.
                 Defaults to None.
@@ -659,6 +777,12 @@ class GradientBooster:
                     "Columns mismatch between data passed, and data used at fit."
                 )
 
+    def _booster_output_config(self) -> tuple[str, int]:
+        params = self.booster.get_params()
+        objective_type = cast(str, params["objective_type"])
+        num_classes = cast(int, params["num_classes"])
+        return objective_type, num_classes
+
     def predict(self, X: FrameLike, parallel: Union[bool, None] = None) -> np.ndarray:
         """Predict with the fitted booster on new data.
 
@@ -675,12 +799,45 @@ class GradientBooster:
         features_, flat_data, rows, cols = _convert_input_frame(X)
         self._validate_features(features_)
         parallel_ = self.parallel if parallel is None else parallel
-        return self.booster.predict(
+        objective_type, num_classes = self._booster_output_config()
+        raw = self.booster.predict(
             flat_data=flat_data,
             rows=rows,
             cols=cols,
             parallel=parallel_,
         )
+        if objective_type == "SoftmaxMultiClass" and num_classes > 1:
+            return raw.reshape((rows, num_classes))
+        return raw
+
+    def predict_proba(self, X: FrameLike, parallel: Union[bool, None] = None) -> np.ndarray:
+        """Predict class probabilities for a fitted SoftmaxMultiClass booster.
+
+        Args:
+            X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
+            parallel (Union[bool, None], optional): Optionally specify if prediction
+                should run in parallel. If `None` is passed, the model's `parallel`
+                attribute will be used.
+
+        Returns:
+            np.ndarray: Probability matrix of shape `(n_samples, num_classes)`.
+        """
+        objective_type, num_classes = self._booster_output_config()
+        if objective_type != "SoftmaxMultiClass" or num_classes < 2:
+            raise ValueError(
+                "predict_proba is only available when objective_type is SoftmaxMultiClass and num_classes >= 2"
+            )
+
+        features_, flat_data, rows, cols = _convert_input_frame(X)
+        self._validate_features(features_)
+        parallel_ = self.parallel if parallel is None else parallel
+        probs = self.booster.predict_proba(
+            flat_data=flat_data,
+            rows=rows,
+            cols=cols,
+            parallel=parallel_,
+        )
+        return probs.reshape((rows, num_classes))
 
     @property
     def feature_importances_(self) -> np.ndarray:
@@ -724,6 +881,11 @@ class GradientBooster:
         Returns:
             np.ndarray: Returns a numpy array of the predicted contributions.
         """
+        objective_type, _ = self._booster_output_config()
+        if objective_type == "SoftmaxMultiClass":
+            raise ValueError(
+                "predict_contributions is not supported for SoftmaxMultiClass; explanations are only implemented for scalar-output objectives"
+            )
         features_, flat_data, rows, cols = _convert_input_frame(X)
         self._validate_features(features_)
         parallel_ = self.parallel if parallel is None else parallel
@@ -738,7 +900,7 @@ class GradientBooster:
         return np.reshape(contributions, (rows, cols + 1))
 
     def predict_leaf_indices(self, X: FrameLike) -> np.ndarray:
-        """Predict the leaf indices for each tree. This will be the node ID number, this can be used to identify the leaf node a record will fall into for each row, this could be paired directly with the `trees_to_dataframe` output. The data returned will be a matrix, where each column corresponds to a tree, thus the data will be of the shape (rows in X, prediction_iteration)
+        """Predict the leaf indices for each tree. This will be the node ID number, this can be used to identify the leaf node a record will fall into for each row, this could be paired directly with the `trees_to_dataframe` output. The data returned has one column per tree used for prediction. For `SoftmaxMultiClass`, each boosting iteration corresponds to `num_classes` trees.
 
         Args:
             X (FrameLike): Either a pandas DataFrame, or a 2 dimensional numpy array.
@@ -753,11 +915,14 @@ class GradientBooster:
             rows=rows,
             cols=cols,
         )
-        n_trees = (
-            self.number_of_trees
-            if self.prediction_iteration is None
-            else self.prediction_iteration
-        )
+        objective_type, num_classes = self._booster_output_config()
+        prediction_iteration = self.booster.prediction_iteration
+        if prediction_iteration is None:
+            n_trees = self.booster.number_of_trees
+        elif objective_type == "SoftmaxMultiClass" and num_classes > 1:
+            n_trees = prediction_iteration * num_classes
+        else:
+            n_trees = prediction_iteration
         return np.reshape(leaf_indices, (rows, n_trees), order="F")
 
     def set_prediction_iteration(self, iteration: int):
@@ -766,8 +931,9 @@ class GradientBooster:
         will be used.
 
         Args:
-            iteration (int): Iteration number to use, this will use all trees, up to this
-                index. Setting this to 10, would result in trees 0 through 9 used for predictions.
+            iteration (int): Number of boosting iterations to use when predicting.
+                For `SoftmaxMultiClass`, each boosting iteration corresponds to
+                `num_classes` trees.
         """
         self.booster.prediction_iteration = iteration
 
@@ -843,6 +1009,11 @@ class GradientBooster:
             ```
             <img  height="340" src="https://github.com/jinlow/forust/raw/main/resources/pdp_plot_age_mono.png">
         """
+        objective_type, _ = self._booster_output_config()
+        if objective_type == "SoftmaxMultiClass":
+            raise ValueError(
+                "partial_dependence is not supported for SoftmaxMultiClass; partial dependence is only implemented for scalar-output objectives"
+            )
         if isinstance(feature, str):
             if not isinstance(X, pd.DataFrame):
                 raise ValueError(
@@ -850,7 +1021,7 @@ class GradientBooster:
                 )
             values = X.loc[:, feature].to_numpy()
             if hasattr(self, "feature_names_in_"):
-                [feature_idx] = [
+                matching_features = [
                     i for i, v in enumerate(self.feature_names_in_) if v == feature
                 ]
             else:
@@ -860,8 +1031,22 @@ class GradientBooster:
                     + "ensure columns are the same order as data passed when fit."
                 )
                 warnings.warn(w_msg)
-                [feature_idx] = [i for i, v in enumerate(X.columns) if v == feature]
+                matching_features = [i for i, v in enumerate(X.columns) if v == feature]
+            if len(matching_features) != 1:
+                raise ValueError(
+                    f"Feature {feature!r} was not found exactly once in the available columns."
+                )
+            [feature_idx] = matching_features
         elif isinstance(feature, int):
+            if feature < 0:
+                raise ValueError(
+                    f"The parameter `feature` must be a non-negative column index, got {feature}."
+                )
+            n_input_features = X.shape[1]
+            if feature >= n_input_features:
+                raise ValueError(
+                    f"The parameter `feature` must be smaller than the number of columns ({n_input_features}), got {feature}."
+                )
             feature_idx = feature
             if isinstance(X, pd.DataFrame):
                 values = X.iloc[:, feature].to_numpy()
@@ -872,16 +1057,33 @@ class GradientBooster:
                 f"The parameter `feature` must be a string, or an int, however an object of type {type(feature)} was passed."
             )
         min_p, max_p = percentile_bounds
+        if not (0.0 <= min_p <= 1.0 and 0.0 <= max_p <= 1.0 and min_p <= max_p):
+            raise ValueError(
+                "The parameter `percentile_bounds` must contain values in [0, 1] with lower <= upper."
+            )
+        if samples is not None and samples <= 0:
+            raise ValueError(
+                f"The parameter `samples` must be a positive integer or None, got {samples}."
+            )
         values = values[~(np.isnan(values) | (values == self.missing))]
         if samples is None:
             search_values = np.sort(np.unique(values))
         else:
             # Exclude missing from this calculation.
-            search_values = np.quantile(values, np.linspace(min_p, max_p, num=samples))
+            if values.size == 0:
+                search_values = np.array([], dtype=np.float64)
+            else:
+                search_values = np.quantile(
+                    values, np.linspace(min_p, max_p, num=samples)
+                )
 
         # Add missing back, if they wanted it...
         if not exclude_missing:
             search_values = np.append([self.missing], search_values)
+        elif search_values.size == 0:
+            raise ValueError(
+                f"Feature {feature!r} has no non-missing values available for partial dependence."
+            )
 
         res = []
         for v in search_values:
@@ -1056,8 +1258,9 @@ class GradientBooster:
         If no `evaluation_dataset` was passed, this will return None.
 
         Returns:
-            np.ndarray | None: A numpy array equal to the shape of the number
-            of evaluation datasets passed, and the number of trees in the model.
+            np.ndarray | None: A numpy array with shape
+            `(completed_boosting_iterations, n_evaluation_datasets)`.
+            For `SoftmaxMultiClass`, rows correspond to boosting rounds, not individual trees.
 
         Example:
             ```python
@@ -1079,7 +1282,7 @@ class GradientBooster:
 
     @property
     def best_iteration(self) -> int | None:
-        """Get the best iteration if `early_stopping_rounds` was used when fitting.
+        """Get the zero-based best boosting iteration if `early_stopping_rounds` was used when fitting.
 
         Returns:
             int | None: The best iteration, or None if `early_stopping_rounds` wasn't used.
@@ -1088,10 +1291,11 @@ class GradientBooster:
 
     @property
     def prediction_iteration(self) -> int | None:
-        """The prediction_iteration that will be used when predicting, up to this many trees will be used.
+        """The number of boosting iterations that will be used when predicting.
+        For `SoftmaxMultiClass`, each boosting iteration corresponds to `num_classes` trees.
 
         Returns:
-            int | None: Int if this is set, otherwise, None, in which case all trees will be used.
+            int | None: Int if this is set, otherwise, None, in which case all fitted iterations will be used.
         """
         return self.booster.prediction_iteration
 

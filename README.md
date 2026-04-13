@@ -38,6 +38,8 @@ For details on all of the methods and their respective parameters, see the [pyth
 
 The [`GradientBooster`](https://jinlow.github.io/forust/#forust.GradientBooster) class is currently the only public facing class in the package, and can be used to train gradient boosted decision tree ensembles with multiple objective functions.
 
+Supported objectives include binary classification with `LogLoss`, regression with `SquaredLoss`, and multiclass classification with `SoftmaxMultiClass` plus `num_classes`.
+
 ### Training and Predicting
 
 Once, the booster has been initialized, it can be fit on a provided dataset, and performance field. After fitting, the model can be used to predict on a dataset.
@@ -68,7 +70,7 @@ model.predict_contributions(X.head())
 #        -1.07720813],
 ```
 
-When predicting with the data, the maximum iteration that will be used when predicting can be set using the [`set_prediction_iteration`](https://jinlow.github.io/forust/#forust.GradientBooster.set_prediction_iteration) method. If `early_stopping_rounds` has been set, this will default to the best iteration, otherwise all of the trees will be used.
+When predicting with the data, the maximum boosting iteration that will be used can be set using the [`set_prediction_iteration`](https://jinlow.github.io/forust/#forust.GradientBooster.set_prediction_iteration) method. If `early_stopping_rounds` has been set, this will default to the best iteration, otherwise all fitted iterations will be used. For `SoftmaxMultiClass`, each boosting iteration corresponds to `num_classes` trees.
 
 If early stopping was used, the evaluation history can be retrieved with the [`get_evaluation_history`](https://jinlow.github.io/forust/#forust.GradientBooster.get_evaluation_history) method.
 
@@ -82,6 +84,30 @@ model.get_evaluation_history()[0:3]
 #        [532.01055803],
 #        [496.76933646]])
 ```
+
+### Multi-class Classification
+
+For K-class classification, use `objective_type="SoftmaxMultiClass"` and set `num_classes=K`. `predict` returns raw logits with shape `(n_samples, K)`, while `predict_proba` returns class probabilities with the same shape.
+
+```python
+from forust import GradientBooster
+from sklearn.datasets import load_iris
+
+iris = load_iris(as_frame=True)
+X = iris.data
+y = iris.target
+
+model = GradientBooster(
+    objective_type="SoftmaxMultiClass",
+    num_classes=3,
+)
+model.fit(X, y)
+
+logits = model.predict(X.head())
+probs = model.predict_proba(X.head())
+```
+
+Feature contributions and partial dependence are currently only implemented for scalar-output objectives.
 
 ### Inspecting the Model
 

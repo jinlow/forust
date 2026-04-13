@@ -19,4 +19,6 @@ pub enum ForustError {
     MissingValuesFound(String),
     #[error("Negative values found in {0}")]
     NegativeValuesFound(String),
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
 }
