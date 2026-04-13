@@ -28,7 +28,7 @@ def _is_pandas_dataframe(obj: object) -> bool:
         import pandas as pd
 
         return isinstance(obj, pd.DataFrame)
-    except ImportError:
+    except Exception:
         return False
 
 
@@ -38,7 +38,7 @@ def _is_pandas_series(obj: object) -> bool:
         import pandas as pd
 
         return isinstance(obj, pd.Series)
-    except ImportError:
+    except Exception:
         return False
 
 CONTRIBUTION_METHODS = {
