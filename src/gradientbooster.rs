@@ -159,6 +159,11 @@ pub struct GradientBooster {
     /// to keep training.
     #[serde(default = "default_early_stopping_rounds")]
     pub early_stopping_rounds: Option<usize>,
+    /// Minimum improvement in the evaluation metric required to count as
+    /// an improvement for early stopping purposes. Defaults to 1e-7 to
+    /// match XGBoost's behavior.
+    #[serde(default = "default_early_stopping_delta")]
+    pub early_stopping_delta: f64,
     /// If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
     #[serde(default = "default_initialize_base_score")]
     pub initialize_base_score: bool,
@@ -220,6 +225,9 @@ fn default_evaluation_metric() -> Option<Metric> {
 }
 fn default_early_stopping_rounds() -> Option<usize> {
     None
+}
+fn default_early_stopping_delta() -> f64 {
+    1e-7
 }
 fn default_evaluation_history() -> Option<RowMajorMatrix<f64>> {
     None
@@ -283,6 +291,7 @@ impl Default for GradientBooster {
             GrowPolicy::DepthWise,
             None,
             None,
+            1e-7,
             true,
             HashSet::new(),
             MissingNodeTreatment::AssignToParent,
@@ -334,6 +343,7 @@ impl GradientBooster {
     /// * `sample_method` - Specify the method that records should be sampled when training?
     /// * `evaluation_metric` - Define the evaluation metric to record at each iterations.
     /// * `early_stopping_rounds` - Number of rounds that must
+    /// * `early_stopping_delta` - Minimum improvement required to reset the early stopping counter.
     /// * `initialize_base_score` - If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
     /// * `missing_node_treatment` - specify how missing nodes should be handled during training.
     /// * `log_iterations` - Setting to a value (N) other than zero will result in information being logged about ever N iterations.
@@ -365,6 +375,7 @@ impl GradientBooster {
         grow_policy: GrowPolicy,
         evaluation_metric: Option<Metric>,
         early_stopping_rounds: Option<usize>,
+        early_stopping_delta: f64,
         initialize_base_score: bool,
         terminate_missing_features: HashSet<usize>,
         missing_node_treatment: MissingNodeTreatment,
@@ -398,6 +409,7 @@ impl GradientBooster {
             grow_policy,
             evaluation_metric,
             early_stopping_rounds,
+            early_stopping_delta,
             initialize_base_score,
             terminate_missing_features,
             evaluation_history: None,
@@ -662,7 +674,7 @@ impl GradientBooster {
                                 // Otherwise the best could be farther back.
                                 Some(v) => {
                                     // We have reached a new best value...
-                                    if is_comparison_better(v, m, maximize) {
+                                    if is_comparison_better(v, m, maximize, self.early_stopping_delta) {
                                         self.update_best_iteration(i);
                                         Some(m)
                                     } else {
@@ -1261,6 +1273,13 @@ impl GradientBooster {
     /// * `early_stopping_rounds` - Early stoppings rounds.
     pub fn set_early_stopping_rounds(mut self, early_stopping_rounds: Option<usize>) -> Self {
         self.early_stopping_rounds = early_stopping_rounds;
+        self
+    }
+
+    /// Set the minimum improvement delta for early stopping.
+    /// * `early_stopping_delta` - Minimum improvement required.
+    pub fn set_early_stopping_delta(mut self, early_stopping_delta: f64) -> Self {
+        self.early_stopping_delta = early_stopping_delta;
         self
     }
 

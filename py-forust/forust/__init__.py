@@ -339,6 +339,7 @@ class GradientBooster:
         grow_policy: str = "DepthWise",
         evaluation_metric: str | None = None,
         early_stopping_rounds: int | None = None,
+        early_stopping_delta: float = 1e-7,
         initialize_base_score: bool = True,
         terminate_missing_features: Iterable[Any] | None = None,
         missing_node_treatment: str = "None",
@@ -422,6 +423,8 @@ class GradientBooster:
             early_stopping_rounds (int | None, optional): If this is specified, and an `evaluation_dataset` is passed
                 during fit, then an improvement in the `evaluation_metric` must be seen after at least this many
                 iterations of training, otherwise training will be cut short.
+            early_stopping_delta (float, optional): Minimum improvement in the evaluation metric
+                required to count as an improvement for early stopping. Defaults to 1e-7. Set to 0.0 to count any strict improvement.
             initialize_base_score (bool, optional): If this is specified, the `base_score` will be calculated at fit time using the `sample_weight` and y data in accordance with the requested `objective_type`. This will result in the passed `base_score` value being overridden.
             terminate_missing_features (set[Any], optional): An optional iterable of features (either strings, or integer values specifying the feature indices if numpy arrays are used for fitting), for which the missing node will always be terminated, even if `allow_missing_splits` is set to true. This value is only valid if `create_missing_branch` is also True.
             missing_node_treatment (str, optional): Method for selecting the `weight` for the missing node, if `create_missing_branch` is set to `True`. Defaults to "None". Valid options are:
@@ -516,6 +519,7 @@ class GradientBooster:
             grow_policy=grow_policy,
             evaluation_metric=evaluation_metric,
             early_stopping_rounds=early_stopping_rounds,
+            early_stopping_delta=early_stopping_delta,
             initialize_base_score=initialize_base_score,
             terminate_missing_features=set(),
             missing_node_treatment=missing_node_treatment,
@@ -556,6 +560,7 @@ class GradientBooster:
         self.other_rate = other_rate
         self.evaluation_metric = evaluation_metric
         self.early_stopping_rounds = early_stopping_rounds
+        self.early_stopping_delta = early_stopping_delta
         self.initialize_base_score = initialize_base_score
         self.terminate_missing_features = terminate_missing_features_
         self.missing_node_treatment = missing_node_treatment

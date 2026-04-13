@@ -78,6 +78,7 @@ impl GradientBooster {
         grow_policy,
         evaluation_metric,
         early_stopping_rounds,
+        early_stopping_delta,
         initialize_base_score,
         terminate_missing_features,
         missing_node_treatment,
@@ -111,6 +112,7 @@ impl GradientBooster {
         grow_policy: &str,
         evaluation_metric: Option<&str>,
         early_stopping_rounds: Option<usize>,
+        early_stopping_delta: f64,
         initialize_base_score: bool,
         terminate_missing_features: HashSet<usize>,
         missing_node_treatment: &str,
@@ -157,6 +159,7 @@ impl GradientBooster {
             grow_policy_,
             evaluation_metric_,
             early_stopping_rounds,
+            early_stopping_delta,
             initialize_base_score,
             terminate_missing_features,
             missing_node_treatment_,
@@ -420,6 +423,7 @@ impl GradientBooster {
         dict.set_item("grow_policy", grow_policy_)?;
         dict.set_item("evaluation_metric", evaluation_metric_)?;
         dict.set_item("early_stopping_rounds", self.booster.early_stopping_rounds)?;
+        dict.set_item("early_stopping_delta", self.booster.early_stopping_delta)?;
         dict.set_item("initialize_base_score", self.booster.initialize_base_score)?;
         dict.set_item(
             "terminate_missing_features",

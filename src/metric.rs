@@ -9,7 +9,7 @@ pub type MetricFn = fn(&[f64], &[f64], &[f64]) -> f64;
 /// Compare to metric values, determining if b is better.
 /// If one of them is NaN favor the non NaN value.
 /// If both are NaN, consider the first value to be better.
-pub fn is_comparison_better(value: f64, comparison: f64, maximize: bool) -> bool {
+pub fn is_comparison_better(value: f64, comparison: f64, maximize: bool, delta: f64) -> bool {
     match (value.is_nan(), comparison.is_nan()) {
         // Both nan, comparison is not better,
         // Or comparison is nan, also not better
@@ -19,13 +19,13 @@ pub fn is_comparison_better(value: f64, comparison: f64, maximize: bool) -> bool
         // Perform numerical comparison.
         (false, false) => {
             // If we are maximizing is the comparison
-            // greater, than the current value
+            // greater, than the current value by at least delta
             if maximize {
-                value < comparison
+                comparison > value + delta
             // If we are minimizing is the comparison
-            // less than the current value.
+            // less than the current value by at least delta
             } else {
-                value > comparison
+                comparison < value - delta
             }
         }
     }
