@@ -24,6 +24,12 @@ y = rng.integers(0, 2, 5000).astype(np.float64)
 booster = GradientBooster(iterations=50, learning_rate=0.3, max_depth=5)
 booster.fit(X, y)
 
+booster = GradientBooster(iterations=50, learning_rate=0.3, max_depth=5, subsample=0.5)
+booster.fit(X, y)
+
+booster = GradientBooster(iterations=50, learning_rate=0.3, max_depth=5, colsample_bytree=0.5)
+booster.fit(X, y)
+
 # Predict — single-threaded and parallel paths
 booster.predict(X)
 booster.predict(X, parallel=True)
