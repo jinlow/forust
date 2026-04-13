@@ -28,6 +28,8 @@ jobs:
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
+      - name: Install llvm tools
+        run: rustup component add llvm-tools
       - name: Install deps
         run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn<=1.8' toml
       - name: Sync package metadata files
@@ -79,6 +81,8 @@ jobs:
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
+      - name: Install llvm tools
+        run: rustup component add llvm-tools
       - name: Install deps
         run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
       - name: Sync package metadata files
@@ -130,6 +134,8 @@ jobs:
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
+      - name: Install llvm tools
+        run: rustup component add llvm-tools
       - name: Install deps
         run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
       - name: Sync package metadata files
@@ -183,6 +189,8 @@ jobs:
         with:
           python-version: ${{ matrix.pyversion }}
           architecture: x64
+      - name: Install llvm tools
+        run: rustup component add llvm-tools
       - name: Install deps
         run: pip install numpy pandas seaborn xgboost=='1.7.1' 'scikit-learn==1.6.1' toml
       - name: Sync package metadata files
