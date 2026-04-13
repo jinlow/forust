@@ -30,12 +30,13 @@ dev = ["maturin", "pytest", "seaborn", "xgboost<2.0", "scikit-learn", "mkdocs-ma
 
 [tool.maturin]
 sdist-include = ["LICENSE", "README.md"]
+pgo-command = "pytest ."
 
 [tool.uv]
 # Rebuild package when any rust files change
 cache-keys = [{file = "pyproject.toml"}, {file = "rust/Cargo.toml"}, {file = "**/*.rs"}]
 # Uncomment to build rust code in development mode
-config-settings = { build-args = '--profile=dev' }
+# config-settings = { build-args = '--profile=dev' }
 
 [tool.ruff]
 # Never enforce `E501` (line length violations).
