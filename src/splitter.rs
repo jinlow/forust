@@ -65,11 +65,11 @@ pub trait Splitter: Sync {
     /// Find the best possible split, considering all feature histograms.
     /// If we wanted to add Column sampling, this is probably where
     /// we would need to do it, otherwise, it would be at the tree level.
-    fn best_split(&self, node: &SplittableNode, col_index: &[usize], cuts: &JaggedMatrix<f64>) -> Option<SplitInfo> {
+    fn best_split(&self, node: &SplittableNode, col_index: &[usize]) -> Option<SplitInfo> {
         col_index
             .par_iter()
             .enumerate()
-            .filter_map(|(idx, &feature)| self.best_feature_split(node, feature, idx, cuts))
+            .filter_map(|(idx, &feature)| self.best_feature_split(node, feature, idx))
             .reduce_with(|a, b| if b.split_gain > a.split_gain { b } else { a })
     }
 
@@ -97,7 +97,6 @@ pub trait Splitter: Sync {
         node: &SplittableNode,
         feature: usize,
         idx: usize,
-        cuts: &JaggedMatrix<f64>,
     ) -> Option<SplitInfo> {
         let mut split_info: Option<SplitInfo> = None;
         let mut max_gain: Option<f32> = None;
@@ -179,7 +178,7 @@ pub trait Splitter: Sync {
                 split_info = Some(SplitInfo {
                     split_gain,
                     split_feature: feature,
-                    split_value: cuts.get_col(feature)[i],
+                    split_value: bin.cut_value,
                     split_bin: (i + 1) as u16,
                     left_node: left_node_info,
                     right_node: right_node_info,
@@ -225,7 +224,7 @@ pub trait Splitter: Sync {
         parallel: bool,
         sort_buffer: &mut SortBuffer,
     ) -> Vec<SplittableNode> {
-        match self.best_split(node, col_index, cuts) {
+        match self.best_split(node, col_index) {
             Some(split_info) => self.handle_split_info(
                 split_info, n_nodes, node, index, col_index, data, cuts, grad, hess, parallel,
                 sort_buffer,
@@ -1099,7 +1098,7 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
-        let s = splitter.best_feature_split(&mut n, 0, 0, &b.cuts).unwrap();
+        let s = splitter.best_feature_split(&mut n, 0, 0).unwrap();
         assert_eq!(s.split_value, 4.0);
         assert_eq!(s.left_node.cover, 0.75);
         assert_eq!(s.right_node.cover, 1.0);
@@ -1147,7 +1146,7 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
-        let s = splitter.best_split(&mut n, &[0, 1], &b.cuts).unwrap();
+        let s = splitter.best_split(&mut n, &[0, 1]).unwrap();
         println!("{:?}", s);
         assert_eq!(s.split_feature, 1);
         assert_eq!(s.split_value, 4.);
@@ -1214,7 +1213,7 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
-        let s = splitter.best_split(&mut n, &col_index, &b.cuts).unwrap();
+        let s = splitter.best_split(&mut n, &col_index).unwrap();
         println!("{:?}", s);
         n.update_children(2, 1, 2, &s);
         assert_eq!(0, s.split_feature);
