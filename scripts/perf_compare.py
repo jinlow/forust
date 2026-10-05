@@ -27,7 +27,7 @@ def main() -> None:
     by_label: dict[str, dict[tuple, dict]] = {label: {} for label in args.labels}
     for line in args.results.read_text().splitlines():
         record = json.loads(line)
-        if record.get("label") in by_label:
+        if record.get("label") in by_label and record.get("kind") != "serial_share":
             by_label[record["label"]][key(record)] = record
 
     reference = by_label[args.labels[0]]

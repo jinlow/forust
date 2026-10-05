@@ -10,6 +10,7 @@ use crate::utils::{
     between, bound_to_parent, constrained_weight, cull_gain, gain_given_weight, pivot_on_split,
     pivot_on_split_exclude_missing,
 };
+use rayon::prelude::*;
 
 #[derive(Debug)]
 pub struct SplitInfo {
@@ -39,7 +40,7 @@ pub enum MissingInfo {
     Branch(NodeInfo),
 }
 
-pub trait Splitter {
+pub trait Splitter: Sync {
     /// When a split happens, how many leaves will the tree increase by?
     /// For example, if a binary split happens, the split will increase the
     /// number of leaves by 1, if a ternary split happens, the number of leaves will
@@ -64,7 +65,33 @@ pub trait Splitter {
     /// Find the best possible split, considering all feature histograms.
     /// If we wanted to add Column sampling, this is probably where
     /// we would need to do it, otherwise, it would be at the tree level.
-    fn best_split(&self, node: &SplittableNode, col_index: &[usize]) -> Option<SplitInfo> {
+    fn best_split(
+        &self,
+        node: &SplittableNode,
+        col_index: &[usize],
+        parallel: bool,
+    ) -> Option<SplitInfo> {
+        if parallel {
+            // Highest gain wins, ties go to the earliest feature, matching the serial loop.
+            return col_index
+                .par_iter()
+                .enumerate()
+                .filter_map(|(idx, feature)| {
+                    self.best_feature_split(node, *feature, idx)
+                        .filter(|info| info.split_gain > 0.0)
+                        .map(|info| (idx, info))
+                })
+                .reduce_with(|a, b| {
+                    if b.1.split_gain > a.1.split_gain
+                        || (b.1.split_gain == a.1.split_gain && b.0 < a.0)
+                    {
+                        b
+                    } else {
+                        a
+                    }
+                })
+                .map(|(_, info)| info);
+        }
         let mut best_split_info = None;
         let mut best_gain = 0.0;
         for (idx, feature) in col_index.iter().enumerate() {
@@ -231,7 +258,7 @@ pub trait Splitter {
         hess: &[f32],
         parallel: bool,
     ) -> Vec<SplittableNode> {
-        match self.best_split(node, col_index) {
+        match self.best_split(node, col_index, parallel) {
             Some(split_info) => self.handle_split_info(
                 split_info, n_nodes, node, index, col_index, data, cuts, grad, hess, parallel,
             ),
@@ -1140,7 +1167,7 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
-        let s = splitter.best_split(&mut n, &[0, 1]).unwrap();
+        let s = splitter.best_split(&mut n, &[0, 1], false).unwrap();
         println!("{:?}", s);
         assert_eq!(s.split_feature, 1);
         assert_eq!(s.split_value, 4.);
@@ -1207,9 +1234,69 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
-        let s = splitter.best_split(&mut n, &col_index).unwrap();
+        let s = splitter.best_split(&mut n, &col_index, false).unwrap();
         println!("{:?}", s);
         n.update_children(2, 1, 2, &s);
         assert_eq!(0, s.split_feature);
+    }
+
+    #[test]
+    fn test_parallel_best_split_matches_serial() {
+        use rand::{rngs::StdRng, Rng, SeedableRng};
+        let mut rng = StdRng::seed_from_u64(0);
+        let (rows, cols) = (500, 64);
+        let base: Vec<f64> = (0..rows).map(|_| rng.gen()).collect();
+        // Even columns are copies of one column, so their gains tie exactly.
+        let mut d = Vec::with_capacity(rows * cols);
+        for col in 0..cols {
+            for row in 0..rows {
+                d.push(if col % 2 == 0 { base[row] } else { rng.gen() });
+            }
+        }
+        let y: Vec<f64> = base
+            .iter()
+            .map(|v| if v + rng.gen::<f64>() * 0.3 > 0.6 { 1.0 } else { 0.0 })
+            .collect();
+        let data = Matrix::new(&d, rows, cols);
+        let w = vec![1.; rows];
+        let (grad, hess) = LogLoss::calc_grad_hess(&y, &vec![0.; rows], &w);
+        let b = bin_matrix(&data, &w, 64, f64::NAN).unwrap();
+        let bdata = Matrix::new(&b.binned_data, rows, cols);
+        let splitter = MissingImputerSplitter {
+            l1: 0.0,
+            l2: 1.0,
+            max_delta_step: 0.,
+            gamma: 0.0,
+            min_leaf_weight: 1.0,
+            learning_rate: 0.3,
+            allow_missing_splits: true,
+            constraints_map: ConstraintMap::new(),
+        };
+        let forward: Vec<usize> = (0..cols).collect();
+        let reversed: Vec<usize> = (0..cols).rev().collect();
+        let odd_only: Vec<usize> = (1..cols).step_by(2).collect();
+        for col_index in [forward, reversed, odd_only] {
+            let hists = HistogramMatrix::new(
+                &bdata, &b.cuts, &grad, &hess, &data.index, &col_index, false, false,
+            );
+            let n = SplittableNode::new(
+                0,
+                hists,
+                0.0,
+                0.0,
+                grad.iter().sum::<f32>(),
+                hess.iter().sum::<f32>(),
+                0,
+                0,
+                rows,
+                f32::NEG_INFINITY,
+                f32::INFINITY,
+            );
+            let serial = splitter.best_split(&n, &col_index, false).unwrap();
+            let parallel = splitter.best_split(&n, &col_index, true).unwrap();
+            assert_eq!(serial.split_feature, parallel.split_feature);
+            assert_eq!(serial.split_bin, parallel.split_bin);
+            assert_eq!(serial.split_gain, parallel.split_gain);
+        }
     }
 }
