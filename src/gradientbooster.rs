@@ -1400,4 +1400,48 @@ mod tests {
         assert_eq!(booster3.missing, 0.);
         assert_eq!(booster3.missing, booster.missing);
     }
+
+    fn make_determinism_data(rows: usize, cols: usize) -> (Vec<f64>, Vec<f64>) {
+        use rand::Rng;
+        let mut rng = StdRng::seed_from_u64(0);
+        let mut data = Vec::with_capacity(rows * cols);
+        for col in 0..cols {
+            for _ in 0..rows {
+                let v: f64 = rng.gen();
+                let v = if col % 4 == 0 { (v * 5.0).floor() } else { v };
+                let v = if col % 5 == 1 && rng.gen::<f64>() < 0.1 { f64::NAN } else { v };
+                data.push(v);
+            }
+        }
+        let y = (0..rows)
+            .map(|r| {
+                let score = data[r] + data[rows + r] * 3.0 - data[2 * rows + r] * 2.0;
+                if score + rng.gen::<f64>() * 2.0 > 2.5 { 1.0 } else { 0.0 }
+            })
+            .collect();
+        (data, y)
+    }
+
+    #[test]
+    fn test_parallel_and_serial_trees_identical() {
+        let (rows, cols) = (5000, 40);
+        let (data_vec, y) = make_determinism_data(rows, cols);
+        let data = Matrix::new(&data_vec, rows, cols);
+        let w = vec![1.; rows];
+        for missing_branch in [false, true] {
+            let trees: Vec<String> = [false, true]
+                .into_iter()
+                .map(|parallel| {
+                    let mut booster = GradientBooster::default()
+                        .set_iterations(10)
+                        .set_max_depth(6)
+                        .set_parallel(parallel)
+                        .set_create_missing_branch(missing_branch);
+                    booster.fit(&data, &y, &w, None).unwrap();
+                    serde_json::to_string(&booster.trees).unwrap()
+                })
+                .collect();
+            assert_eq!(trees[0], trees[1], "missing_branch={}", missing_branch);
+        }
+    }
 }

@@ -2,7 +2,7 @@
 name = "forust"
 dynamic = ["version"]
 description = "A lightweight gradient boosting implementation in Rust."
-license = { file = "LICENSE" }
+license = "Apache-2.0"
 keywords = [
   "rust",
   "forust",
