@@ -1266,6 +1266,28 @@ def test_early_stopping_with_dev(X_y):
     assert model.get_best_iteration() < 99
 
 
+def test_logging_parallel_fit_does_not_deadlock():
+    # Training logs from Rayon threads; fit must release the GIL so they can log.
+    import subprocess
+    import sys
+
+    code = """
+import logging
+import numpy as np
+from forust import GradientBooster
+logging.basicConfig(level=logging.INFO)
+rng = np.random.default_rng(0)
+X = rng.normal(size=(500, 5))
+y = (X[:, 0] > 0).astype(float)
+GradientBooster(iterations=5, log_iterations=1, parallel=True).fit(X, y, evaluation_data=[(X, y)])
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code], timeout=120, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Completed iteration" in result.stderr
+
+
 def test_evaluation_history_none(X_y):
     X, y = X_y
 
