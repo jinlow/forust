@@ -1,12 +1,14 @@
-"""Benchmark GOSS against no sampling and random sampling, with XGBoost and LightGBM references.
+"""Benchmark GOSS against random row sampling, with XGBoost and LightGBM references.
 
 `run` appends one JSON record per fit to `--out`; `report` turns those records into
-Markdown tables and checks the pass/fail rule for default GOSS. "Total s" includes
+Markdown tables and checks the pass/fail rule for default GOSS against the
+baseline, random sampling of 80% of rows (`random80`), the common practical
+setting. No sampling (`none`) is reported for information. "Total s" includes
 building the library's dataset (binning for Forust and LightGBM); "Train s" excludes
 it for the references and equals the total for Forust, whose `fit` bins internally.
 
-- accuracy: mean eval logloss over seeds at most 1% above no sampling;
-- speed: full fit at least 1.5x faster than no sampling (checked on the largest
+- accuracy: mean eval logloss over seeds at most 1% above the baseline;
+- speed: full fit at least 1.5x faster than the baseline (checked on the largest
   dataset at 8 threads with a fixed number of iterations).
 
 Example:
@@ -31,22 +33,26 @@ from statistics import mean, median, stdev
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from perf_sweep import git_commit  # noqa: E402
+from perf_sweep import git_commit
 
 BINARY = ROOT / "target/release/examples/perf_phases"
 
+BASELINE = "random80"
 SETTINGS = {
     "none": [],
+    "random80": ["--sample-method", "random", "--subsample", "0.8"],
     "random30": ["--sample-method", "random", "--subsample", "0.3"],
     "goss": ["--sample-method", "goss", "--top-rate", "0.2", "--other-rate", "0.1"],
     "goss-small": ["--sample-method", "goss", "--top-rate", "0.1", "--other-rate", "0.1"],
 }
 REFERENCES = {
-    "xgboost": {"library": "xgboost"},
-    "lightgbm": {"library": "lightgbm"},
+    "xgboost-sub80": {"library": "xgboost", "subsample": 0.8},
+    "lightgbm-bag80": {"library": "lightgbm", "subsample": 0.8},
     "lightgbm-goss": {"library": "lightgbm", "goss": True},
 }
-SAMPLED = {"random30", "goss", "goss-small", "lightgbm-goss"}
+# Each reference is compared with its own library's baseline, when it has one.
+REFERENCE_BASELINE = {"lightgbm-goss": "lightgbm-bag80"}
+SAMPLED = {"random80", "random30", "goss", "goss-small", *REFERENCES}
 LOGLOSS_TOLERANCE = 0.01
 SPEEDUP_TARGET = 1.5
 
@@ -142,22 +148,23 @@ def cmd_report(args: argparse.Namespace) -> None:
         mode = f"early stopping {esr}, max {iterations} iterations" if esr else f"{iterations} iterations"
         print(f"\n### {data}, {rows:,} rows, {threads} threads, depth {depth}, {mode}"
               + (f" ({label})" if label else "") + "\n")
-        print("| Setting | Runs | Total s | Train s | Speedup | Trees | Eval logloss | vs none |")
+        print("| Setting | Runs | Total s | Train s | Speedup | Trees | Eval logloss | vs baseline |")
         print("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
-        base = summarize(settings["none"]) if "none" in settings else None
-        lgb_base = summarize(settings["lightgbm"]) if "lightgbm" in settings else None
+        base = summarize(settings[BASELINE]) if BASELINE in settings else None
         for name in order:
             if name not in settings:
                 continue
             s = summarize(settings[name])
-            # Each reference is compared against its own library's full-data run.
-            reference = lgb_base if name == "lightgbm-goss" else base
-            if name in REFERENCES and name != "lightgbm-goss":
-                reference = None
+            if name in REFERENCES:
+                ref_name = REFERENCE_BASELINE.get(name)
+                reference = summarize(settings[ref_name]) if ref_name in settings else None
+            else:
+                reference = base
             speedup = f"{reference['total_s'] / s['total_s']:.2f}x" if reference else "-"
             delta = f"{100 * (s['logloss'] / reference['logloss'] - 1):+.2f}%" if reference else "-"
             sd = f" ± {s['logloss_sd']:.5f}" if s["n"] > 1 else ""
-            print(f"| {name} | {s['n']} | {s['total_s']:.2f} | {s['fit_s']:.2f} | {speedup} | {s['trees']:.0f} "
+            label = f"**{name}** (baseline)" if name == BASELINE else name
+            print(f"| {label} | {s['n']} | {s['total_s']:.2f} | {s['fit_s']:.2f} | {speedup} | {s['trees']:.0f} "
                   f"| {s['logloss']:.5f}{sd} | {delta} |")
         if base and "goss" in settings:
             goss = summarize(settings["goss"])
@@ -170,7 +177,7 @@ def cmd_report(args: argparse.Namespace) -> None:
                                f"{speedup:.2f}x", speedup >= SPEEDUP_TARGET))
 
     if checks:
-        print(f"\n### Pass/fail (logloss within {100 * LOGLOSS_TOLERANCE:.0f}%, "
+        print(f"\n### Pass/fail against {BASELINE} (logloss within {100 * LOGLOSS_TOLERANCE:.0f}%, "
               f"speedup at least {SPEEDUP_TARGET}x)\n")
         print("| Check | Value | Result |")
         print("| --- | ---: | --- |")

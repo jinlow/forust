@@ -1,7 +1,8 @@
 """Time XGBoost `hist` and LightGBM (optionally with GOSS) on `make_perf_data.py` data.
 
 Settings match `perf_phases --mode fit`: learning rate 0.1, L2 1, gamma 0, minimum
-leaf hessian 1, and one evaluation set scored every iteration. Reports the time to
+leaf hessian 1, and one evaluation set scored every iteration. `--subsample` sets
+XGBoost's `subsample` or LightGBM's `bagging_fraction` (with `bagging_freq=1`). Reports the time to
 build the library's dataset, the training time, and eval logloss computed from raw
 scores with the same formula as Forust's `log_loss`.
 
@@ -29,10 +30,19 @@ def logloss_from_margin(y: np.ndarray, margin: np.ndarray) -> float:
     return float(-np.mean(y * np.log(p) + (1.0 - y) * np.log(1.0 - p)))
 
 
+_xgboost_warm = False
+
+
 def run_xgboost(data: dict, threads: int, iterations: int, max_depth: int, nbins: int,
-                learning_rate: float, early_stopping_rounds: int | None, seed: int) -> dict:
+                learning_rate: float, early_stopping_rounds: int | None, seed: int,
+                subsample: float) -> dict:
     import xgboost as xgb
 
+    global _xgboost_warm
+    if not _xgboost_warm:
+        # The first DMatrix in a process takes seconds of one-time setup; keep it out of timings.
+        xgb.DMatrix(np.zeros((2, 2)), label=np.zeros(2), nthread=threads)
+        _xgboost_warm = True
     start = perf_counter()
     # xgboost 1.7 is very slow to build a DMatrix from Fortran-ordered arrays.
     train = xgb.DMatrix(np.ascontiguousarray(data["X_train"]), label=data["y_train"], nthread=threads)
@@ -51,6 +61,7 @@ def run_xgboost(data: dict, threads: int, iterations: int, max_depth: int, nbins
         "base_score": float(np.mean(data["y_train"])),
         "nthread": threads,
         "seed": seed,
+        "subsample": subsample,
     }
     start = perf_counter()
     booster = xgb.train(
@@ -70,7 +81,7 @@ def run_xgboost(data: dict, threads: int, iterations: int, max_depth: int, nbins
 
 def run_lightgbm(data: dict, threads: int, iterations: int, max_depth: int, nbins: int,
                  learning_rate: float, early_stopping_rounds: int | None, seed: int,
-                 goss: bool, top_rate: float, other_rate: float) -> dict:
+                 goss: bool, top_rate: float, other_rate: float, subsample: float) -> dict:
     import lightgbm as lgb
 
     params = {
@@ -89,8 +100,12 @@ def run_lightgbm(data: dict, threads: int, iterations: int, max_depth: int, nbin
         "seed": seed,
         "verbose": -1,
     }
+    if goss and subsample < 1:
+        raise ValueError("LightGBM can't combine GOSS with bagging")
     if goss:
         params.update({"data_sample_strategy": "goss", "top_rate": top_rate, "other_rate": other_rate})
+    elif subsample < 1:
+        params.update({"bagging_fraction": subsample, "bagging_freq": 1})
     start = perf_counter()
     train = lgb.Dataset(data["X_train"], label=data["y_train"], params=params).construct()
     evals = lgb.Dataset(data["X_eval"], label=data["y_eval"], reference=train).construct()
@@ -109,13 +124,13 @@ def run_lightgbm(data: dict, threads: int, iterations: int, max_depth: int, nbin
 
 def run(library: str, data: dict, threads: int, iterations: int, max_depth: int = 5, nbins: int = 256,
         learning_rate: float = 0.1, early_stopping_rounds: int | None = None, seed: int = 0,
-        goss: bool = False, top_rate: float = 0.2, other_rate: float = 0.1) -> dict:
+        goss: bool = False, top_rate: float = 0.2, other_rate: float = 0.1, subsample: float = 1.0) -> dict:
     if library == "xgboost":
         result = run_xgboost(data, threads, iterations, max_depth, nbins, learning_rate,
-                             early_stopping_rounds, seed)
+                             early_stopping_rounds, seed, subsample)
     elif library == "lightgbm":
         result = run_lightgbm(data, threads, iterations, max_depth, nbins, learning_rate,
-                              early_stopping_rounds, seed, goss, top_rate, other_rate)
+                              early_stopping_rounds, seed, goss, top_rate, other_rate, subsample)
     else:
         raise ValueError(f"unknown library: {library}")
     result["total_s"] = result["dataset_s"] + result["fit_s"]
@@ -131,6 +146,8 @@ def main() -> None:
     parser.add_argument("--goss", action="store_true", help="LightGBM only: use GOSS sampling.")
     parser.add_argument("--top-rate", type=float, default=0.2)
     parser.add_argument("--other-rate", type=float, default=0.1)
+    parser.add_argument("--subsample", type=float, default=1.0,
+                        help="XGBoost subsample, or LightGBM bagging_fraction with bagging_freq=1.")
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--max-depth", type=int, default=5)
     parser.add_argument("--nbins", type=int, default=256)
@@ -149,14 +166,15 @@ def main() -> None:
             for seed in args.seeds:
                 result = run(args.library, data, threads, args.iterations, args.max_depth, args.nbins,
                              args.learning_rate, args.early_stopping_rounds, seed, args.goss,
-                             args.top_rate, args.other_rate)
+                             args.top_rate, args.other_rate, args.subsample)
                 print(f"{rows:>8} {threads:>7} {seed:>4} {result['dataset_s']:>7.2f} {result['fit_s']:>8.2f} "
                       f"{result['trees']:>5} {result['eval_logloss']:>9.5f}", flush=True)
                 if args.out:
                     args.out.parent.mkdir(parents=True, exist_ok=True)
                     with open(args.out, "a") as out:
                         out.write(json.dumps({
-                            "library": args.library, "goss": args.goss, "data": str(args.data),
+                            "library": args.library, "goss": args.goss, "subsample": args.subsample,
+                            "data": str(args.data),
                             "rows": rows, "cols": data["metadata"]["cols"], "threads": threads,
                             "seed": seed, "iterations": args.iterations, "max_depth": args.max_depth,
                             "nbins": args.nbins, "early_stopping_rounds": args.early_stopping_rounds,
