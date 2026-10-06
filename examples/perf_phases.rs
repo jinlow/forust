@@ -87,6 +87,13 @@ fn main() {
     let max_depth = args.get("max-depth", 5usize);
     let learning_rate = args.get("learning-rate", 0.1f32);
     let nbins = args.get("nbins", 256u16);
+    let grow_policy_name = args.get("grow-policy", String::from("DepthWise"));
+    let grow_policy = match grow_policy_name.as_str() {
+        "LossGuide" => GrowPolicy::LossGuide,
+        "DepthWise" => GrowPolicy::DepthWise,
+        value => panic!("unknown grow policy: {value}"),
+    };
+    let max_leaves = args.get("max-leaves", usize::MAX);
     let parallel = args.get("parallel", true);
     let missing_branch = args.get("missing-branch", false);
     let num_threads = args.get("num-threads", 0usize);
@@ -110,6 +117,8 @@ fn main() {
         "max_depth": max_depth,
         "learning_rate": learning_rate,
         "nbins": nbins,
+        "grow_policy": grow_policy_name,
+        "max_leaves": max_leaves,
         "parallel": parallel,
         "missing_branch": missing_branch,
         "num_threads": num_threads,
@@ -125,6 +134,8 @@ fn main() {
             .set_parallel(parallel)
             .set_create_missing_branch(missing_branch)
             .set_num_threads((num_threads > 0).then_some(num_threads));
+        booster.grow_policy = grow_policy;
+        booster.max_leaves = max_leaves;
         let start = Instant::now();
         booster
             .fit(

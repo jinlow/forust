@@ -26,10 +26,12 @@ def main() -> None:
     parser.add_argument("--iterations", type=int, default=60)
     parser.add_argument("--max-depth", type=int, default=5)
     parser.add_argument("--nbins", type=int, default=256)
+    parser.add_argument("--grow-policy", choices=["depthwise", "lossguide"], default="depthwise")
+    parser.add_argument("--max-leaves", type=int, default=0)
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
 
-    print(f"{'rows':>8} {'threads':>7} {'dmatrix s':>9} {'tree ms':>8}")
+    print(f"{'rows':>8} {'threads':>7} {'dmatrix s':>9} {'fit s':>8} {'tree ms':>8}")
     for rows in args.rows:
         data = load(args.data, max_rows=rows, max_eval_rows=rows // 4)
         for threads in args.threads:
@@ -43,6 +45,8 @@ def main() -> None:
                 "tree_method": "hist",
                 "max_bin": args.nbins,
                 "max_depth": args.max_depth,
+                "grow_policy": args.grow_policy,
+                "max_leaves": args.max_leaves,
                 "eta": 0.1,
                 "lambda": 1.0,
                 "gamma": 0.0,
@@ -51,8 +55,9 @@ def main() -> None:
             }
             start = perf_counter()
             xgb.train(params, train, args.iterations, evals=[(evals, "eval")], verbose_eval=False)
-            tree_ms = 1000 * (perf_counter() - start) / args.iterations
-            print(f"{rows:>8} {threads:>7} {dmatrix_s:>9.2f} {tree_ms:>8.1f}", flush=True)
+            fit_s = perf_counter() - start
+            tree_ms = 1000 * fit_s / args.iterations
+            print(f"{rows:>8} {threads:>7} {dmatrix_s:>9.2f} {fit_s:>8.2f} {tree_ms:>8.1f}", flush=True)
             if args.out:
                 with open(args.out, "a") as out:
                     out.write(json.dumps({
@@ -62,8 +67,11 @@ def main() -> None:
                         "cols": data["metadata"]["cols"],
                         "threads": threads,
                         "max_depth": args.max_depth,
+                        "grow_policy": args.grow_policy,
+                        "max_leaves": args.max_leaves,
                         "nbins": args.nbins,
                         "dmatrix_s": dmatrix_s,
+                        "fit_s": fit_s,
                         "iteration_ms": tree_ms,
                     }) + "\n")
 

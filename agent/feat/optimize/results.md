@@ -97,6 +97,24 @@ The 1M x 200 depth 8 row is a single run of 20 iterations. From depth 5 to
 depth 8, Forust's time grows 177% at 1M rows versus 22% for XGBoost; serial
 row partitioning after each split is the likely cause (not yet profiled).
 
+### LossGuide comparison
+
+Matched 1M x 200 binary-classification runs, depth 6, 20 iterations, 256 bins,
+one evaluation set, and 8 threads. XGBoost used `grow_policy=lossguide` and
+`max_leaves=0` (unlimited); Forust used `GrowPolicy::LossGuide` and its
+unlimited `max_leaves` default.
+
+| Measurement | Forust | XGBoost |
+| --- | ---: | ---: |
+| Tree/iteration phase | 299.8 ms | 407.3 ms |
+| Full fit | 8.03 s median of 3 | 8.15 s |
+| Final evaluation log-loss | 0.39308 | not collected |
+
+This is effectively tied within machine noise, with Forust about 1.5% faster
+on the full fit. The tree-only comparison is not apples-to-apples because the
+Forust phase timer excludes prediction and evaluation while XGBoost's fit timer
+includes them; the full-fit row is the meaningful comparison.
+
 Serial fraction at 8 threads (item 4 moved training onto a pool thread, so
 the main thread now only waits and this metric no longer applies):
 

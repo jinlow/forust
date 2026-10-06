@@ -28,6 +28,12 @@ Versus XGBoost `hist` at 8 threads, Forust went from 1.6-6x slower to:
   (228.9 vs 373.2 ms);
 - but 39% slower on 1M x 200 at depth 8 (633.7 vs 454.6 ms).
 
+A matched 1M x 200, depth 6, 20-iteration `LossGuide`/`lossguide` fit with
+one evaluation set was effectively tied: Forust 8.03 s median versus XGBoost
+8.15 s. Forust's tree-only phase was 299.8 ms versus XGBoost's 407.3 ms, but
+the full-fit comparison is the meaningful one because it includes predictions
+and evaluation in both libraries.
+
 | Change | Commit | Main effect |
 | --- | --- | --- |
 | Parallel split search | `c111e36` | 17-38% faster at 8 threads |
