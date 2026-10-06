@@ -232,3 +232,145 @@ After all four items:
 4. **3a':** try the faster pair sort, accepting a small risk of last-digit cut
    differences with non-uniform weights, or skip it?
    ansewr: We could test 3a last
+
+## Item 5: Parallel row partitioning (not started)
+
+Added after items 1-4 were done. This section is a self-contained hand-off:
+items 1-4 are implemented and measured (see `results.md`), and the ground
+rules above still apply. Byte-identical trees are required.
+
+### Why
+
+At 1M rows x 200 columns, depth 8, 8 threads, Forust takes 633.7 ms per tree
+versus 454.6 ms for XGBoost (39% slower). From depth 5 to 8, Forust's tree
+time grows 177% at 1M rows versus 22% for XGBoost. After every split, the
+node's rows are reordered on one thread, so each tree level makes a serial pass
+over all rows. It was the largest named serial item in the main-thread profile
+after item 2c (`Splitter::handle_split_info`, which inlines the partition).
+
+**First, confirm this with a profile** of 1M x 200, depth 8, 8 threads. If
+partitioning isn't a large share there, stop and re-plan:
+
+```sh
+CARGO_PROFILE_RELEASE_DEBUG=true cargo build --release --example perf_phases
+RAYON_NUM_THREADS=8 perf record -F 999 --delay 25000 -o /tmp/forust-perf/rows.data -- \
+  target/release/examples/perf_phases --data /tmp/forust-perf/w200-1m \
+  --rows 1000000 --max-depth 8 --iterations 10
+perf report -i /tmp/forust-perf/rows.data --stdio --no-children -s symbol --percent-limit 1
+```
+
+The delay skips data loading and binning (roughly 20-25 s at 1M rows; adjust if
+the profile shows `read_f64` or `bin_matrix`). Look for `pivot_on_split`,
+`pivot_on_split_exclude_missing`, or `handle_split_info`.
+
+### Where the code is
+
+- `src/utils.rs`: `pivot_on_split` (two-way split, used by
+  `MissingImputerSplitter`) and `pivot_on_split_exclude_missing` (three-way:
+  missing, left, right; used by `MissingBranchSplitter`).
+- `src/splitter.rs`: both `handle_split_info` implementations call these on
+  `&mut index[node.start_idx..node.stop_idx]`, then build the smaller child's
+  histogram from its slice of `index`. Both receive the `parallel` flag.
+- Existing tests: `test_pivot` and `test_pivot_missing` in `src/utils.rs`.
+
+### The order requirement
+
+Each child's histogram is built by summing gradients in the order of its rows
+in `index` (f64 sums, then rounded to f32). Changing that order can change the
+last bits of the sums, then split gains and tie-breaks, so trees stop being
+byte-identical. A parallel version must produce **exactly the same `index`
+order** as today's functions, not just the same set of rows on each side.
+
+`pivot_on_split` is a Hoare-style partition. Its output order has a closed
+form. A Python port of the loop matched this closed form on 200,000 random
+inputs (lengths 1-40, random bins, missing rows, both `missing_right`
+settings); still confirm it with Rust tests:
+- `low` scans forward and stops at each row that belongs on the right;
+  `high` scans backward and stops at each row that belongs on the left; the
+  two are swapped.
+- So the k-th right-side row from the front is swapped with the k-th left-side
+  row from the back, for k = 1..m, where m is the number of misplaced pairs.
+- The result is computable without the sequential loop:
+  1. Let L be the number of rows that go left. The returned split index is L,
+     **except** when every row goes left (L = n), where it returns n - 1.
+     That case never happens in training (both sides of a split have rows),
+     but match it anyway.
+  2. Misplaced right rows are the right-side rows in positions `[0, L)`;
+     misplaced left rows are the left-side rows in positions `[L, n)`. There
+     are equally many, m.
+  3. The k-th misplaced right row (counting forward from the start) swaps
+     places with the k-th misplaced left row counting backward from the end.
+     Every other row stays where it is.
+
+This is parallelizable:
+1. Classify every row and count left rows per chunk (parallel); a prefix sum
+   gives L.
+2. In parallel per chunk, number the misplaced right rows in `[0, L)` from the
+   front and the misplaced left rows in `[L, n)` from the back (chunk counts
+   plus prefix sums give each its rank).
+3. Write the swaps into a copy of the slice, or swap in place since each swap
+   pair is disjoint.
+
+`pivot_on_split_exclude_missing` is harder: it also moves missing rows to the
+front with extra swaps inside the same loop, so its output order interleaves
+two processes. Either derive its closed form the same way and test it
+exhaustively, or keep it serial and parallelize only `pivot_on_split` first.
+`MissingImputerSplitter` is the default (`create_missing_branch=False`), so
+`pivot_on_split` covers the common case.
+
+Edge cases to preserve:
+- `pivot_on_split` handles missing rows through `missing_compare` and the
+  `missing_right` flag.
+- Both functions index `index.len() - 1`, so they assume a non-empty slice.
+- The returned split index (and the missing index for the three-way version)
+  must match exactly.
+
+### Implementation steps
+
+1. **Reference tests first.** Add property tests in `src/utils.rs` that
+   compare a new `pivot_on_split_parallel` against `pivot_on_split` on random
+   inputs: lengths 1 to ~10,000, many bin values, values equal to the split
+   value, all-left, all-right, `missing_right` both ways, and many missing
+   rows. Assert the returned index **and the full `index` order** are equal.
+2. **Implement the closed form serially** and make those tests pass. This
+   proves the reasoning before adding threads.
+3. **Parallelize it** with Rayon (chunks of a few thousand rows, chunk counts,
+   prefix sums). Keep the property tests passing.
+4. **Use it only for large nodes:** call the parallel version in
+   `handle_split_info` when `parallel` is set and the node has more than a
+   threshold of rows (start at 65,536 and tune). Small nodes keep the serial
+   function, where Rayon overhead would dominate.
+5. **Optional:** repeat for `pivot_on_split_exclude_missing` if the profile
+   shows `MissingBranchSplitter` matters for your workloads.
+
+### Correctness
+
+- New property tests (above), plus `cargo test --all-targets`.
+- `python scripts/perf_golden.py check`: all 5 golden models `same`. The
+  `missing_branch` golden model covers the three-way function.
+- The Python suite (`uv run pytest` in `py-forust`).
+
+### Speed testing
+
+Add a G5 grid to `scripts/perf_grid.py` for the case that motivated this item:
+
+```python
+"G5": [("w200-1m", 1_000_000, 8, 20, False)],
+```
+
+Regenerate the 1M data if needed:
+
+```sh
+python scripts/make_perf_data.py --out /tmp/forust-perf/w200-1m --rows 1000000 --eval-rows 250000 --cols 200
+```
+
+| Check | Expected result |
+| --- | --- |
+| G5 (1M x 200, depth 8, 8 threads), before and after | The main target; baseline 633.7 ms/tree |
+| G4 (1M x 200, depth 5) | Improves, less than G5 |
+| G1-G3 | Unchanged or better; small nodes shouldn't regress (threshold) |
+| Threshold sweep: 16k, 65k, 262k rows | Pick the fastest across G1, G2, G5 |
+| `scripts/perf_xgboost.py --data /tmp/forust-perf/w200-1m --rows 1000000 --threads 8 --iterations 20 --max-depth 8` | Rerun XGBoost (454.6 ms) for comparison |
+
+Record results with `--label item5` and add a step-log entry and summary
+column to `results.md`, as for items 1-4.
