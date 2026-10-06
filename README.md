@@ -83,6 +83,23 @@ model.get_evaluation_history()[0:3]
 #        [496.76933646]])
 ```
 
+### Faster training with GOSS
+
+On large datasets, training can be sped up with Gradient-based One-Side Sampling (GOSS), the sampling method used by LightGBM. Each tree is trained on the `top_rate` share of rows with the largest gradients, plus a random `other_rate` share of the remaining rows, whose gradients are scaled up so the splits stay close to unbiased. The first `int(1 / learning_rate)` trees are trained on all rows.
+
+```python
+model = GradientBooster(
+    objective_type="LogLoss",
+    learning_rate=0.1,
+    sample_method="goss",
+    top_rate=0.2,    # default
+    other_rate=0.1,  # default
+)
+model.fit(X, y)
+```
+
+`top_rate` and `other_rate` must both be greater than 0 and sum to at most 1. GOSS can't be combined with `subsample`; use `sample_method="random"` with `subsample` for plain random row sampling instead.
+
 ### Inspecting the Model
 
 Once the booster has been fit, each individual tree structure can be retrieved in text form, using the [`text_dump`](https://jinlow.github.io/forust/#forust.GradientBooster.text_dump) method. This method returns a list, the same length as the number of trees in the model.

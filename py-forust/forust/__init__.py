@@ -306,8 +306,8 @@ class GradientBooster:
         allow_missing_splits: bool = True,
         monotone_constraints: Union[dict[Any, int], None] = None,
         subsample: float = 1.0,
-        top_rate: float = 0.1,
-        other_rate: float = 0.2,
+        top_rate: float = 0.2,
+        other_rate: float = 0.1,
         colsample_bytree: float = 1.0,
         seed: int = 0,
         missing: float = np.nan,
@@ -373,9 +373,15 @@ class GradientBooster:
                 mapping will not have any constraint applied. If `None` is passed no constraints
                 will be enforced on any variable.  Defaults to `None`.
             subsample (float, optional): Percent of records to randomly sample at each iteration when
-                training a tree. Defaults to 1.0, meaning all data is used to training.
-            top_rate (float, optional): Used only in goss. The retain ratio of large gradient data.
-            other_rate (float, optional): Used only in goss. the retain ratio of small gradient data.
+                training a tree. Defaults to 1.0, meaning all data is used to training. Must be 1.0
+                when `sample_method` is "goss".
+            top_rate (float, optional): Used only with `sample_method="goss"`. The share of rows
+                with the largest `|gradient * hessian|` that are always used to train each tree.
+                Must be greater than 0, and `top_rate + other_rate` must be at most 1. Defaults to 0.2.
+            other_rate (float, optional): Used only with `sample_method="goss"`. The share of rows
+                randomly sampled from the remaining rows to train each tree. Their gradients and
+                hessians are scaled by `(1 - top_rate) / other_rate` to keep split gains close to
+                unbiased. Must be greater than 0. Defaults to 0.1.
             colsample_bytree (float, optional): Specify the fraction of columns that should be sampled at each iteration, valid values are in the range `(0.0,1.0]`.
             seed (integer, optional): Integer value used to seed any randomness used in the
                 algorithm. Defaults to 0.
@@ -389,7 +395,10 @@ class GradientBooster:
                 use to sample the data while training. If this is None, no sample method will be used.
                 If the `subsample` parameter is less than 1 and no sample_method is provided this `sample_method`
                 will be automatically set to "random". Valid options are "goss" and "random".
-                Defaults to `None`.
+                "goss" uses Gradient-based One-Side Sampling, as in LightGBM: each tree is trained
+                on the `top_rate` share of rows with the largest gradients plus an `other_rate`
+                random share of the rest, which can greatly reduce training time on large datasets.
+                The first `int(1 / learning_rate)` trees are trained on all rows. Defaults to `None`.
             grow_policy (str, optional): Optional string value that controls the way new nodes are added to the tree. Choices are `DepthWise` to split at nodes closest to the root, or `LossGuide` to split at nodes with the highest loss change.
             evaluation_metric (str | None, optional): Optional string value used to define an evaluation metric
                 that will be calculated at each iteration if a `evaluation_dataset` is provided at fit time.
@@ -446,10 +455,13 @@ class GradientBooster:
             ```
 
         """
+        if sample_method is not None and sample_method not in SAMPLE_METHODS:
+            raise ValueError(
+                f"Invalid sample_method {sample_method!r}, expected one of "
+                f"{sorted(set(k.lower() for k in SAMPLE_METHODS))} or None."
+            )
         sample_method_ = (
-            "None"
-            if sample_method is None
-            else SAMPLE_METHODS.get(sample_method, "Random")
+            "None" if sample_method is None else SAMPLE_METHODS[sample_method]
         )
         sample_method_ = (
             "Random"
