@@ -581,9 +581,9 @@ impl GradientBooster {
             SampleMethod::Random => {
                 RandomSampler::new(self.subsample).sample(rng, index, grad, hess)
             }
-            SampleMethod::Goss => {
-                GossSampler::new(self.top_rate, self.other_rate).sample(rng, index, grad, hess)
-            }
+            SampleMethod::Goss => GossSampler::new(self.top_rate, self.other_rate)
+                .with_parallel(self.parallel)
+                .sample(rng, index, grad, hess),
         }
     }
 

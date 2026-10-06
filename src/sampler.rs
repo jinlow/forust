@@ -1,6 +1,6 @@
 use crate::data::Matrix;
 use rand::rngs::StdRng;
-use rand::Rng;
+use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -63,25 +63,38 @@ impl Sampler for RandomSampler {
     }
 }
 
+/// Target number of rows per GOSS block. Blocks are independent, so they can be
+/// sampled in parallel; the block layout depends only on the number of rows, so
+/// results don't depend on the thread count or the `parallel` setting.
+pub const GOSS_BLOCK_ROWS: usize = 32_768;
+
 /// Gradient-based One-Side Sampling (GOSS), following LightGBM.
 ///
-/// Keeps the `top_rate` share of rows with the largest `|gradient * hessian|`,
-/// then samples exactly `other_rate * n` of the remaining rows, scaling their
-/// gradients and hessians by `(n - top_k) / other_k` so the split gains stay
-/// close to unbiased.
+/// Rows are split into blocks of about `GOSS_BLOCK_ROWS`, as LightGBM does per
+/// thread. Within each block of `n` rows, keeps the `top_rate` share of rows with
+/// the largest `|gradient * hessian|`, then samples exactly `other_rate * n` of the
+/// remaining rows, scaling their gradients and hessians by `(n - top_k) / other_k`
+/// so the split gains stay close to unbiased.
 /// See <https://lightgbm.readthedocs.io/en/latest/Parameters.html#top_rate>.
 pub struct GossSampler {
     top_rate: f64,
     other_rate: f64,
+    parallel: bool,
 }
 
 impl Default for GossSampler {
     fn default() -> Self {
-        GossSampler {
-            top_rate: 0.2,
-            other_rate: 0.1,
-        }
+        GossSampler::new(0.2, 0.1)
     }
+}
+
+/// Rows a GOSS block keeps, the rows it leaves out, and the kept small-gradient
+/// rows whose gradients and hessians must be scaled by `multiply`.
+struct GossBlock {
+    chosen: Vec<usize>,
+    excluded: Vec<usize>,
+    scaled: Vec<usize>,
+    multiply: f32,
 }
 
 impl GossSampler {
@@ -89,7 +102,14 @@ impl GossSampler {
         GossSampler {
             top_rate,
             other_rate,
+            parallel: false,
         }
+    }
+
+    /// Sample the blocks in parallel. This doesn't change the result.
+    pub fn with_parallel(mut self, parallel: bool) -> Self {
+        self.parallel = parallel;
+        self
     }
 
     /// Number of initial iterations trained on all rows before GOSS starts.
@@ -97,6 +117,51 @@ impl GossSampler {
     /// rows matter, so the first `1 / learning_rate` trees use every row.
     pub fn warmup_iterations(learning_rate: f32) -> usize {
         (1.0f32 / learning_rate) as usize
+    }
+
+    fn sample_block(&self, seed: u64, index: &[usize], grad: &[f32], hess: &[f32]) -> GossBlock {
+        let n = index.len();
+        let top_k = ((n as f64 * self.top_rate) as usize).clamp(1, n);
+        let other_k = (n as f64 * self.other_rate) as usize;
+
+        let scores: Vec<f32> = index.iter().map(|&i| (grad[i] * hess[i]).abs()).collect();
+        // The top_k-th largest score; selection is O(n), unlike a full sort.
+        let threshold = {
+            let mut buffer = scores.clone();
+            *buffer
+                .select_nth_unstable_by(top_k - 1, |a, b| b.total_cmp(a))
+                .1
+        };
+
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut chosen = Vec::with_capacity(top_k + other_k);
+        let mut excluded = Vec::with_capacity(n.saturating_sub(top_k + other_k));
+        let mut scaled = Vec::with_capacity(other_k);
+        let mut big_count: i64 = 0;
+        for (position, (&i, &score)) in index.iter().zip(&scores).enumerate() {
+            if score >= threshold {
+                chosen.push(i);
+                big_count += 1;
+                continue;
+            }
+            // Sampling with probability rest_need / rest_all draws exactly other_k rows.
+            let sampled = scaled.len() as i64;
+            let rest_need = other_k as i64 - sampled;
+            let rest_all = (n - position) as i64 - (top_k as i64 - big_count);
+            let probability = rest_need as f64 / rest_all as f64;
+            if rng.gen::<f64>() < probability {
+                chosen.push(i);
+                scaled.push(i);
+            } else {
+                excluded.push(i);
+            }
+        }
+        GossBlock {
+            chosen,
+            excluded,
+            scaled,
+            multiply: (n - top_k) as f32 / other_k as f32,
+        }
     }
 }
 
@@ -112,40 +177,33 @@ impl Sampler for GossSampler {
         if n == 0 {
             return (Vec::new(), Vec::new());
         }
-        let top_k = ((n as f64 * self.top_rate) as usize).clamp(1, n);
-        let other_k = (n as f64 * self.other_rate) as usize;
-
-        let scores: Vec<f32> = index.iter().map(|&i| (grad[i] * hess[i]).abs()).collect();
-        // The top_k-th largest score; selection is O(n), unlike a full sort.
-        let threshold = {
-            let mut buffer = scores.clone();
-            *buffer
-                .select_nth_unstable_by(top_k - 1, |a, b| b.total_cmp(a))
-                .1
+        // Evenly sized blocks, each with its own random stream.
+        let n_blocks = n.div_ceil(GOSS_BLOCK_ROWS);
+        let base_seed: u64 = rng.gen();
+        let block = |b: usize| {
+            let (start, stop) = (b * n / n_blocks, (b + 1) * n / n_blocks);
+            self.sample_block(
+                base_seed.wrapping_add(b as u64),
+                &index[start..stop],
+                grad,
+                hess,
+            )
         };
-        let multiply = (n - top_k) as f32 / other_k as f32;
+        let blocks: Vec<GossBlock> = if self.parallel && n_blocks > 1 {
+            (0..n_blocks).into_par_iter().map(block).collect()
+        } else {
+            (0..n_blocks).map(block).collect()
+        };
 
-        let mut chosen = Vec::with_capacity(top_k + other_k);
-        let mut excluded = Vec::with_capacity(n.saturating_sub(top_k + other_k));
-        let mut big_count: i64 = 0;
-        for (position, (&i, &score)) in index.iter().zip(&scores).enumerate() {
-            if score >= threshold {
-                chosen.push(i);
-                big_count += 1;
-                continue;
+        let mut chosen = Vec::with_capacity(blocks.iter().map(|b| b.chosen.len()).sum());
+        let mut excluded = Vec::with_capacity(blocks.iter().map(|b| b.excluded.len()).sum());
+        for b in blocks {
+            for &i in &b.scaled {
+                grad[i] *= b.multiply;
+                hess[i] *= b.multiply;
             }
-            // Sampling with probability rest_need / rest_all draws exactly other_k rows.
-            let sampled = chosen.len() as i64 - big_count;
-            let rest_need = other_k as i64 - sampled;
-            let rest_all = (n - position) as i64 - (top_k as i64 - big_count);
-            let probability = rest_need as f64 / rest_all as f64;
-            if rng.gen::<f64>() < probability {
-                grad[i] *= multiply;
-                hess[i] *= multiply;
-                chosen.push(i);
-            } else {
-                excluded.push(i);
-            }
+            chosen.extend(b.chosen);
+            excluded.extend(b.excluded);
         }
         (chosen, excluded)
     }
@@ -232,7 +290,6 @@ impl RowSubset {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::SeedableRng;
 
     // Distinct |g * h| scores: row i scores i + 1 (rows are shuffled by a stride).
     fn gradients(n: usize) -> (Vec<f32>, Vec<f32>) {
@@ -315,6 +372,42 @@ mod tests {
         };
         assert_eq!(run(3), run(3));
         assert_ne!(run(3), run(4));
+    }
+
+    #[test]
+    fn test_goss_blocks() {
+        // Three blocks of (2 * GOSS_BLOCK_ROWS + 1000) / 3 rows, with uneven sizes.
+        let n = 2 * GOSS_BLOCK_ROWS + 1000;
+        let index: Vec<usize> = (0..n).collect();
+        let run = |parallel| {
+            let (mut grad, mut hess) = gradients(n);
+            let mut rng = StdRng::seed_from_u64(7);
+            let (chosen, excluded) = GossSampler::new(0.2, 0.1)
+                .with_parallel(parallel)
+                .sample(&mut rng, &index, &mut grad, &mut hess);
+            (chosen, excluded, grad, hess)
+        };
+        let (chosen, excluded, grad, hess) = run(false);
+        let expected: usize = (0..3)
+            .map(|b| {
+                let size = (b + 1) * n / 3 - b * n / 3;
+                (size as f64 * 0.2) as usize + (size as f64 * 0.1) as usize
+            })
+            .sum();
+        assert_eq!(chosen.len(), expected);
+        assert_eq!(chosen.len() + excluded.len(), n);
+        assert!(chosen.windows(2).all(|w| w[0] < w[1]));
+        // Sampled rows are scaled by their own block's multiplier.
+        let (orig_grad, _) = gradients(n);
+        let scaled: Vec<f32> = chosen
+            .iter()
+            .filter(|&&i| grad[i] != orig_grad[i])
+            .map(|&i| grad[i] / orig_grad[i])
+            .collect();
+        assert!(!scaled.is_empty());
+        assert!(scaled.iter().all(|m| (*m - 8.0).abs() < 0.01));
+        // Parallel sampling gives the same result.
+        assert_eq!((chosen, excluded, grad, hess), run(true));
     }
 
     #[test]

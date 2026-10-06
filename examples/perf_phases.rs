@@ -263,6 +263,7 @@ fn main() {
                     }
                     SampleMethod::Goss => {
                         GossSampler::new(top_rate, other_rate)
+                            .with_parallel(parallel)
                             .sample(&mut rng, &data.index, &mut grad, &mut hess)
                             .0
                     }
