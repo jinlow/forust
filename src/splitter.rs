@@ -241,10 +241,13 @@ pub trait Splitter: Sync {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
+        build_child_histograms: bool,
     ) -> Vec<SplittableNode>;
 
     /// Split the node, if we cant find a best split, we will need to
     /// return an empty vector, this node is a leaf.
+    /// Set `build_child_histograms` to false when the children can't be split
+    /// further (for example at `max_depth`), so their histograms are never needed.
     #[allow(clippy::too_many_arguments)]
     fn split_node(
         &self,
@@ -257,10 +260,21 @@ pub trait Splitter: Sync {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
+        build_child_histograms: bool,
     ) -> Vec<SplittableNode> {
         match self.best_split(node, col_index, parallel) {
             Some(split_info) => self.handle_split_info(
-                split_info, n_nodes, node, index, col_index, data, cuts, grad, hess, parallel,
+                split_info,
+                n_nodes,
+                node,
+                index,
+                col_index,
+                data,
+                cuts,
+                grad,
+                hess,
+                parallel,
+                build_child_histograms,
             ),
             None => Vec::new(),
         }
@@ -533,6 +547,7 @@ impl Splitter for MissingBranchSplitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
+        build_child_histograms: bool,
     ) -> Vec<SplittableNode> {
         let missing_child = *n_nodes;
         let left_child = missing_child + 1;
@@ -600,6 +615,12 @@ impl Splitter for MissingBranchSplitter {
             // If there are no missing records, we know the missing value
             // will be a leaf, assign this node as a leaf.
             missing_is_leaf = true;
+        }
+        if !build_child_histograms {
+            missing_histograms = HistogramMatrix::empty();
+            left_histograms = HistogramMatrix::empty();
+            right_histograms = HistogramMatrix::empty();
+        } else if n_missing == 0 {
             if max_ == 1 {
                 missing_histograms = HistogramMatrix::empty();
                 right_histograms = HistogramMatrix::new(
@@ -658,12 +679,17 @@ impl Splitter for MissingBranchSplitter {
                 parallel,
                 true,
             );
-            missing_histograms = HistogramMatrix::from_parent_two_children(
-                &node.histograms,
-                &left_histograms,
-                &right_histograms,
-                parallel,
-            )
+            // A missing leaf is never split, so it doesn't need histograms.
+            missing_histograms = if missing_is_leaf {
+                HistogramMatrix::empty()
+            } else {
+                HistogramMatrix::from_parent_two_children(
+                    &node.histograms,
+                    &left_histograms,
+                    &right_histograms,
+                    parallel,
+                )
+            }
         } else if max_ == 1 {
             missing_histograms = HistogramMatrix::new(
                 data,
@@ -993,6 +1019,7 @@ impl Splitter for MissingImputerSplitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
+        build_child_histograms: bool,
     ) -> Vec<SplittableNode> {
         let left_child = *n_nodes;
         let right_child = left_child + 1;
@@ -1028,7 +1055,10 @@ impl Splitter for MissingImputerSplitter {
         // Build the histograms for the smaller node.
         let left_histograms: HistogramMatrix;
         let right_histograms: HistogramMatrix;
-        if n_left < n_right {
+        if !build_child_histograms {
+            left_histograms = HistogramMatrix::empty();
+            right_histograms = HistogramMatrix::empty();
+        } else if n_left < n_right {
             left_histograms = HistogramMatrix::new(
                 data,
                 cuts,

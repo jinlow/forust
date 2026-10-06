@@ -19,18 +19,23 @@ DATA = Path("/tmp/forust-perf")
 GOLDEN = DATA / "golden"
 CHECK = DATA / "golden-check"
 
-# name: (dataset, rows, max_depth, iterations, parallel, missing_branch)
+# name: (dataset, rows, max_depth, iterations, parallel, missing_branch, extra perf_phases args)
 CONFIGS = {
-    "w200_100k_d5_serial": ("w200", 100_000, 5, 50, False, False),
-    "w200_100k_d5_parallel": ("w200", 100_000, 5, 50, True, False),
-    "w200_25k_d8_parallel": ("w200", 25_000, 8, 20, True, False),
-    "w500_25k_d5_parallel": ("w500", 25_000, 5, 20, True, False),
-    "w200_25k_d5_parallel_missing_branch": ("w200", 25_000, 5, 20, True, True),
+    "w200_100k_d5_serial": ("w200", 100_000, 5, 50, False, False, []),
+    "w200_100k_d5_parallel": ("w200", 100_000, 5, 50, True, False, []),
+    "w200_25k_d8_parallel": ("w200", 25_000, 8, 20, True, False, []),
+    "w500_25k_d5_parallel": ("w500", 25_000, 5, 20, True, False, []),
+    "w200_25k_d5_parallel_missing_branch": ("w200", 25_000, 5, 20, True, True, []),
+    "w200_25k_d5_random30": ("w200", 25_000, 5, 20, True, False, ["--sample-method", "random", "--subsample", "0.3"]),
+    "w200_25k_d5_goss": ("w200", 25_000, 5, 20, True, False, ["--sample-method", "goss"]),
+    "w200_25k_d8_lossguide": ("w200", 25_000, 8, 20, True, False, ["--grow-policy", "LossGuide", "--max-leaves", "32"]),
+    "w200_25k_d5_nbins255": ("w200", 25_000, 5, 20, True, False, ["--nbins", "255"]),
+    "w200_25k_d5_nbins64_missing_branch": ("w200", 25_000, 5, 20, True, True, ["--nbins", "64"]),
 }
 
 
 def train(name: str, out_dir: Path) -> Path:
-    dataset, rows, depth, iterations, parallel, missing_branch = CONFIGS[name]
+    dataset, rows, depth, iterations, parallel, missing_branch, extra = CONFIGS[name]
     path = out_dir / f"{name}.json"
     command = [
         str(BINARY), "--mode", "fit",
@@ -41,6 +46,7 @@ def train(name: str, out_dir: Path) -> Path:
         "--parallel", str(parallel).lower(),
         "--missing-branch", str(missing_branch).lower(),
         "--save-trees", str(path),
+        *extra,
     ]
     subprocess.run(command, env={**os.environ, "RAYON_NUM_THREADS": "8"}, check=True, capture_output=True)
     return path
