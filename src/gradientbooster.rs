@@ -448,6 +448,8 @@ impl GradientBooster {
     fn in_thread_pool<R: Send>(&self, parallel: bool, op: impl FnOnce() -> R + Send) -> R {
         match self.thread_pool(parallel) {
             Some(pool) => pool.install(op),
+            // Run on a pool thread so each parallel step isn't a hand-off from a blocked caller.
+            None if parallel => rayon::scope(|_| op()),
             None => op(),
         }
     }
@@ -467,6 +469,9 @@ impl GradientBooster {
     ) -> Result<(), ForustError> {
         match self.thread_pool(self.parallel) {
             Some(pool) => pool.install(|| self.fit_inner(data, y, sample_weight, evaluation_data)),
+            None if self.parallel => {
+                rayon::scope(|_| self.fit_inner(data, y, sample_weight, evaluation_data))
+            }
             None => self.fit_inner(data, y, sample_weight, evaluation_data),
         }
     }

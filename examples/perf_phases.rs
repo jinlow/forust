@@ -89,6 +89,8 @@ fn main() {
     let nbins = args.get("nbins", 256u16);
     let parallel = args.get("parallel", true);
     let missing_branch = args.get("missing-branch", false);
+    let num_threads = args.get("num-threads", 0usize);
+    let predict_calls = args.get("predict-calls", 0usize);
     let mode = args.get("mode", String::from("phases"));
 
     let (values, y) = load_split(&dir, "train", total_rows, rows, cols);
@@ -110,6 +112,7 @@ fn main() {
         "nbins": nbins,
         "parallel": parallel,
         "missing_branch": missing_branch,
+        "num_threads": num_threads,
         "rayon_threads": rayon::current_num_threads(),
     });
 
@@ -120,7 +123,8 @@ fn main() {
             .set_max_depth(max_depth)
             .set_nbins(nbins)
             .set_parallel(parallel)
-            .set_create_missing_branch(missing_branch);
+            .set_create_missing_branch(missing_branch)
+            .set_num_threads((num_threads > 0).then_some(num_threads));
         let start = Instant::now();
         booster
             .fit(
@@ -140,85 +144,111 @@ fn main() {
         if let Some(path) = args.0.get("save-trees") {
             fs::write(path, serde_json::to_string(&booster.trees).unwrap()).unwrap();
         }
-        json!({"config": config, "total_s": total, "eval_logloss": eval_logloss})
-    } else {
-        let start = Instant::now();
-        let binned = bin_matrix(&data, &w, nbins, f64::NAN, parallel).unwrap();
-        let bin_s = start.elapsed().as_secs_f64();
-        let bdata = Matrix::new(&binned.binned_data, rows, cols);
-        let col_index: Vec<usize> = (0..cols).collect();
-        let splitter = MissingImputerSplitter {
-            l1: 0.0,
-            l2: 1.0,
-            max_delta_step: 0.0,
-            gamma: 0.0,
-            min_leaf_weight: 1.0,
-            learning_rate,
-            allow_missing_splits: true,
-            constraints_map: ConstraintMap::new(),
-        };
-
-        let base_score = LogLoss::calc_init(&y, &w);
-        let mut yhat = vec![base_score; rows];
-        let mut eval_yhat = vec![base_score; eval_rows];
-        let (mut grad, mut hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
-        let (mut tree_s, mut train_predict_s, mut eval_s, mut grad_s) = (0.0, 0.0, 0.0, 0.0);
-        let mut tree_times = Vec::with_capacity(iterations);
-        let mut tree_nodes = Vec::with_capacity(iterations);
-        let mut eval_logloss = f64::NAN;
-
-        for _ in 0..iterations {
-            let t0 = Instant::now();
-            let mut tree = Tree::new();
-            tree.fit(
-                &bdata,
-                data.index.to_owned(),
-                &col_index,
-                &binned.cuts,
-                &grad,
-                &hess,
-                &splitter,
-                usize::MAX,
-                max_depth,
-                parallel,
-                &SampleMethod::None,
-                &GrowPolicy::DepthWise,
-            );
-            let t1 = Instant::now();
-            yhat.iter_mut()
-                .zip(tree.predict(&data, parallel, &f64::NAN))
-                .for_each(|(p, v)| *p += v);
-            let t2 = Instant::now();
-            eval_yhat
-                .iter_mut()
-                .zip(tree.predict(&eval_data, parallel, &f64::NAN))
-                .for_each(|(p, v)| *p += v);
-            eval_logloss = log_loss(&eval_y, &eval_yhat, &eval_w);
-            let t3 = Instant::now();
-            (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
-            let t4 = Instant::now();
-
-            tree_s += (t1 - t0).as_secs_f64();
-            train_predict_s += (t2 - t1).as_secs_f64();
-            eval_s += (t3 - t2).as_secs_f64();
-            grad_s += (t4 - t3).as_secs_f64();
-            tree_times.push((t1 - t0).as_secs_f64());
-            tree_nodes.push(tree.nodes.len());
-        }
+        // Time repeated predictions on a small batch, where per-call overhead shows up.
+        let predict_ms = (predict_calls > 0).then(|| {
+            let batch_rows = 1000.min(eval_rows);
+            let batch: Vec<f64> = (0..cols)
+                .flat_map(|c| eval_data.get_col(c)[..batch_rows].iter().copied())
+                .collect();
+            let batch = Matrix::new(&batch, batch_rows, cols);
+            let start = Instant::now();
+            for _ in 0..predict_calls {
+                std::hint::black_box(booster.predict(&batch, parallel));
+            }
+            1000.0 * start.elapsed().as_secs_f64() / predict_calls as f64
+        });
         json!({
             "config": config,
-            "total_s": start.elapsed().as_secs_f64(),
+            "total_s": total,
             "eval_logloss": eval_logloss,
-            "phases_s": {
-                "bin": bin_s,
-                "tree": tree_s,
-                "train_predict": train_predict_s,
-                "eval_predict_metric": eval_s,
-                "grad_hess": grad_s,
-            },
-            "tree_s": tree_times,
-            "tree_nodes": tree_nodes,
+            "predict_ms_per_call": predict_ms,
         })
+    } else {
+        let run = || {
+            let start = Instant::now();
+            let binned = bin_matrix(&data, &w, nbins, f64::NAN, parallel).unwrap();
+            let bin_s = start.elapsed().as_secs_f64();
+            let bdata = Matrix::new(&binned.binned_data, rows, cols);
+            let col_index: Vec<usize> = (0..cols).collect();
+            let splitter = MissingImputerSplitter {
+                l1: 0.0,
+                l2: 1.0,
+                max_delta_step: 0.0,
+                gamma: 0.0,
+                min_leaf_weight: 1.0,
+                learning_rate,
+                allow_missing_splits: true,
+                constraints_map: ConstraintMap::new(),
+            };
+
+            let base_score = LogLoss::calc_init(&y, &w);
+            let mut yhat = vec![base_score; rows];
+            let mut eval_yhat = vec![base_score; eval_rows];
+            let (mut grad, mut hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
+            let (mut tree_s, mut train_predict_s, mut eval_s, mut grad_s) = (0.0, 0.0, 0.0, 0.0);
+            let mut tree_times = Vec::with_capacity(iterations);
+            let mut tree_nodes = Vec::with_capacity(iterations);
+            let mut eval_logloss = f64::NAN;
+
+            for _ in 0..iterations {
+                let t0 = Instant::now();
+                let mut tree = Tree::new();
+                tree.fit(
+                    &bdata,
+                    data.index.to_owned(),
+                    &col_index,
+                    &binned.cuts,
+                    &grad,
+                    &hess,
+                    &splitter,
+                    usize::MAX,
+                    max_depth,
+                    parallel,
+                    &SampleMethod::None,
+                    &GrowPolicy::DepthWise,
+                );
+                let t1 = Instant::now();
+                yhat.iter_mut()
+                    .zip(tree.predict(&data, parallel, &f64::NAN))
+                    .for_each(|(p, v)| *p += v);
+                let t2 = Instant::now();
+                eval_yhat
+                    .iter_mut()
+                    .zip(tree.predict(&eval_data, parallel, &f64::NAN))
+                    .for_each(|(p, v)| *p += v);
+                eval_logloss = log_loss(&eval_y, &eval_yhat, &eval_w);
+                let t3 = Instant::now();
+                (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
+                let t4 = Instant::now();
+
+                tree_s += (t1 - t0).as_secs_f64();
+                train_predict_s += (t2 - t1).as_secs_f64();
+                eval_s += (t3 - t2).as_secs_f64();
+                grad_s += (t4 - t3).as_secs_f64();
+                tree_times.push((t1 - t0).as_secs_f64());
+                tree_nodes.push(tree.nodes.len());
+            }
+            json!({
+                "config": config,
+                "total_s": start.elapsed().as_secs_f64(),
+                "eval_logloss": eval_logloss,
+                "phases_s": {
+                    "bin": bin_s,
+                    "tree": tree_s,
+                    "train_predict": train_predict_s,
+                    "eval_predict_metric": eval_s,
+                    "grad_hess": grad_s,
+                },
+                "tree_s": tree_times,
+                "tree_nodes": tree_nodes,
+            })
+        };
+        // Match `GradientBooster::fit`, which runs parallel training on a pool thread.
+        if parallel {
+            rayon::scope(|_| run())
+        } else {
+            run()
+        }
     };
     println!("{result}");
 }
