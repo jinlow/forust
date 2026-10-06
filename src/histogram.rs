@@ -76,37 +76,38 @@ impl Bin<f64> {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct HistogramMatrix(pub JaggedMatrix<Bin<f32>>);
 
-/// Create a histogram for a given feature, we use f64
-/// values to accumulate, so that we don't lose precision,
-/// but then still return f32 values for memory efficiency
-/// and speed.
-pub fn create_feature_histogram(
+/// Fill the histogram for a given feature. Sums accumulate in f64 so we don't
+/// lose precision, but are stored as f32 values for memory efficiency and speed.
+/// `out` must have one bin per cut value: the missing bin, then one per cut
+/// excluding the final maximum.
+pub fn fill_feature_histogram(
+    out: &mut [Bin<f32>],
     feature: &[u16],
     cuts: &[f64],
     sorted_grad: &[f32],
     sorted_hess: &[f32],
     index: &[usize],
-) -> Vec<Bin<f32>> {
-    let mut histogram: Vec<Bin<f64>> = Vec::with_capacity(cuts.len());
-    // The first value is missing, it seems to not matter that we are using
-    // Missing here, rather than the booster "missing" definition, because
-    // we just always assume the first bin of the histogram is missing.
-    histogram.push(Bin::new_f64(f64::NAN));
-    // The last cut value is simply the maximum possible value, so we don't need it.
-    // This value is needed initially for binning, but we don't need to count it as
-    // a histogram bin.
-    histogram.extend(cuts[..(cuts.len() - 1)].iter().map(|c| Bin::new_f64(*c)));
+) {
+    let mut sums = vec![(f64::ZERO, f64::ZERO); out.len()];
     index
         .iter()
         .zip(sorted_grad)
         .zip(sorted_hess)
         .for_each(|((i, g), h)| {
-            if let Some(v) = histogram.get_mut(feature[*i] as usize) {
-                v.gradient_sum += f64::from(*g);
-                v.hessian_sum += f64::from(*h);
+            if let Some(v) = sums.get_mut(feature[*i] as usize) {
+                v.0 += f64::from(*g);
+                v.1 += f64::from(*h);
             }
         });
-    histogram.iter().map(|b| b.as_f32_bin()).collect()
+    // The first bin is always missing; the last cut is only needed for binning.
+    let cut_values = std::iter::once(f64::NAN).chain(cuts[..(cuts.len() - 1)].iter().copied());
+    for ((bin, (g, h)), cut_value) in out.iter_mut().zip(sums).zip(cut_values) {
+        *bin = Bin {
+            gradient_sum: g as f32,
+            hessian_sum: h as f32,
+            cut_value,
+        };
+    }
 }
 
 impl HistogramMatrix {
@@ -145,34 +146,6 @@ impl HistogramMatrix {
             (&gathered.0, &gathered.1)
         };
 
-        let histograms = if parallel {
-            col_index
-                .par_iter()
-                .flat_map(|col| {
-                    create_feature_histogram(
-                        data.get_col(*col),
-                        cuts.get_col(*col),
-                        sorted_grad,
-                        sorted_hess,
-                        index,
-                    )
-                })
-                .collect::<Vec<Bin<f32>>>()
-        } else {
-            col_index
-                .iter()
-                .flat_map(|col| {
-                    create_feature_histogram(
-                        data.get_col(*col),
-                        cuts.get_col(*col),
-                        sorted_grad,
-                        sorted_hess,
-                        index,
-                    )
-                })
-                .collect::<Vec<Bin<f32>>>()
-        };
-
         // If we have sampled down the columns, we need to recalculate the ends.
         // we can do this by iterating over the cut's, as this will be the size
         // of the histograms.
@@ -192,6 +165,39 @@ impl HistogramMatrix {
         } else {
             ends.iter().sum()
         };
+
+        let total_bins = ends.last().copied().unwrap_or(0);
+        let mut histograms: Vec<Bin<f32>> = Vec::with_capacity(total_bins);
+        if parallel {
+            (0..total_bins)
+                .into_par_iter()
+                .map(|_| Bin::new_f32(f64::NAN))
+                .collect_into_vec(&mut histograms);
+        } else {
+            histograms.resize(total_bins, Bin::new_f32(f64::NAN));
+        }
+        let mut column_bins: Vec<&mut [Bin<f32>]> = Vec::with_capacity(col_index.len());
+        let mut rest = histograms.as_mut_slice();
+        for col in col_index {
+            let (head, tail) = std::mem::take(&mut rest).split_at_mut(cuts.get_col(*col).len());
+            column_bins.push(head);
+            rest = tail;
+        }
+        let fill = |(out, col): (&mut [Bin<f32>], &usize)| {
+            fill_feature_histogram(
+                out,
+                data.get_col(*col),
+                cuts.get_col(*col),
+                sorted_grad,
+                sorted_hess,
+                index,
+            )
+        };
+        if parallel {
+            column_bins.into_par_iter().zip(col_index).for_each(fill);
+        } else {
+            column_bins.into_iter().zip(col_index).for_each(fill);
+        }
 
         HistogramMatrix(JaggedMatrix {
             data: histograms,
@@ -272,8 +278,9 @@ mod tests {
         let yhat = vec![0.5; y.len()];
         let w = vec![1.; y.len()];
         let (g, h) = LogLoss::calc_grad_hess(&y, &yhat, &w);
-        let hist =
-            create_feature_histogram(&bdata.get_col(1), &b.cuts.get_col(1), &g, &h, &bdata.index);
+        let cuts = b.cuts.get_col(1);
+        let mut hist = vec![Bin::new_f32(f64::NAN); cuts.len()];
+        fill_feature_histogram(&mut hist, &bdata.get_col(1), cuts, &g, &h, &bdata.index);
         // println!("{:?}", hist);
         let mut f = bdata.get_col(1).to_owned();
         println!("{:?}", hist);
