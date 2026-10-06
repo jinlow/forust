@@ -31,39 +31,69 @@ Running log of each change in `plan.md` and its effect on speed. Raw data is in
 
 ## Summary
 
+All four plan items are done. Trained models are byte-identical to the
+baseline throughout, and the Python suite passes (112 tests, including the
+XGBoost parity checks and a new `num_threads` test).
+
+| Workload | Baseline | Final | Change |
+| --- | ---: | ---: | ---: |
+| 100-iteration `fit`, 1M x 200, 8 threads | 52.7 s | 26.1 s | 2.0x faster |
+| 1,000 iterations, 100k x 200, default 16 threads | 80.8 s | 37.2 s | 2.2x faster |
+| Tree, 8 threads, across G1-G3 | | | 39-81% less time |
+| Binning, 8 threads | | | 91-93% less time |
+
 Tree ms per change. Each column includes all earlier changes; "item2" is
 items 2a-2c (2d was dropped). Per-step numbers are in the step log.
 
-| Grid | Data | Rows | Depth | Mode | baseline | item1 | item2 | item1 vs baseline | item2 vs baseline |
-| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| G1 | w200 | 25k | 5 | serial | 69.5 | 69.8 | 57.9 | +0.5% | -16.7% |
-| G1 | w200 | 25k | 5 | 8 threads | 52.7 | 35.9 | 20.0 | -32.0% | -62.0% |
-| G1 | w200 | 100k | 5 | serial | 165.4 | 169.8 | 153.9 | +2.7% | -6.9% |
-| G1 | w200 | 100k | 5 | 8 threads | 72.5 | 56.4 | 39.0 | -22.3% | -46.3% |
-| G1 | w200 | 250k | 5 | serial | 340.8 | 340.1 | 332.3 | -0.2% | -2.5% |
-| G1 | w200 | 250k | 5 | 8 threads | 108.3 | 89.2 | 73.8 | -17.7% | -31.8% |
-| G2 | w200 | 25k | 8 | serial | 242.7 | 241.7 | 195.4 | -0.4% | -19.5% |
-| G2 | w200 | 25k | 8 | 8 threads | 236.6 | 147.0 | 80.8 | -37.9% | -65.9% |
-| G2 | w200 | 100k | 8 | serial | 560.6 | 528.6 | 498.9 | -5.7% | -11.0% |
-| G2 | w200 | 100k | 8 | 8 threads | 358.1 | 245.1 | 149.4 | -31.6% | -58.3% |
-| G3 | w500 | 25k | 5 | serial | 190.9 | 190.2 | 176.4 | -0.4% | -7.6% |
-| G3 | w500 | 25k | 5 | 8 threads | 128.1 | 85.0 | 40.3 | -33.7% | -68.6% |
-| G3 | w500 | 100k | 5 | serial | 433.9 | 434.2 | 410.2 | +0.1% | -5.5% |
-| G3 | w500 | 100k | 5 | 8 threads | 174.9 | 127.7 | 86.2 | -27.0% | -50.7% |
-| G4 | w200-1m | 1000k | 5 | 8 threads | 261.0 | 247.6 | 230.9 | -5.2% | -11.5% |
+| Grid | Data | Rows | Depth | Mode | baseline | item1 | item2 | item3 | item4 | final vs baseline |
+| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| G1 | w200 | 25k | 5 | serial | 69.5 | 69.8 | 57.9 | 59.4 | 60.2 | -13.4% |
+| G1 | w200 | 25k | 5 | 8 threads | 52.7 | 35.9 | 20.0 | 16.5 | 13.1 | -75.1% |
+| G1 | w200 | 100k | 5 | serial | 165.4 | 169.8 | 153.9 | 158.0 | 156.9 | -5.1% |
+| G1 | w200 | 100k | 5 | 8 threads | 72.5 | 56.4 | 39.0 | 39.3 | 32.5 | -55.2% |
+| G1 | w200 | 250k | 5 | serial | 340.8 | 340.1 | 332.3 | 333.5 | 333.0 | -2.3% |
+| G1 | w200 | 250k | 5 | 8 threads | 108.3 | 89.2 | 73.8 | 73.4 | 66.1 | -39.0% |
+| G2 | w200 | 25k | 8 | serial | 242.7 | 241.7 | 195.4 | 220.5 | 214.5 | -11.6% |
+| G2 | w200 | 25k | 8 | 8 threads | 236.6 | 147.0 | 80.8 | 76.3 | 45.9 | -80.6% |
+| G2 | w200 | 100k | 8 | serial | 560.6 | 528.6 | 498.9 | 509.7 | 495.4 | -11.6% |
+| G2 | w200 | 100k | 8 | 8 threads | 358.1 | 245.1 | 149.4 | 152.3 | 98.2 | -72.6% |
+| G3 | w500 | 25k | 5 | serial | 190.9 | 190.2 | 176.4 | 170.1 | 173.8 | -9.0% |
+| G3 | w500 | 25k | 5 | 8 threads | 128.1 | 85.0 | 40.3 | 38.8 | 37.6 | -70.6% |
+| G3 | w500 | 100k | 5 | serial | 433.9 | 434.2 | 410.2 | 411.9 | 416.6 | -4.0% |
+| G3 | w500 | 100k | 5 | 8 threads | 174.9 | 127.7 | 86.2 | 84.0 | 79.5 | -54.6% |
+| G4 | w200-1m | 1000k | 5 | 8 threads | 261.0 | 247.6 | 230.9 | 229.6 | 228.9 | -12.3% |
+
+At 1M rows, per-row histogram work dominates and already scaled well, so the
+tree time barely moved; the 1M fit gain comes mostly from binning (item 3).
 
 8-thread speedup over serial:
 
-| Case | baseline | item1 | item2 |
-| --- | ---: | ---: | ---: |
-| 25k x 200, depth 5 | 1.3x | 1.9x | 2.9x |
-| 100k x 200, depth 5 | 2.3x | 3.0x | 3.9x |
-| 250k x 200, depth 5 | 3.1x | 3.8x | 4.5x |
-| 25k x 200, depth 8 | 1.0x | 1.6x | 2.4x |
-| 100k x 200, depth 8 | 1.6x | 2.2x | 3.3x |
-| 100k x 500, depth 5 | 2.5x | 3.4x | 4.8x |
+| Case | baseline | item1 | item2 | final |
+| --- | ---: | ---: | ---: | ---: |
+| 25k x 200, depth 5 | 1.3x | 1.9x | 2.9x | 4.6x |
+| 100k x 200, depth 5 | 2.3x | 3.0x | 3.9x | 4.8x |
+| 250k x 200, depth 5 | 3.1x | 3.8x | 4.5x | 5.0x |
+| 25k x 200, depth 8 | 1.0x | 1.6x | 2.4x | 4.7x |
+| 100k x 200, depth 8 | 1.6x | 2.2x | 3.3x | 5.0x |
+| 100k x 500, depth 5 | 2.5x | 3.4x | 4.8x | 5.2x |
 
-Serial fraction at 8 threads:
+Compared with XGBoost 1.7.6 `hist` on the same data and settings, 8 threads,
+ms per tree. XGBoost times are full iterations; Forust's are tree-only, which
+understates Forust's iteration time by 3-10%.
+
+| Case | Forust baseline | Forust final | XGBoost |
+| --- | ---: | ---: | ---: |
+| 25k x 200, depth 5 | 52.7 | 13.1 | 10.1 |
+| 100k x 200, depth 5 | 72.5 | 32.5 | 30.1 |
+| 250k x 200, depth 5 | 108.3 | 66.1 | 63.8 |
+| 25k x 200, depth 8 | 236.6 | 45.9 | 39.9 |
+| 100k x 200, depth 8 | 358.1 | 98.2 | 87.6 |
+| 25k x 500, depth 5 | 128.1 | 37.6 | 37.1 |
+| 100k x 500, depth 5 | 174.9 | 79.5 | 107.1 |
+| 1M x 200, depth 5 | 261.0 | 228.9 | 373.2 |
+
+Serial fraction at 8 threads (item 4 moved training onto a pool thread, so
+the main thread now only waits and this metric no longer applies):
 
 | Case | baseline | item1 | item2a | item2b | item2c |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -83,7 +113,7 @@ Binning time per fit (seconds), after item 3:
 | w200-1m | 1M | 8 threads | 24.73 | 1.79 | -93% |
 
 End to end, a real 100-iteration `fit` on 1M x 200 with 8 threads went from
-52.7 s (baseline) to 27.2 s (item 3), 1.94x faster, with bit-identical
+52.7 s (baseline) to 27.2 s (item 3) and 26.1 s (final), with bit-identical
 evaluation log-loss.
 
 ## Step log
@@ -201,3 +231,36 @@ cut in its last digit when tied values carry different weights. Timed in a
 scratch program on 1M-row columns: continuous 68.4 to 49.0 ms, 50 levels 23.9
 to 15.0 ms per column. For a weighted 1M x 200 fit on 8 threads that's about
 0.5 s of a 27 s fit (~2%), so it isn't worth the risk.
+
+### item4: thread count control (`fcbc1c0`, `c1baff6`)
+
+- **`num_threads` (`fcbc1c0`):** new optional setting on `GradientBooster`
+  (Rust setter, Python constructor argument, `get_params`, save/load).
+  When set, `fit`, `predict`, `predict_contributions`,
+  `predict_leaf_indices`, and partial dependence run in a dedicated Rayon
+  pool of that size. Defaults to `None` (today's behavior). Older saved
+  models still load. New Rust and Python tests: identical trees and
+  predictions for 1, 2, and 4 threads, and the setting survives save/load.
+- **Unexpected finding:** `num_threads=8` was much faster than
+  `RAYON_NUM_THREADS=8` (25k depth 8: 0.88 s vs 1.57 s per fit). Inside a pool,
+  `fit` runs on a worker thread, so each parallel step is split among workers
+  directly. Called from the main thread, every parallel step is a blocking
+  hand-off to the pool, which adds up over thousands of small nodes.
+- **Fix (`c1baff6`):** parallel `fit` and prediction now always run on a pool
+  thread (`rayon::scope`), so the default path gets the same benefit. Serial
+  mode is unchanged. The harness was updated to match.
+- Models unchanged; 47 Rust and 112 Python tests pass.
+- 8 threads, vs item 3: a further 4-40% faster; 25k depth 8: 76.3 to
+  45.9 ms, 100k depth 8: 152.3 to 98.2 ms.
+- `num_threads=8` now matches `RAYON_NUM_THREADS=8` within noise.
+- Building a pool on every `predict` call adds no measurable cost: 1,000 calls
+  on 1,000 rows with 100 trees took 2.46 ms per call with `num_threads=8`
+  versus 3.1 ms on the default 16-thread pool, so no pool caching is needed.
+
+## Final confirmation
+
+- Full G1-G4 grid (table above), XGBoost rerun, and Python suite (112
+  passed).
+- 1,000-iteration run at 100k x 200, default 16 threads: 80.8 s to 37.2 s.
+  Per-tree time is stable (39.6 ms early, 33 ms steady state) and tree sizes
+  match the baseline run. Binning is now 0.14 s of the 37.2 s; trees are 91%.

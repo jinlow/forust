@@ -1,11 +1,95 @@
 # Forust Performance Recommendations
 
-Date: 2026-10-05
+Date: 2026-10-05, updated 2026-10-06
 
-Status: analysis only. No library code has been changed.
+Status: the four recommended changes are implemented on branch
+`feat/optimize` (local commits, not pushed). Per-change measurements are in
+`results.md`. The original analysis follows the final recommendations below.
 
 Target workload: binary classification, 200+ columns, up to 1,000+ iterations,
 and one evaluation set scored on every iteration.
+
+## Final results
+
+All changes leave trained models byte-identical (checked after every commit),
+and the Python suite passes (112 tests, including the XGBoost parity checks).
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| 100-iteration `fit`, 1M x 200, 8 threads | 52.7 s | 26.1 s (2.0x) |
+| 1,000 iterations, 100k x 200, default threads | 80.8 s | 37.2 s (2.2x) |
+| Tree time, 8 threads, 25k-250k rows | | 39-81% less |
+| Binning, 8 threads | | 91-93% less (1M x 200: 24.7 s to 1.8 s) |
+| 8-thread speedup over serial | 1.0-3.1x | 4.6-5.2x |
+
+Versus XGBoost `hist` at 8 threads, Forust went from 1.6-6x slower to:
+- within 1-30% on small and deep cases;
+- faster on 100k x 500 (79.5 vs 107.1 ms) and 1M x 200 (228.9 vs 373.2 ms).
+
+| Change | Commit | Main effect |
+| --- | --- | --- |
+| Parallel split search | `c111e36` | 17-38% faster at 8 threads |
+| Borrow gradients instead of copying | `763e861` | 3-10% faster |
+| Write histograms in place | `18744aa` | 15-33% faster at 8 threads |
+| Parallel histogram subtraction | `aefa101` | Up to 28% faster at 8 threads |
+| Parallel binning, one sort per column | `86a77b3` | Binning 11-14x faster |
+| `num_threads` setting | `fcbc1c0` | Thread-count control |
+| Run parallel work on a pool thread | `c1baff6` | 4-40% faster at 8 threads |
+
+Tried and dropped: building small nodes serially (slower at every threshold),
+and a faster pair sort for weighted binning (~2% gain, small risk of
+last-digit cut changes).
+
+## Recommendations
+
+1. **Merge the branch.** Every change is model-neutral and measured. API
+   changes to review:
+   - `bin_matrix` takes a `parallel` argument (approved).
+   - The `Splitter` trait now requires `Sync`, and `best_split` takes a
+     `parallel` argument; this only affects code implementing its own splitter.
+   - New optional `num_threads` setting in Rust and Python. Older saved models
+     still load.
+
+   The branch also includes the analysis tooling (`scripts/`,
+   `examples/perf_phases.rs`), the Python packaging fix, and your `polars`
+   removal.
+2. **Set `num_threads` to the number of physical cores.** On this VM
+   (8 cores, 16 vCPU), the default of 16 threads is 2-18% slower than 8 at
+   depth 5 and 25-66% slower at depth 8. Before changing the default, measure
+   on your production machines; detecting physical cores would need a new
+   dependency or a heuristic.
+3. **Next optimization candidates, if you want more.** In the final profile
+   (25k x 200, depth 8, 8 threads), the remaining time is mostly:
+   - the split search itself, ~40% (`evaluate_split` and its loop): it
+     computes weights and gains for every bin of every feature at every node;
+     skipping bins that fail `min_leaf_weight` before computing gains would
+     cut work without changing results;
+   - histogram accumulation, ~17%: already parallel; fusing it with the split
+     scan per column (one pass while the histogram is in cache) is the
+     follow-up from the plan;
+   - Rayon scheduling, ~15%: tasks are small with many tiny nodes at depth 8.
+
+   This is where the remaining gap to XGBoost on deep, small-row trees comes
+   from. The gains here are likely smaller than what's already done.
+4. **Keep the tooling as a regression check.** `scripts/perf_golden.py` proves
+   models are unchanged; `scripts/perf_grid.py` and `scripts/perf_compare.py`
+   reproduce the timing tables. The serial-versus-parallel determinism test
+   already runs in `cargo test`. The toy `wide-200-column` Criterion group was
+   removed; `examples/perf_phases.rs` on generated data replaces it.
+5. **Read small serial differences as noise.** Serial timings moved by up to
+   ±6% between builds because a hot loop's position in memory changed, even
+   with byte-identical instructions (see item 2c in `results.md`).
+
+Housekeeping: `perf.data` in the repository root is the raw capture from your
+flamegraph run and can be deleted. The benchmark datasets in `/tmp/forust-perf`
+may not survive the VM being deallocated, but `scripts/make_perf_data.py`
+regenerates them exactly.
+
+---
+
+# Original analysis (2026-10-05)
+
+This is the analysis that led to the plan, before any library change.
 
 ## Summary
 
