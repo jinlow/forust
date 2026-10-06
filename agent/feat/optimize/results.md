@@ -106,12 +106,12 @@ unlimited `max_leaves` default.
 
 | Measurement | Forust | XGBoost |
 | --- | ---: | ---: |
-| Tree/iteration phase | 299.8 ms | 407.3 ms |
-| Full fit | 8.03 s median of 3 | 8.15 s |
+| Tree/iteration phase | 310.0 ms | 407.3 ms |
+| Full fit | 8.07 s median of 3 | 8.15 s |
 | Final evaluation log-loss | 0.39308 | not collected |
 
-This is effectively tied within machine noise, with Forust about 1.5% faster
-on the full fit. The tree-only comparison is not apples-to-apples because the
+This is effectively tied within machine noise, with Forust about 1% faster on
+the full fit. The tree-only comparison is not apples-to-apples because the
 Forust phase timer excludes prediction and evaluation while XGBoost's fit timer
 includes them; the full-fit row is the meaningful comparison.
 

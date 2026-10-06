@@ -212,11 +212,11 @@ fn main() {
                     &grad,
                     &hess,
                     &splitter,
-                    usize::MAX,
+                    max_leaves,
                     max_depth,
                     parallel,
                     &SampleMethod::None,
-                    &GrowPolicy::DepthWise,
+                    &grow_policy,
                 );
                 let t1 = Instant::now();
                 yhat.iter_mut()
