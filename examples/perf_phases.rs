@@ -26,7 +26,12 @@ impl Args {
         assert!(raw.len() % 2 == 0, "arguments must be `--key value` pairs");
         Args(
             raw.chunks(2)
-                .map(|pair| (pair[0].trim_start_matches("--").to_string(), pair[1].clone()))
+                .map(|pair| {
+                    (
+                        pair[0].trim_start_matches("--").to_string(),
+                        pair[1].clone(),
+                    )
+                })
                 .collect(),
         )
     }
@@ -35,7 +40,10 @@ impl Args {
     where
         T::Err: std::fmt::Debug,
     {
-        self.0.get(key).map(|v| v.parse().unwrap()).unwrap_or(default)
+        self.0
+            .get(key)
+            .map(|v| v.parse().unwrap())
+            .unwrap_or(default)
     }
 }
 
@@ -119,7 +127,11 @@ fn main() {
                 &data,
                 &y,
                 &w,
-                Some(vec![(Matrix::new(&eval_values, eval_rows, cols), &eval_y[..], &eval_w[..])]),
+                Some(vec![(
+                    Matrix::new(&eval_values, eval_rows, cols),
+                    &eval_y[..],
+                    &eval_w[..],
+                )]),
             )
             .unwrap();
         let total = start.elapsed().as_secs_f64();

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 
 /// Below this many rows, gathering gradients serially is cheaper than scheduling Rayon tasks.
 const PARALLEL_GATHER_MIN_ROWS: usize = 16_384;
+/// Bins per Rayon task when subtracting histograms in parallel.
+const PARALLEL_SUBTRACT_MIN_BINS: usize = 4_096;
 
 /// Struct to hold the information of a given bin.
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -213,15 +215,24 @@ impl HistogramMatrix {
     pub fn from_parent_child(
         root_histogram: &HistogramMatrix,
         child_histogram: &HistogramMatrix,
+        parallel: bool,
     ) -> Self {
         let HistogramMatrix(root) = root_histogram;
         let HistogramMatrix(child) = child_histogram;
-        let histograms = root
-            .data
-            .iter()
-            .zip(child.data.iter())
-            .map(|(root_bin, child_bin)| Bin::from_parent_child(root_bin, child_bin))
-            .collect();
+        let histograms = if parallel {
+            root.data
+                .par_iter()
+                .zip(child.data.par_iter())
+                .with_min_len(PARALLEL_SUBTRACT_MIN_BINS)
+                .map(|(root_bin, child_bin)| Bin::from_parent_child(root_bin, child_bin))
+                .collect()
+        } else {
+            root.data
+                .iter()
+                .zip(child.data.iter())
+                .map(|(root_bin, child_bin)| Bin::from_parent_child(root_bin, child_bin))
+                .collect()
+        };
         HistogramMatrix(JaggedMatrix {
             data: histograms,
             ends: child.ends.to_owned(),
@@ -237,19 +248,31 @@ impl HistogramMatrix {
         root_histogram: &HistogramMatrix,
         first_child_histogram: &HistogramMatrix,
         second_child_histogram: &HistogramMatrix,
+        parallel: bool,
     ) -> Self {
         let HistogramMatrix(root) = root_histogram;
         let HistogramMatrix(first_child) = first_child_histogram;
         let HistogramMatrix(second_child) = second_child_histogram;
-        let histograms = root
-            .data
-            .iter()
-            .zip(first_child.data.iter())
-            .zip(second_child.data.iter())
-            .map(|((root_bin, first_child_bin), second_child_bin)| {
-                Bin::from_parent_two_children(root_bin, first_child_bin, second_child_bin)
-            })
-            .collect();
+        let histograms = if parallel {
+            root.data
+                .par_iter()
+                .zip(first_child.data.par_iter())
+                .zip(second_child.data.par_iter())
+                .with_min_len(PARALLEL_SUBTRACT_MIN_BINS)
+                .map(|((root_bin, first_child_bin), second_child_bin)| {
+                    Bin::from_parent_two_children(root_bin, first_child_bin, second_child_bin)
+                })
+                .collect()
+        } else {
+            root.data
+                .iter()
+                .zip(first_child.data.iter())
+                .zip(second_child.data.iter())
+                .map(|((root_bin, first_child_bin), second_child_bin)| {
+                    Bin::from_parent_two_children(root_bin, first_child_bin, second_child_bin)
+                })
+                .collect()
+        };
         HistogramMatrix(JaggedMatrix {
             data: histograms,
             ends: first_child.ends.to_owned(),

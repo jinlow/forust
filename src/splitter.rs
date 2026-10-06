@@ -612,8 +612,11 @@ impl Splitter for MissingBranchSplitter {
                     parallel,
                     true,
                 );
-                left_histograms =
-                    HistogramMatrix::from_parent_child(&node.histograms, &right_histograms);
+                left_histograms = HistogramMatrix::from_parent_child(
+                    &node.histograms,
+                    &right_histograms,
+                    parallel,
+                );
             } else {
                 missing_histograms = HistogramMatrix::empty();
                 left_histograms = HistogramMatrix::new(
@@ -626,8 +629,11 @@ impl Splitter for MissingBranchSplitter {
                     parallel,
                     true,
                 );
-                right_histograms =
-                    HistogramMatrix::from_parent_child(&node.histograms, &left_histograms);
+                right_histograms = HistogramMatrix::from_parent_child(
+                    &node.histograms,
+                    &left_histograms,
+                    parallel,
+                );
             }
         } else if max_ == 0 {
             // Max is missing, calculate the other two
@@ -656,6 +662,7 @@ impl Splitter for MissingBranchSplitter {
                 &node.histograms,
                 &left_histograms,
                 &right_histograms,
+                parallel,
             )
         } else if max_ == 1 {
             missing_histograms = HistogramMatrix::new(
@@ -682,6 +689,7 @@ impl Splitter for MissingBranchSplitter {
                 &node.histograms,
                 &missing_histograms,
                 &right_histograms,
+                parallel,
             )
         } else {
             // right is the largest
@@ -709,6 +717,7 @@ impl Splitter for MissingBranchSplitter {
                 &node.histograms,
                 &missing_histograms,
                 &left_histograms,
+                parallel,
             )
         }
 
@@ -1031,7 +1040,7 @@ impl Splitter for MissingImputerSplitter {
                 true,
             );
             right_histograms =
-                HistogramMatrix::from_parent_child(&node.histograms, &left_histograms);
+                HistogramMatrix::from_parent_child(&node.histograms, &left_histograms, parallel);
         } else {
             right_histograms = HistogramMatrix::new(
                 data,
@@ -1044,7 +1053,7 @@ impl Splitter for MissingImputerSplitter {
                 true,
             );
             left_histograms =
-                HistogramMatrix::from_parent_child(&node.histograms, &right_histograms);
+                HistogramMatrix::from_parent_child(&node.histograms, &right_histograms, parallel);
         }
         let missing_child = if missing_right {
             right_child
@@ -1255,7 +1264,13 @@ mod tests {
         }
         let y: Vec<f64> = base
             .iter()
-            .map(|v| if v + rng.gen::<f64>() * 0.3 > 0.6 { 1.0 } else { 0.0 })
+            .map(|v| {
+                if v + rng.gen::<f64>() * 0.3 > 0.6 {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
             .collect();
         let data = Matrix::new(&d, rows, cols);
         let w = vec![1.; rows];
@@ -1277,7 +1292,14 @@ mod tests {
         let odd_only: Vec<usize> = (1..cols).step_by(2).collect();
         for col_index in [forward, reversed, odd_only] {
             let hists = HistogramMatrix::new(
-                &bdata, &b.cuts, &grad, &hess, &data.index, &col_index, false, false,
+                &bdata,
+                &b.cuts,
+                &grad,
+                &hess,
+                &data.index,
+                &col_index,
+                false,
+                false,
             );
             let n = SplittableNode::new(
                 0,

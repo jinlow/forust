@@ -1409,14 +1409,22 @@ mod tests {
             for _ in 0..rows {
                 let v: f64 = rng.gen();
                 let v = if col % 4 == 0 { (v * 5.0).floor() } else { v };
-                let v = if col % 5 == 1 && rng.gen::<f64>() < 0.1 { f64::NAN } else { v };
+                let v = if col % 5 == 1 && rng.gen::<f64>() < 0.1 {
+                    f64::NAN
+                } else {
+                    v
+                };
                 data.push(v);
             }
         }
         let y = (0..rows)
             .map(|r| {
                 let score = data[r] + data[rows + r] * 3.0 - data[2 * rows + r] * 2.0;
-                if score + rng.gen::<f64>() * 2.0 > 2.5 { 1.0 } else { 0.0 }
+                if score + rng.gen::<f64>() * 2.0 > 2.5 {
+                    1.0
+                } else {
+                    0.0
+                }
             })
             .collect();
         (data, y)

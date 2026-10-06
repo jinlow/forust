@@ -24,7 +24,7 @@ def git_commit() -> str:
     def git(*args: str) -> str:
         return subprocess.run(["git", *args], cwd=ROOT, check=True, capture_output=True, text=True).stdout.strip()
 
-    dirty = git("status", "--porcelain", "--untracked-files=no")
+    dirty = git("status", "--porcelain", "--untracked-files=no", "--", ".", ":!agent")
     return git("rev-parse", "--short", "HEAD") + ("-dirty" if dirty else "")
 
 
