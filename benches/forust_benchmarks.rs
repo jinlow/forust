@@ -57,7 +57,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     };
     let mut tree = Tree::new();
 
-    let bindata = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
+    let bindata = bin_matrix(&data, &w, 300, f64::NAN, false).unwrap();
     let bdata = Matrix::new(&bindata.binned_data, data.rows, data.cols);
     let col_index: Vec<usize> = (0..data.cols).collect();
     tree.fit(
@@ -168,7 +168,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     let wide_weights = vec![1.; wide_rows];
     let wide_yhat = vec![0.5; wide_rows];
     let (wide_grad, wide_hess) = LogLoss::calc_grad_hess(&wide_y, &wide_yhat, &wide_weights);
-    let wide_binning = bin_matrix(&wide_data, &wide_weights, 64, f64::NAN).unwrap();
+    let wide_binning = bin_matrix(&wide_data, &wide_weights, 64, f64::NAN, false).unwrap();
     let wide_bdata = Matrix::new(&wide_binning.binned_data, wide_rows, wide_cols);
     let wide_col_index: Vec<usize> = (0..wide_cols).collect();
     let wide_splitter = MissingImputerSplitter {
@@ -193,6 +193,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
                 black_box(&wide_weights),
                 black_box(64),
                 black_box(f64::NAN),
+                black_box(false),
             )
             .unwrap();
         })

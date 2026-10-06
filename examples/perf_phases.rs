@@ -143,7 +143,7 @@ fn main() {
         json!({"config": config, "total_s": total, "eval_logloss": eval_logloss})
     } else {
         let start = Instant::now();
-        let binned = bin_matrix(&data, &w, nbins, f64::NAN).unwrap();
+        let binned = bin_matrix(&data, &w, nbins, f64::NAN, parallel).unwrap();
         let bin_s = start.elapsed().as_secs_f64();
         let bdata = Matrix::new(&binned.binned_data, rows, cols);
         let col_index: Vec<usize> = (0..cols).collect();

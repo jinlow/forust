@@ -602,7 +602,7 @@ mod tests {
         };
         let mut tree = Tree::new();
 
-        let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &w, 300, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let mut rng = StdRng::seed_from_u64(0);
         let (index, excluded) =
@@ -650,7 +650,7 @@ mod tests {
         };
         let mut tree = Tree::new();
 
-        let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &w, 300, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
@@ -735,7 +735,7 @@ mod tests {
         };
         let mut tree = Tree::new();
 
-        let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &w, 300, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let col_index: Vec<usize> = vec![1, 3];
         tree.fit(
@@ -787,7 +787,7 @@ mod tests {
         };
         let mut tree = Tree::new();
 
-        let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &w, 300, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(
@@ -871,7 +871,7 @@ mod tests {
         };
         let mut tree = Tree::new();
 
-        let b = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &w, 300, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let col_index: Vec<usize> = (0..data.cols).collect();
         tree.fit(

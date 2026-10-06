@@ -555,7 +555,7 @@ impl GradientBooster {
         // TODO
         // In scikit-learn, they sample 200_000 records for generating the bins.
         // we could consider that, especially if this proved to be a large bottleneck...
-        let binned_data = bin_matrix(data, sample_weight, self.nbins, self.missing)?;
+        let binned_data = bin_matrix(data, sample_weight, self.nbins, self.missing, self.parallel)?;
         let bdata = Matrix::new(&binned_data.binned_data, data.rows, data.cols);
 
         // Create the predictions, saving them with the evaluation data.

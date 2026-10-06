@@ -295,7 +295,7 @@ mod tests {
         let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let data = Matrix::new(&data_vec, 891, 5);
         let sample_weight = vec![1.; data.rows];
-        let b = bin_matrix(&data, &sample_weight, 10, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &sample_weight, 10, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let yhat = vec![0.5; y.len()];

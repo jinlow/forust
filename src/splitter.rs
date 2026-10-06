@@ -1100,7 +1100,7 @@ mod tests {
         let yhat = vec![0.; 7];
         let w = vec![1.; y.len()];
         let (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
-        let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &w, 10, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
         let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, &[0], true, true);
@@ -1146,7 +1146,7 @@ mod tests {
         let w = vec![1.; y.len()];
         let (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
 
-        let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &w, 10, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
         let hists =
@@ -1221,7 +1221,7 @@ mod tests {
         let root_gain = gain(&splitter.l2, gradient_sum, hessian_sum);
         let data = Matrix::new(&data_vec, 891, 5);
 
-        let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &w, 10, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
         let col_index: Vec<usize> = (0..data.cols).collect();
@@ -1275,7 +1275,7 @@ mod tests {
         let data = Matrix::new(&d, rows, cols);
         let w = vec![1.; rows];
         let (grad, hess) = LogLoss::calc_grad_hess(&y, &vec![0.; rows], &w);
-        let b = bin_matrix(&data, &w, 64, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &w, 64, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, rows, cols);
         let splitter = MissingImputerSplitter {
             l1: 0.0,
