@@ -1,6 +1,14 @@
+use crate::data::Matrix;
 use rand::rngs::StdRng;
 use rand::Rng;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+
+/// Copy the sampled rows into a contiguous buffer when at most this share of
+/// rows is sampled, as LightGBM does for GOSS and bagging.
+pub const SUBSET_MAX_FRACTION: f64 = 0.5;
+/// Below this many sampled rows, gathering gradients serially is cheaper.
+const PARALLEL_GATHER_MIN_ROWS: usize = 16_384;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SampleMethod {
@@ -143,6 +151,84 @@ impl Sampler for GossSampler {
     }
 }
 
+/// The sampled rows of the binned data, gradients and hessians, copied into
+/// contiguous buffers so trees can be built with sequential memory access.
+///
+/// Trees fit on the subset (with row index `0..rows`) are identical to trees fit
+/// on the full data with the sampled index, because trees only store bin-based
+/// split values. Buffers are reused across iterations.
+#[derive(Default)]
+pub struct RowSubset {
+    pub binned: Vec<u16>,
+    pub grad: Vec<f32>,
+    pub hess: Vec<f32>,
+    pub rows: usize,
+    cols: usize,
+}
+
+impl RowSubset {
+    /// Should `sampled` of `total` rows be copied into a subset?
+    pub fn should_use(sampled: usize, total: usize) -> bool {
+        sampled > 0 && (sampled as f64) <= SUBSET_MAX_FRACTION * (total as f64)
+    }
+
+    /// Copy `rows` of the columns in `col_index` from `data`, and their gradients and
+    /// hessians. Columns not in `col_index` are left unfilled and must not be read.
+    pub fn fill(
+        &mut self,
+        data: &Matrix<u16>,
+        rows: &[usize],
+        col_index: &[usize],
+        grad: &[f32],
+        hess: &[f32],
+        parallel: bool,
+    ) {
+        let m = rows.len();
+        self.rows = m;
+        self.cols = data.cols;
+        if m == 0 {
+            self.binned.clear();
+            self.grad.clear();
+            self.hess.clear();
+            return;
+        }
+        let mut used = vec![false; data.cols];
+        col_index.iter().for_each(|&c| used[c] = true);
+        self.binned.resize(data.cols * m, 0);
+        let fill_col = |(c, out): (usize, &mut [u16])| {
+            if used[c] {
+                let col = data.get_col(c);
+                out.iter_mut().zip(rows).for_each(|(o, &r)| *o = col[r]);
+            }
+        };
+        if parallel {
+            self.binned.par_chunks_mut(m).enumerate().for_each(fill_col);
+        } else {
+            self.binned.chunks_mut(m).enumerate().for_each(fill_col);
+        }
+        if parallel && m >= PARALLEL_GATHER_MIN_ROWS {
+            rows.par_iter()
+                .map(|&r| grad[r])
+                .collect_into_vec(&mut self.grad);
+            rows.par_iter()
+                .map(|&r| hess[r])
+                .collect_into_vec(&mut self.hess);
+        } else {
+            self.grad.clear();
+            self.grad.extend(rows.iter().map(|&r| grad[r]));
+            self.hess.clear();
+            self.hess.extend(rows.iter().map(|&r| hess[r]));
+        }
+    }
+
+    /// The copied binned data, and the row index `0..rows` to fit a tree with.
+    pub fn matrix(&self) -> (Matrix<'_, u16>, Vec<usize>) {
+        let mut matrix = Matrix::new(&self.binned, self.rows, self.cols);
+        let index = std::mem::take(&mut matrix.index);
+        (matrix, index)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +315,29 @@ mod tests {
         };
         assert_eq!(run(3), run(3));
         assert_ne!(run(3), run(4));
+    }
+
+    #[test]
+    fn test_row_subset() {
+        assert!(RowSubset::should_use(50, 100));
+        assert!(!RowSubset::should_use(51, 100));
+        assert!(!RowSubset::should_use(0, 100));
+
+        // 4 rows x 3 columns, column major.
+        let values: Vec<u16> = vec![0, 1, 2, 3, 10, 11, 12, 13, 20, 21, 22, 23];
+        let data = Matrix::new(&values, 4, 3);
+        let grad = vec![0.0, 0.1, 0.2, 0.3];
+        let hess = vec![1.0, 1.1, 1.2, 1.3];
+        let mut subset = RowSubset::default();
+        for parallel in [false, true] {
+            subset.fill(&data, &[1, 3], &[0, 2], &grad, &hess, parallel);
+            let (matrix, index) = subset.matrix();
+            assert_eq!(index, vec![0, 1]);
+            assert_eq!(matrix.get_col(0), &[1, 3]);
+            assert_eq!(matrix.get_col(2), &[21, 23]);
+            assert_eq!(subset.grad, vec![0.1, 0.3]);
+            assert_eq!(subset.hess, vec![1.1, 1.3]);
+        }
     }
 
     #[test]

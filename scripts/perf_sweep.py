@@ -42,6 +42,7 @@ def run_once(data: Path, rows: int, threads: int, parallel: bool, iterations: in
     steady = result["tree_s"][WARMUP_ITERATIONS:]
     # Older binaries have no sampling phase.
     steady_sample = result.get("sample_s", [0.0] * iterations)[WARMUP_ITERATIONS:]
+    steady_subset = result.get("subset_s", [0.0] * iterations)[WARMUP_ITERATIONS:]
     phases = result["phases_s"]
     per_iteration = {
         name: 1000 * value / iterations for name, value in phases.items() if name != "bin"
@@ -57,6 +58,7 @@ def run_once(data: Path, rows: int, threads: int, parallel: bool, iterations: in
         "iterations": iterations,
         "tree_ms": 1000 * mean(steady),
         "sample_ms": 1000 * mean(steady_sample),
+        "subset_ms": 1000 * mean(steady_subset),
         "tree_rows": result.get("tree_rows", [rows])[-1],
         "bin_s": phases["bin"],
         "per_iteration_ms": per_iteration,
@@ -71,6 +73,7 @@ def run(data: Path, rows: int, threads: int, parallel: bool, iterations: int, ex
     record["bin_s_samples"] = [s["bin_s"] for s in samples]
     record["tree_ms"] = median(record["tree_ms_samples"])
     record["sample_ms"] = median(s["sample_ms"] for s in samples)
+    record["subset_ms"] = median(s["subset_ms"] for s in samples)
     record["bin_s"] = median(record["bin_s_samples"])
     return record
 
@@ -91,7 +94,8 @@ def main() -> None:
     commit = git_commit()
     args.out.parent.mkdir(parents=True, exist_ok=True)
     print(
-        f"{'data':>8} {'rows':>8} {'cols':>5} {'mode':>12} {'tree ms':>9} {'sample ms':>9} {'speedup':>8} {'bin s':>7}"
+        f"{'data':>8} {'rows':>8} {'cols':>5} {'mode':>12} {'tree ms':>9} {'sample ms':>9} {'subset ms':>9} "
+        f"{'speedup':>8} {'bin s':>7}"
     )
     with open(args.out, "a") as out:
         for data, rows in itertools.product(args.data, args.rows):
@@ -107,7 +111,8 @@ def main() -> None:
                 speedup = f"{serial_ms / record['tree_ms']:>7.2f}x" if serial_ms else f"{'-':>8}"
                 print(
                     f"{data.name:>8} {rows:>8} {record['cols']:>5} {mode:>12} "
-                    f"{record['tree_ms']:>9.1f} {record['sample_ms']:>9.2f} {speedup} {record['bin_s']:>7.2f}",
+                    f"{record['tree_ms']:>9.1f} {record['sample_ms']:>9.2f} {record['subset_ms']:>9.2f} "
+                    f"{speedup} {record['bin_s']:>7.2f}",
                     flush=True,
                 )
 

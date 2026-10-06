@@ -576,6 +576,90 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use std::fs;
+    fn assert_subset_tree_matches<T: Splitter>(splitter: &T, col_index: &[usize], parallel: bool) {
+        use crate::sampler::{GossSampler, RowSubset};
+        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file
+            .lines()
+            .map(|x| x.parse::<f64>().unwrap_or(f64::NAN))
+            .collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        // Varied predictions, so the GOSS scores are mostly distinct.
+        let yhat: Vec<f64> = (0..y.len())
+            .map(|i| ((i * 7919) % 101) as f64 / 50. - 1.)
+            .collect();
+        let w = vec![1.; y.len()];
+        let (mut g, mut h) = LogLoss::calc_grad_hess(&y, &yhat, &w);
+        let data = Matrix::new(&data_vec, 891, 5);
+        let b = bin_matrix(&data, &w, 300, f64::NAN, false).unwrap();
+        let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
+        let mut rng = StdRng::seed_from_u64(0);
+        let (index, _) = GossSampler::new(0.2, 0.1).sample(&mut rng, &data.index, &mut g, &mut h);
+        assert!(RowSubset::should_use(index.len(), data.rows));
+
+        let fit = |data: &Matrix<u16>, index: Vec<usize>, g: &[f32], h: &[f32]| {
+            let mut tree = Tree::new();
+            tree.fit(
+                data,
+                index,
+                col_index,
+                &b.cuts,
+                g,
+                h,
+                splitter,
+                usize::MAX,
+                5,
+                parallel,
+                &SampleMethod::Goss,
+                &GrowPolicy::DepthWise,
+            );
+            serde_json::to_string(&tree).unwrap()
+        };
+        let full = fit(&bdata, index.clone(), &g, &h);
+        let mut subset = RowSubset::default();
+        subset.fill(&bdata, &index, col_index, &g, &h, parallel);
+        let (subset_data, subset_index) = subset.matrix();
+        let from_subset = fit(&subset_data, subset_index, &subset.grad, &subset.hess);
+        assert!(full.matches("split_feature").count() > 3);
+        assert_eq!(full, from_subset);
+    }
+
+    #[test]
+    fn test_tree_fit_on_row_subset_matches_full_data() {
+        let imputer = MissingImputerSplitter {
+            l1: 0.0,
+            l2: 1.0,
+            max_delta_step: 0.,
+            gamma: 0.0,
+            min_leaf_weight: 1.0,
+            learning_rate: 0.3,
+            allow_missing_splits: true,
+            constraints_map: ConstraintMap::new(),
+        };
+        let branch = crate::splitter::MissingBranchSplitter {
+            l1: 0.0,
+            l2: 1.0,
+            max_delta_step: 0.,
+            gamma: 0.0,
+            min_leaf_weight: 1.0,
+            learning_rate: 0.3,
+            allow_missing_splits: true,
+            constraints_map: ConstraintMap::new(),
+            terminate_missing_features: std::collections::HashSet::new(),
+            missing_node_treatment: crate::gradientbooster::MissingNodeTreatment::AssignToParent,
+            force_children_to_bound_parent: false,
+        };
+        for parallel in [false, true] {
+            for col_index in [vec![0, 1, 2, 3, 4], vec![0, 2, 4]] {
+                assert_subset_tree_matches(&imputer, &col_index, parallel);
+                assert_subset_tree_matches(&branch, &col_index, parallel);
+            }
+        }
+    }
+
     #[test]
     fn test_tree_fit_with_subsample() {
         let file = fs::read_to_string("resources/contiguous_no_missing.csv")

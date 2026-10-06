@@ -8,7 +8,7 @@ use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::{GradientBooster, GrowPolicy};
 use forust_ml::metric::log_loss;
 use forust_ml::objective::{LogLoss, ObjectiveFunction};
-use forust_ml::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
+use forust_ml::sampler::{GossSampler, RandomSampler, RowSubset, SampleMethod, Sampler};
 use forust_ml::splitter::MissingImputerSplitter;
 use forust_ml::tree::Tree;
 use rand::rngs::StdRng;
@@ -101,7 +101,9 @@ fn main() {
     let num_threads = args.get("num-threads", 0usize);
     let predict_calls = args.get("predict-calls", 0usize);
     let mode = args.get("mode", String::from("phases"));
-    let sample_method_name = args.get("sample-method", String::from("none")).to_lowercase();
+    let sample_method_name = args
+        .get("sample-method", String::from("none"))
+        .to_lowercase();
     let sample_method = match sample_method_name.as_str() {
         "none" => SampleMethod::None,
         "random" => SampleMethod::Random,
@@ -113,6 +115,8 @@ fn main() {
     let subsample = args.get("subsample", 1.0f32);
     let seed = args.get("seed", 0u64);
     let early_stopping_rounds = args.get("early-stopping-rounds", 0usize);
+    // Phases mode only: copy sampled rows into a contiguous subset, as `fit` does.
+    let use_subset = args.get("subset", true);
 
     let (values, y) = load_split(&dir, "train", total_rows, rows, cols);
     let (eval_values, eval_y) = load_split(&dir, "eval", total_eval_rows, eval_rows, cols);
@@ -143,6 +147,7 @@ fn main() {
         "subsample": subsample,
         "seed": seed,
         "early_stopping_rounds": early_stopping_rounds,
+        "subset": use_subset,
     });
 
     let result = if mode == "fit" {
@@ -157,7 +162,9 @@ fn main() {
             .set_sample_method(sample_method)
             .set_subsample(subsample)
             .set_seed(seed)
-            .set_early_stopping_rounds((early_stopping_rounds > 0).then_some(early_stopping_rounds));
+            .set_early_stopping_rounds(
+                (early_stopping_rounds > 0).then_some(early_stopping_rounds),
+            );
         booster.grow_policy = grow_policy;
         booster.max_leaves = max_leaves;
         booster.top_rate = top_rate;
@@ -225,7 +232,9 @@ fn main() {
             let mut eval_yhat = vec![base_score; eval_rows];
             let (mut grad, mut hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
             let (mut tree_s, mut train_predict_s, mut eval_s, mut grad_s) = (0.0, 0.0, 0.0, 0.0);
-            let mut sample_s = 0.0;
+            let (mut sample_s, mut subset_s) = (0.0, 0.0);
+            let mut row_subset = RowSubset::default();
+            let mut subset_times = Vec::with_capacity(iterations);
             let mut rng = StdRng::seed_from_u64(seed);
             // Same warm-up rule as `GradientBooster::fit`.
             let warmup = match sample_method {
@@ -259,22 +268,44 @@ fn main() {
                     }
                 };
                 tree_rows.push(index.len());
+                let tc = Instant::now();
+                let subset = use_subset
+                    && iteration_method != SampleMethod::None
+                    && RowSubset::should_use(index.len(), rows);
+                if subset {
+                    row_subset.fill(&bdata, &index, &col_index, &grad, &hess, parallel);
+                }
                 let t0 = Instant::now();
                 let mut tree = Tree::new();
-                tree.fit(
-                    &bdata,
-                    index,
-                    &col_index,
-                    &binned.cuts,
-                    &grad,
-                    &hess,
-                    &splitter,
-                    max_leaves,
-                    max_depth,
-                    parallel,
-                    &iteration_method,
-                    &grow_policy,
-                );
+                let fit_tree =
+                    |tree: &mut Tree, data: &Matrix<u16>, index, g: &[f32], h: &[f32]| {
+                        tree.fit(
+                            data,
+                            index,
+                            &col_index,
+                            &binned.cuts,
+                            g,
+                            h,
+                            &splitter,
+                            max_leaves,
+                            max_depth,
+                            parallel,
+                            &iteration_method,
+                            &grow_policy,
+                        )
+                    };
+                if subset {
+                    let (subset_data, subset_index) = row_subset.matrix();
+                    fit_tree(
+                        &mut tree,
+                        &subset_data,
+                        subset_index,
+                        &row_subset.grad,
+                        &row_subset.hess,
+                    );
+                } else {
+                    fit_tree(&mut tree, &bdata, index, &grad, &hess);
+                }
                 let t1 = Instant::now();
                 yhat.iter_mut()
                     .zip(tree.predict(&data, parallel, &f64::NAN))
@@ -289,8 +320,10 @@ fn main() {
                 (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
                 let t4 = Instant::now();
 
-                sample_s += (t0 - ts).as_secs_f64();
-                sample_times.push((t0 - ts).as_secs_f64());
+                sample_s += (tc - ts).as_secs_f64();
+                sample_times.push((tc - ts).as_secs_f64());
+                subset_s += (t0 - tc).as_secs_f64();
+                subset_times.push((t0 - tc).as_secs_f64());
                 tree_s += (t1 - t0).as_secs_f64();
                 train_predict_s += (t2 - t1).as_secs_f64();
                 eval_s += (t3 - t2).as_secs_f64();
@@ -305,6 +338,7 @@ fn main() {
                 "phases_s": {
                     "bin": bin_s,
                     "sample": sample_s,
+                    "subset": subset_s,
                     "tree": tree_s,
                     "train_predict": train_predict_s,
                     "eval_predict_metric": eval_s,
@@ -312,6 +346,7 @@ fn main() {
                 },
                 "tree_s": tree_times,
                 "sample_s": sample_times,
+                "subset_s": subset_times,
                 "tree_rows": tree_rows,
                 "tree_nodes": tree_nodes,
             })

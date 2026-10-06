@@ -7,7 +7,7 @@ use crate::objective::{
     calc_init_callables, gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType,
     SquaredLoss,
 };
-use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
+use crate::sampler::{GossSampler, RandomSampler, RowSubset, SampleMethod, Sampler};
 use crate::shapley::predict_contributions_row_shapley;
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
@@ -435,7 +435,8 @@ impl GradientBooster {
         validate_positive_float_field!(self.other_rate);
         validate_positive_float_field!(self.colsample_bytree);
         if self.sample_method == SampleMethod::Goss {
-            if self.top_rate <= 0. || self.other_rate <= 0. || self.top_rate + self.other_rate > 1. {
+            if self.top_rate <= 0. || self.other_rate <= 0. || self.top_rate + self.other_rate > 1.
+            {
                 return Err(ForustError::InvalidParameter(
                     "top_rate and other_rate".to_string(),
                     "both greater than 0 with a sum of at most 1".to_string(),
@@ -558,7 +559,9 @@ impl GradientBooster {
     /// The sampling to use for a given iteration; GOSS uses all rows during warm-up.
     fn iteration_sample_method(&self, iteration: usize) -> SampleMethod {
         match self.sample_method {
-            SampleMethod::Goss if iteration < GossSampler::warmup_iterations(self.learning_rate) => {
+            SampleMethod::Goss
+                if iteration < GossSampler::warmup_iterations(self.learning_rate) =>
+            {
                 SampleMethod::None
             }
             method => method,
@@ -648,6 +651,7 @@ impl GradientBooster {
         // This will always be false, unless early stopping rounds are used.
         let mut stop_early = false;
         let col_index: Vec<usize> = (0..data.cols).collect();
+        let mut row_subset = RowSubset::default();
         for i in 0..self.iterations {
             let verbose = if self.log_iterations == 0 {
                 false
@@ -681,20 +685,49 @@ impl GradientBooster {
                 &colsample_index
             };
 
-            tree.fit(
-                &bdata,
-                chosen_index,
-                fit_col_index,
-                &binned_data.cuts,
-                &grad,
-                &hess,
-                splitter,
-                self.max_leaves,
-                self.max_depth,
-                self.parallel,
-                &sample_method,
-                &self.grow_policy,
-            );
+            // When few rows are sampled, build the tree on a contiguous copy of them.
+            if sample_method != SampleMethod::None
+                && RowSubset::should_use(chosen_index.len(), data.rows)
+            {
+                row_subset.fill(
+                    &bdata,
+                    &chosen_index,
+                    fit_col_index,
+                    &grad,
+                    &hess,
+                    self.parallel,
+                );
+                let (subset_data, subset_index) = row_subset.matrix();
+                tree.fit(
+                    &subset_data,
+                    subset_index,
+                    fit_col_index,
+                    &binned_data.cuts,
+                    &row_subset.grad,
+                    &row_subset.hess,
+                    splitter,
+                    self.max_leaves,
+                    self.max_depth,
+                    self.parallel,
+                    &sample_method,
+                    &self.grow_policy,
+                );
+            } else {
+                tree.fit(
+                    &bdata,
+                    chosen_index,
+                    fit_col_index,
+                    &binned_data.cuts,
+                    &grad,
+                    &hess,
+                    splitter,
+                    self.max_leaves,
+                    self.max_depth,
+                    self.parallel,
+                    &sample_method,
+                    &self.grow_policy,
+                );
+            }
 
             self.update_predictions_inplace(&mut yhat, &tree, data);
 
@@ -1414,7 +1447,10 @@ mod tests {
                 serde_json::to_string(&full.trees[i]).unwrap()
             );
         }
-        assert_ne!(goss.trees[3].nodes[0].hessian_sum, full.trees[3].nodes[0].hessian_sum);
+        assert_ne!(
+            goss.trees[3].nodes[0].hessian_sum,
+            full.trees[3].nodes[0].hessian_sum
+        );
     }
 
     #[test]
