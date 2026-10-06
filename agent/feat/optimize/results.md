@@ -70,6 +70,22 @@ Serial fraction at 8 threads:
 | 100k x 200, depth 5 | 63% | 43% | 47% | 36% | 17% |
 | 25k x 200, depth 8 | 81% | 57% | 54% | 35% | 12% |
 
+Binning time per fit (seconds), after item 3:
+
+| Data | Rows | Mode | baseline | item3 | Change |
+| --- | ---: | --- | ---: | ---: | ---: |
+| w200 | 100k | serial | 1.94 | 1.18 | -39% |
+| w200 | 100k | 8 threads | 1.91 | 0.16 | -92% |
+| w200 | 250k | serial | 5.52 | 3.11 | -44% |
+| w200 | 250k | 8 threads | 5.78 | 0.49 | -92% |
+| w500 | 100k | serial | 5.30 | 3.39 | -36% |
+| w500 | 100k | 8 threads | 5.14 | 0.41 | -92% |
+| w200-1m | 1M | 8 threads | 24.73 | 1.79 | -93% |
+
+End to end, a real 100-iteration `fit` on 1M x 200 with 8 threads went from
+52.7 s (baseline) to 27.2 s (item 3), 1.94x faster, with bit-identical
+evaluation log-loss.
+
 ## Step log
 
 ### baseline (`4a6d828`)
@@ -156,3 +172,32 @@ Tested with a temporary environment variable, 8 threads, tree ms:
 
 Every threshold was slower. With 200+ columns even small nodes have enough
 per-column work to keep the workers busy, so the change was not committed.
+
+### item3: parallel binning, one sort per column (`86a77b3`)
+
+- **3a:** `percentiles_or_value` sorted a copy of each column to count
+  distinct values, then `percentiles` sorted an index array again. Now each
+  column is sorted once. With uniform weights it sorts the values directly;
+  tied values can't change the percentile walk when every weight is equal.
+  Otherwise it does one index sort shared by both steps. The percentile walk
+  moved to `utils::percentiles_of_sorted`; the public `percentiles` (used by
+  Python) is unchanged.
+- **3b:** `bin_matrix` takes a `parallel` argument (API change, approved).
+  Column cuts and bin assignment run per column in parallel, which also
+  removes a division per value.
+- Models unchanged. New tests: the new `percentiles_or_value` matches the old
+  algorithm on uniform and weighted, continuous and tied data; serial and
+  parallel `bin_matrix` give identical cuts and bins with missing values and
+  weights. 46 Rust tests pass.
+- Binning: serial (3a only) 34-44% faster; 8 threads 91-93% faster (11-14x).
+  1M x 200: 24.7 s to 1.8 s, beating the 5 s target.
+- Tree times unchanged within noise.
+
+### item3a': pair sort for weighted data (not adopted)
+
+Sorting (value, weight) pairs instead of an index array would only help
+weighted data (uniform weights already use a direct sort), and could change a
+cut in its last digit when tied values carry different weights. Timed in a
+scratch program on 1M-row columns: continuous 68.4 to 49.0 ms, 50 levels 23.9
+to 15.0 ms per column. For a weighted 1M x 200 fit on 8 threads that's about
+0.5 s of a 27 s fit (~2%), so it isn't worth the risk.

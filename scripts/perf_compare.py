@@ -40,7 +40,7 @@ def main() -> None:
         grid, data, rows, depth, parallel = k
         values = [by_label[label].get(k, {}).get(args.metric) for label in args.labels]
         cells = [grid, data, f"{rows // 1000}k", str(depth), "8 threads" if parallel else "serial"]
-        cells += [f"{v:.1f}" if v is not None else "-" for v in values]
+        cells += [f"{v:.{1 if args.metric == 'tree_ms' else 2}f}" if v is not None else "-" for v in values]
         for v in values[1:]:
             cells.append(f"{(v / values[0] - 1) * 100:+.1f}%" if v is not None and values[0] else "-")
         print("| " + " | ".join(cells) + " |")
