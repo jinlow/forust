@@ -185,6 +185,10 @@ pub struct GradientBooster {
     /// Should the children nodes contain the parent node in their bounds, setting this to true, will result in no children being created that result in the higher and lower child values both being greater than, or less than the parent weight.
     #[serde(default = "default_force_children_to_bound_parent")]
     pub force_children_to_bound_parent: bool,
+    /// Number of threads to use when running in parallel. `None` (or 0) uses Rayon's
+    /// global thread pool, which defaults to one thread per logical CPU.
+    #[serde(default)]
+    pub num_threads: Option<usize>,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -406,6 +410,7 @@ impl GradientBooster {
             missing_node_treatment,
             log_iterations,
             force_children_to_bound_parent,
+            num_threads: None,
             trees: Vec::new(),
             metadata: HashMap::new(),
         };
@@ -427,6 +432,26 @@ impl GradientBooster {
         Ok(())
     }
 
+    /// A dedicated thread pool, if `num_threads` is set and the work runs in parallel.
+    fn thread_pool(&self, parallel: bool) -> Option<rayon::ThreadPool> {
+        match self.num_threads {
+            Some(n) if parallel && n > 0 => Some(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(n)
+                    .build()
+                    .expect("failed to build the Rayon thread pool"),
+            ),
+            _ => None,
+        }
+    }
+
+    fn in_thread_pool<R: Send>(&self, parallel: bool, op: impl FnOnce() -> R + Send) -> R {
+        match self.thread_pool(parallel) {
+            Some(pool) => pool.install(op),
+            None => op(),
+        }
+    }
+
     /// Fit the gradient booster on a provided dataset.
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
@@ -434,6 +459,19 @@ impl GradientBooster {
     /// * `sample_weight` - Instance weights to use when
     /// training the model. If None is passed, a weight of 1 will be used for every record.
     pub fn fit(
+        &mut self,
+        data: &Matrix<f64>,
+        y: &[f64],
+        sample_weight: &[f64],
+        evaluation_data: Option<Vec<EvaluationData>>,
+    ) -> Result<(), ForustError> {
+        match self.thread_pool(self.parallel) {
+            Some(pool) => pool.install(|| self.fit_inner(data, y, sample_weight, evaluation_data)),
+            None => self.fit_inner(data, y, sample_weight, evaluation_data),
+        }
+    }
+
+    fn fit_inner(
         &mut self,
         data: &Matrix<f64>,
         y: &[f64],
@@ -731,24 +769,29 @@ impl GradientBooster {
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
     pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
-        let mut init_preds = vec![self.base_score; data.rows];
-        self.get_prediction_trees().iter().for_each(|tree| {
-            for (p_, val) in init_preds
-                .iter_mut()
-                .zip(tree.predict(data, parallel, &self.missing))
-            {
-                *p_ += val;
-            }
-        });
-        init_preds
+        self.in_thread_pool(parallel, || {
+            let mut init_preds = vec![self.base_score; data.rows];
+            self.get_prediction_trees().iter().for_each(|tree| {
+                for (p_, val) in
+                    init_preds
+                        .iter_mut()
+                        .zip(tree.predict(data, parallel, &self.missing))
+                {
+                    *p_ += val;
+                }
+            });
+            init_preds
+        })
     }
 
     /// Predict the leaf Indexes, this returns a vector of length N records * N Trees
     pub fn predict_leaf_indices(&self, data: &Matrix<f64>) -> Vec<usize> {
-        self.get_prediction_trees()
-            .iter()
-            .flat_map(|tree| tree.predict_leaf_indices(data, &self.missing))
-            .collect()
+        self.in_thread_pool(true, || {
+            self.get_prediction_trees()
+                .iter()
+                .flat_map(|tree| tree.predict_leaf_indices(data, &self.missing))
+                .collect()
+        })
     }
 
     /// Predict the contributions matrix for the provided dataset.
@@ -758,7 +801,7 @@ impl GradientBooster {
         method: ContributionsMethod,
         parallel: bool,
     ) -> Vec<f64> {
-        match method {
+        self.in_thread_pool(parallel, || match method {
             ContributionsMethod::Average => self.predict_contributions_average(data, parallel),
             ContributionsMethod::ProbabilityChange => {
                 match self.objective_type {
@@ -768,7 +811,7 @@ impl GradientBooster {
                 self.predict_contributions_probability_change(data, parallel)
             }
             _ => self.predict_contributions_tree_alone(data, parallel, method),
-        }
+        })
     }
 
     // All of the contribution calculation methods, except for average are calculated
@@ -957,10 +1000,12 @@ impl GradientBooster {
     /// * `value` - The value for which to calculate the partial dependence.
     pub fn value_partial_dependence(&self, feature: usize, value: f64) -> f64 {
         let pd: f64 = if self.parallel {
-            self.get_prediction_trees()
-                .par_iter()
-                .map(|t| t.value_partial_dependence(feature, value, &self.missing))
-                .sum()
+            self.in_thread_pool(true, || {
+                self.get_prediction_trees()
+                    .par_iter()
+                    .map(|t| t.value_partial_dependence(feature, value, &self.missing))
+                    .sum()
+            })
         } else {
             self.get_prediction_trees()
                 .iter()
@@ -1157,6 +1202,13 @@ impl GradientBooster {
     /// * `parallel` - Set if the booster should be trained in parallels.
     pub fn set_parallel(mut self, parallel: bool) -> Self {
         self.parallel = parallel;
+        self
+    }
+
+    /// Set the number of threads to use when running in parallel.
+    /// * `num_threads` - Thread count; `None` (or 0) uses Rayon's global thread pool.
+    pub fn set_num_threads(mut self, num_threads: Option<usize>) -> Self {
+        self.num_threads = num_threads;
         self
     }
 
@@ -1450,6 +1502,27 @@ mod tests {
                 })
                 .collect();
             assert_eq!(trees[0], trees[1], "missing_branch={}", missing_branch);
+        }
+    }
+
+    #[test]
+    fn test_num_threads_trees_identical() {
+        let (rows, cols) = (5000, 40);
+        let (data_vec, y) = make_determinism_data(rows, cols);
+        let data = Matrix::new(&data_vec, rows, cols);
+        let w = vec![1.; rows];
+        let fit = |num_threads: Option<usize>| {
+            let mut booster = GradientBooster::default()
+                .set_iterations(10)
+                .set_max_depth(6)
+                .set_num_threads(num_threads);
+            booster.fit(&data, &y, &w, None).unwrap();
+            let preds = booster.predict(&data, true);
+            (serde_json::to_string(&booster.trees).unwrap(), preds)
+        };
+        let reference = fit(None);
+        for num_threads in [Some(1), Some(2), Some(4)] {
+            assert_eq!(fit(num_threads), reference, "num_threads={:?}", num_threads);
         }
     }
 }

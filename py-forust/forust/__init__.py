@@ -322,6 +322,7 @@ class GradientBooster:
         log_iterations: int = 0,
         feature_importance_method: str = "Gain",
         force_children_to_bound_parent: bool = False,
+        num_threads: int | None = None,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -410,6 +411,7 @@ class GradientBooster:
             log_iterations (bool, optional): Setting to a value (N) other than zero will result in information being logged about ever N iterations, info can be interacted with directly with the python [`logging`](https://docs.python.org/3/howto/logging.html) module. For an example of how to utilize the logging information see the example [here](/#logging-output).
             feature_importance_method (str, optional): The feature importance method type that will be used to calculate the `feature_importances_` attribute on the booster.
             force_children_to_bound_parent (bool, optional): Setting this parameter to `True` will restrict children nodes, so that they always contain the parent node inside of their range. Without setting this it's possible that both, the left and the right nodes could be greater, than or less than, the parent node. Defaults to `False`.
+            num_threads (int | None, optional): Number of threads to use when `parallel` is `True`, for training and prediction. `None` (or 0) uses one thread per logical CPU, or the `RAYON_NUM_THREADS` environment variable if it is set. On machines with hyperthreading, the number of physical cores is often faster. Defaults to `None`.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -498,6 +500,7 @@ class GradientBooster:
             missing_node_treatment=missing_node_treatment,
             log_iterations=log_iterations,
             force_children_to_bound_parent=force_children_to_bound_parent,
+            num_threads=num_threads,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -539,6 +542,7 @@ class GradientBooster:
         self.log_iterations = log_iterations
         self.feature_importance_method = feature_importance_method
         self.force_children_to_bound_parent = force_children_to_bound_parent
+        self.num_threads = num_threads
 
         self._set_metadata_attributes(
             "feature_importance_method", feature_importance_method

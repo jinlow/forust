@@ -1654,6 +1654,31 @@ def test_set_params(X_y):
     fmod.fit(X, y)
 
 
+def test_num_threads(X_y, tmp_path):
+    X, y = X_y
+    default = GradientBooster(iterations=20).fit(X, y)
+    threaded = GradientBooster(iterations=20, num_threads=2).fit(X, y)
+    assert default.get_params()["num_threads"] is None
+    assert threaded.get_params()["num_threads"] == 2
+    assert np.array_equal(default.predict(X), threaded.predict(X))
+    assert np.array_equal(
+        default.predict_contributions(X), threaded.predict_contributions(X)
+    )
+
+    path = tmp_path / "model.json"
+    threaded.save_booster(path)
+    loaded = GradientBooster.load_booster(path)
+    assert loaded.num_threads == 2
+    assert np.array_equal(loaded.predict(X), threaded.predict(X))
+
+    # Models saved before `num_threads` existed still load.
+    model = json.loads(default.json_dump())
+    del model["num_threads"]
+    old_path = tmp_path / "old.json"
+    old_path.write_text(json.dumps(model))
+    assert GradientBooster.load_booster(old_path).num_threads is None
+
+
 def test_compat_gridsearch(X_y):
     X, y = X_y
     fmod = GradientBooster()
