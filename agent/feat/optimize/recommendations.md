@@ -24,7 +24,9 @@ and the Python suite passes (112 tests, including the XGBoost parity checks).
 
 Versus XGBoost `hist` at 8 threads, Forust went from 1.6-6x slower to:
 - within 1-30% on small and deep cases;
-- faster on 100k x 500 (79.5 vs 107.1 ms) and 1M x 200 (228.9 vs 373.2 ms).
+- faster on 100k x 500 (79.5 vs 107.1 ms) and 1M x 200 at depth 5
+  (228.9 vs 373.2 ms);
+- but 39% slower on 1M x 200 at depth 8 (633.7 vs 454.6 ms).
 
 | Change | Commit | Main effect |
 | --- | --- | --- |
@@ -58,8 +60,15 @@ last-digit cut changes).
    depth 5 and 25-66% slower at depth 8. Before changing the default, measure
    on your production machines; detecting physical cores would need a new
    dependency or a heuristic.
-3. **Next optimization candidates, if you want more.** In the final profile
-   (25k x 200, depth 8, 8 threads), the remaining time is mostly:
+3. **Next optimization candidates, if you want more.**
+   - **Row partitioning, first.** After each split, `pivot_on_split` reorders
+     the node's rows on one thread, so every tree level makes a serial pass
+     over all rows. It was the top remaining serial item after item 2c, and
+     is the likely reason Forust is 39% slower than XGBoost at 1M x 200,
+     depth 8. Profile that case first to confirm.
+
+   In the final profile (25k x 200, depth 8, 8 threads), the remaining time
+   is mostly:
    - the split search itself, ~40% (`evaluate_split` and its loop): it
      computes weights and gains for every bin of every feature at every node;
      skipping bins that fail `min_leaf_weight` before computing gains would

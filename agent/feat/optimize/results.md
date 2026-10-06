@@ -91,6 +91,11 @@ understates Forust's iteration time by 3-10%.
 | 25k x 500, depth 5 | 128.1 | 37.6 | 37.1 |
 | 100k x 500, depth 5 | 174.9 | 79.5 | 107.1 |
 | 1M x 200, depth 5 | 261.0 | 228.9 | 373.2 |
+| 1M x 200, depth 8 | not run | 633.7 | 454.6 |
+
+The 1M x 200 depth 8 row is a single run of 20 iterations. From depth 5 to
+depth 8, Forust's time grows 177% at 1M rows versus 22% for XGBoost; serial
+row partitioning after each split is the likely cause (not yet profiled).
 
 Serial fraction at 8 threads (item 4 moved training onto a pool thread, so
 the main thread now only waits and this metric no longer applies):
