@@ -2,6 +2,9 @@ use crate::data::{FloatData, JaggedMatrix, Matrix};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+/// Below this many rows, gathering gradients serially is cheaper than scheduling Rayon tasks.
+const PARALLEL_GATHER_MIN_ROWS: usize = 16_384;
+
 /// Struct to hold the information of a given bin.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Bin<T> {
@@ -130,20 +133,16 @@ impl HistogramMatrix {
         // Sort gradients and hessians to reduce cache hits.
         // This made a really sizeable difference on larger datasets
         // Bringing training time down from nearly 6 minutes, to 2 minutes.
-        // Sort gradients and hessians to reduce cache hits.
-        // This made a really sizeable difference on larger datasets
-        // Bringing training time down from nearly 6 minutes, to 2 minutes.
-        let (sorted_grad, sorted_hess) = if !sort {
-            (grad.to_vec(), hess.to_vec())
+        let gathered: (Vec<f32>, Vec<f32>);
+        let (sorted_grad, sorted_hess): (&[f32], &[f32]) = if !sort {
+            (grad, hess)
         } else {
-            let mut n_grad = Vec::new();
-            let mut n_hess = Vec::new();
-            for i in index {
-                let i_ = *i;
-                n_grad.push(grad[i_]);
-                n_hess.push(hess[i_]);
-            }
-            (n_grad, n_hess)
+            gathered = if parallel && index.len() >= PARALLEL_GATHER_MIN_ROWS {
+                index.par_iter().map(|&i| (grad[i], hess[i])).unzip()
+            } else {
+                index.iter().map(|&i| (grad[i], hess[i])).unzip()
+            };
+            (&gathered.0, &gathered.1)
         };
 
         let histograms = if parallel {
@@ -153,8 +152,8 @@ impl HistogramMatrix {
                     create_feature_histogram(
                         data.get_col(*col),
                         cuts.get_col(*col),
-                        &sorted_grad,
-                        &sorted_hess,
+                        sorted_grad,
+                        sorted_hess,
                         index,
                     )
                 })
@@ -166,8 +165,8 @@ impl HistogramMatrix {
                     create_feature_histogram(
                         data.get_col(*col),
                         cuts.get_col(*col),
-                        &sorted_grad,
-                        &sorted_hess,
+                        sorted_grad,
+                        sorted_hess,
                         index,
                     )
                 })
