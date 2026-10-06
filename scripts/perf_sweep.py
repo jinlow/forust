@@ -40,6 +40,8 @@ def run_once(data: Path, rows: int, threads: int, parallel: bool, iterations: in
     env = {**os.environ, "RAYON_NUM_THREADS": str(threads)}
     result = json.loads(subprocess.run(command, env=env, check=True, capture_output=True, text=True).stdout)
     steady = result["tree_s"][WARMUP_ITERATIONS:]
+    # Older binaries have no sampling phase.
+    steady_sample = result.get("sample_s", [0.0] * iterations)[WARMUP_ITERATIONS:]
     phases = result["phases_s"]
     per_iteration = {
         name: 1000 * value / iterations for name, value in phases.items() if name != "bin"
@@ -54,6 +56,8 @@ def run_once(data: Path, rows: int, threads: int, parallel: bool, iterations: in
         "parallel": parallel,
         "iterations": iterations,
         "tree_ms": 1000 * mean(steady),
+        "sample_ms": 1000 * mean(steady_sample),
+        "tree_rows": result.get("tree_rows", [rows])[-1],
         "bin_s": phases["bin"],
         "per_iteration_ms": per_iteration,
         "eval_logloss": result["eval_logloss"],
@@ -66,6 +70,7 @@ def run(data: Path, rows: int, threads: int, parallel: bool, iterations: int, ex
     record["tree_ms_samples"] = [s["tree_ms"] for s in samples]
     record["bin_s_samples"] = [s["bin_s"] for s in samples]
     record["tree_ms"] = median(record["tree_ms_samples"])
+    record["sample_ms"] = median(s["sample_ms"] for s in samples)
     record["bin_s"] = median(record["bin_s_samples"])
     return record
 
@@ -85,7 +90,9 @@ def main() -> None:
 
     commit = git_commit()
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    print(f"{'data':>8} {'rows':>8} {'cols':>5} {'mode':>12} {'tree ms':>9} {'speedup':>8} {'bin s':>7}")
+    print(
+        f"{'data':>8} {'rows':>8} {'cols':>5} {'mode':>12} {'tree ms':>9} {'sample ms':>9} {'speedup':>8} {'bin s':>7}"
+    )
     with open(args.out, "a") as out:
         for data, rows in itertools.product(args.data, args.rows):
             records = [] if args.no_serial else [run(data, rows, 1, False, args.iterations, args.extra, args.repeats)]
@@ -100,7 +107,7 @@ def main() -> None:
                 speedup = f"{serial_ms / record['tree_ms']:>7.2f}x" if serial_ms else f"{'-':>8}"
                 print(
                     f"{data.name:>8} {rows:>8} {record['cols']:>5} {mode:>12} "
-                    f"{record['tree_ms']:>9.1f} {speedup} {record['bin_s']:>7.2f}",
+                    f"{record['tree_ms']:>9.1f} {record['sample_ms']:>9.2f} {speedup} {record['bin_s']:>7.2f}",
                     flush=True,
                 )
 

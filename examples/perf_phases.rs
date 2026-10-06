@@ -8,9 +8,11 @@ use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::{GradientBooster, GrowPolicy};
 use forust_ml::metric::log_loss;
 use forust_ml::objective::{LogLoss, ObjectiveFunction};
-use forust_ml::sampler::SampleMethod;
+use forust_ml::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
 use forust_ml::splitter::MissingImputerSplitter;
 use forust_ml::tree::Tree;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
@@ -99,6 +101,18 @@ fn main() {
     let num_threads = args.get("num-threads", 0usize);
     let predict_calls = args.get("predict-calls", 0usize);
     let mode = args.get("mode", String::from("phases"));
+    let sample_method_name = args.get("sample-method", String::from("none")).to_lowercase();
+    let sample_method = match sample_method_name.as_str() {
+        "none" => SampleMethod::None,
+        "random" => SampleMethod::Random,
+        "goss" => SampleMethod::Goss,
+        value => panic!("unknown sample method: {value}"),
+    };
+    let top_rate = args.get("top-rate", 0.2f64);
+    let other_rate = args.get("other-rate", 0.1f64);
+    let subsample = args.get("subsample", 1.0f32);
+    let seed = args.get("seed", 0u64);
+    let early_stopping_rounds = args.get("early-stopping-rounds", 0usize);
 
     let (values, y) = load_split(&dir, "train", total_rows, rows, cols);
     let (eval_values, eval_y) = load_split(&dir, "eval", total_eval_rows, eval_rows, cols);
@@ -123,6 +137,12 @@ fn main() {
         "missing_branch": missing_branch,
         "num_threads": num_threads,
         "rayon_threads": rayon::current_num_threads(),
+        "sample_method": sample_method_name,
+        "top_rate": top_rate,
+        "other_rate": other_rate,
+        "subsample": subsample,
+        "seed": seed,
+        "early_stopping_rounds": early_stopping_rounds,
     });
 
     let result = if mode == "fit" {
@@ -133,9 +153,15 @@ fn main() {
             .set_nbins(nbins)
             .set_parallel(parallel)
             .set_create_missing_branch(missing_branch)
-            .set_num_threads((num_threads > 0).then_some(num_threads));
+            .set_num_threads((num_threads > 0).then_some(num_threads))
+            .set_sample_method(sample_method)
+            .set_subsample(subsample)
+            .set_seed(seed)
+            .set_early_stopping_rounds((early_stopping_rounds > 0).then_some(early_stopping_rounds));
         booster.grow_policy = grow_policy;
         booster.max_leaves = max_leaves;
+        booster.top_rate = top_rate;
+        booster.other_rate = other_rate;
         let start = Instant::now();
         booster
             .fit(
@@ -172,6 +198,8 @@ fn main() {
             "config": config,
             "total_s": total,
             "eval_logloss": eval_logloss,
+            "trees": booster.trees.len(),
+            "best_iteration": booster.best_iteration,
             "predict_ms_per_call": predict_ms,
         })
     } else {
@@ -197,16 +225,45 @@ fn main() {
             let mut eval_yhat = vec![base_score; eval_rows];
             let (mut grad, mut hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
             let (mut tree_s, mut train_predict_s, mut eval_s, mut grad_s) = (0.0, 0.0, 0.0, 0.0);
+            let mut sample_s = 0.0;
+            let mut rng = StdRng::seed_from_u64(seed);
+            // Same warm-up rule as `GradientBooster::fit`.
+            let warmup = match sample_method {
+                SampleMethod::Goss => GossSampler::warmup_iterations(learning_rate),
+                _ => 0,
+            };
+            let mut sample_times = Vec::with_capacity(iterations);
+            let mut tree_rows = Vec::with_capacity(iterations);
             let mut tree_times = Vec::with_capacity(iterations);
             let mut tree_nodes = Vec::with_capacity(iterations);
             let mut eval_logloss = f64::NAN;
 
-            for _ in 0..iterations {
+            for i in 0..iterations {
+                let ts = Instant::now();
+                let iteration_method = if i < warmup {
+                    SampleMethod::None
+                } else {
+                    sample_method
+                };
+                let index = match iteration_method {
+                    SampleMethod::None => data.index.to_owned(),
+                    SampleMethod::Random => {
+                        RandomSampler::new(subsample)
+                            .sample(&mut rng, &data.index, &mut grad, &mut hess)
+                            .0
+                    }
+                    SampleMethod::Goss => {
+                        GossSampler::new(top_rate, other_rate)
+                            .sample(&mut rng, &data.index, &mut grad, &mut hess)
+                            .0
+                    }
+                };
+                tree_rows.push(index.len());
                 let t0 = Instant::now();
                 let mut tree = Tree::new();
                 tree.fit(
                     &bdata,
-                    data.index.to_owned(),
+                    index,
                     &col_index,
                     &binned.cuts,
                     &grad,
@@ -215,7 +272,7 @@ fn main() {
                     max_leaves,
                     max_depth,
                     parallel,
-                    &SampleMethod::None,
+                    &iteration_method,
                     &grow_policy,
                 );
                 let t1 = Instant::now();
@@ -232,6 +289,8 @@ fn main() {
                 (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
                 let t4 = Instant::now();
 
+                sample_s += (t0 - ts).as_secs_f64();
+                sample_times.push((t0 - ts).as_secs_f64());
                 tree_s += (t1 - t0).as_secs_f64();
                 train_predict_s += (t2 - t1).as_secs_f64();
                 eval_s += (t3 - t2).as_secs_f64();
@@ -245,12 +304,15 @@ fn main() {
                 "eval_logloss": eval_logloss,
                 "phases_s": {
                     "bin": bin_s,
+                    "sample": sample_s,
                     "tree": tree_s,
                     "train_predict": train_predict_s,
                     "eval_predict_metric": eval_s,
                     "grad_hess": grad_s,
                 },
                 "tree_s": tree_times,
+                "sample_s": sample_times,
+                "tree_rows": tree_rows,
                 "tree_nodes": tree_nodes,
             })
         };
