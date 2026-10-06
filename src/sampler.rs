@@ -2,7 +2,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SampleMethod {
     None,
     Random,
@@ -55,22 +55,40 @@ impl Sampler for RandomSampler {
     }
 }
 
-#[allow(dead_code)]
+/// Gradient-based One-Side Sampling (GOSS), following LightGBM.
+///
+/// Keeps the `top_rate` share of rows with the largest `|gradient * hessian|`,
+/// then samples exactly `other_rate * n` of the remaining rows, scaling their
+/// gradients and hessians by `(n - top_k) / other_k` so the split gains stay
+/// close to unbiased.
+/// See <https://lightgbm.readthedocs.io/en/latest/Parameters.html#top_rate>.
 pub struct GossSampler {
-    a: f64, // https://lightgbm.readthedocs.io/en/latest/Parameters.html#top_rate
-    b: f64, // https://lightgbm.readthedocs.io/en/latest/Parameters.html#other_rate
+    top_rate: f64,
+    other_rate: f64,
 }
 
 impl Default for GossSampler {
     fn default() -> Self {
-        GossSampler { a: 0.2, b: 0.1 }
+        GossSampler {
+            top_rate: 0.2,
+            other_rate: 0.1,
+        }
     }
 }
 
-#[allow(dead_code)]
 impl GossSampler {
-    pub fn new(a: f64, b: f64) -> Self {
-        GossSampler { a, b }
+    pub fn new(top_rate: f64, other_rate: f64) -> Self {
+        GossSampler {
+            top_rate,
+            other_rate,
+        }
+    }
+
+    /// Number of initial iterations trained on all rows before GOSS starts.
+    /// As in LightGBM, early gradients carry little information about which
+    /// rows matter, so the first `1 / learning_rate` trees use every row.
+    pub fn warmup_iterations(learning_rate: f32) -> usize {
+        (1.0f32 / learning_rate) as usize
     }
 }
 
@@ -82,29 +100,141 @@ impl Sampler for GossSampler {
         grad: &mut [f32],
         hess: &mut [f32],
     ) -> (Vec<usize>, Vec<usize>) {
-        let fact = ((1. - self.a) / self.b) as f32;
-        let top_n = (self.a * index.len() as f64) as usize;
-        let rand_n = (self.b * index.len() as f64) as usize;
+        let n = index.len();
+        if n == 0 {
+            return (Vec::new(), Vec::new());
+        }
+        let top_k = ((n as f64 * self.top_rate) as usize).clamp(1, n);
+        let other_k = (n as f64 * self.other_rate) as usize;
 
-        // sort gradient by absolute value from highest to lowest
-        let mut sorted = (0..index.len()).collect::<Vec<_>>();
-        sorted.sort_unstable_by(|&a, &b| grad[b].abs().total_cmp(&grad[a].abs()));
+        let scores: Vec<f32> = index.iter().map(|&i| (grad[i] * hess[i]).abs()).collect();
+        // The top_k-th largest score; selection is O(n), unlike a full sort.
+        let threshold = {
+            let mut buffer = scores.clone();
+            *buffer
+                .select_nth_unstable_by(top_k - 1, |a, b| b.total_cmp(a))
+                .1
+        };
+        let multiply = (n - top_k) as f32 / other_k as f32;
 
-        // select the topN largest gradients
-        let mut used_set = sorted[0..top_n].to_vec();
-
-        // sample the rest based on randN
-        let subsample = rand_n as f64 / (index.len() as f64 - top_n as f64);
-
-        // weight the sampled "small gradients" by fact and append indices to used_set
-        for i in &sorted[top_n..sorted.len()] {
-            if rng.gen_range(0.0..1.0) < subsample {
-                grad[*i] *= fact;
-                hess[*i] *= fact;
-                used_set.push(*i);
+        let mut chosen = Vec::with_capacity(top_k + other_k);
+        let mut excluded = Vec::with_capacity(n.saturating_sub(top_k + other_k));
+        let mut big_count: i64 = 0;
+        for (position, (&i, &score)) in index.iter().zip(&scores).enumerate() {
+            if score >= threshold {
+                chosen.push(i);
+                big_count += 1;
+                continue;
+            }
+            // Sampling with probability rest_need / rest_all draws exactly other_k rows.
+            let sampled = chosen.len() as i64 - big_count;
+            let rest_need = other_k as i64 - sampled;
+            let rest_all = (n - position) as i64 - (top_k as i64 - big_count);
+            let probability = rest_need as f64 / rest_all as f64;
+            if rng.gen::<f64>() < probability {
+                grad[i] *= multiply;
+                hess[i] *= multiply;
+                chosen.push(i);
+            } else {
+                excluded.push(i);
             }
         }
+        (chosen, excluded)
+    }
+}
 
-        (used_set, Vec::new())
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::SeedableRng;
+
+    // Distinct |g * h| scores: row i scores i + 1 (rows are shuffled by a stride).
+    fn gradients(n: usize) -> (Vec<f32>, Vec<f32>) {
+        let grad = (0..n).map(|i| ((i * 37) % n + 1) as f32).collect();
+        let hess = vec![1.0; n];
+        (grad, hess)
+    }
+
+    #[test]
+    fn test_goss_sample_counts_and_weights() {
+        let n = 1000;
+        let (mut grad, mut hess) = gradients(n);
+        let (orig_grad, orig_hess) = (grad.clone(), hess.clone());
+        let index: Vec<usize> = (0..n).collect();
+        let mut rng = StdRng::seed_from_u64(0);
+        let (chosen, excluded) =
+            GossSampler::new(0.2, 0.1).sample(&mut rng, &index, &mut grad, &mut hess);
+
+        assert_eq!(chosen.len(), 200 + 100);
+        assert_eq!(excluded.len(), n - chosen.len());
+        assert!(chosen.windows(2).all(|w| w[0] < w[1]));
+
+        let multiply = (n - 200) as f32 / 100.0;
+        let threshold = (n - 200 + 1) as f32;
+        let mut top = 0;
+        for &i in &chosen {
+            if orig_grad[i] >= threshold {
+                top += 1;
+                assert_eq!(grad[i], orig_grad[i]);
+                assert_eq!(hess[i], orig_hess[i]);
+            } else {
+                assert_eq!(grad[i], orig_grad[i] * multiply);
+                assert_eq!(hess[i], orig_hess[i] * multiply);
+            }
+        }
+        assert_eq!(top, 200);
+        for &i in &excluded {
+            assert!(orig_grad[i] < threshold);
+            assert_eq!(grad[i], orig_grad[i]);
+            assert_eq!(hess[i], orig_hess[i]);
+        }
+    }
+
+    #[test]
+    fn test_goss_ranks_by_gradient_times_hessian() {
+        // Row 0 has the largest gradient but a tiny hessian; row 1 has the largest product.
+        let mut grad = vec![10.0, 2.0, 1.0, 1.0];
+        let mut hess = vec![0.01, 1.0, 0.5, 0.5];
+        let index = vec![0, 1, 2, 3];
+        let mut rng = StdRng::seed_from_u64(0);
+        let (chosen, _) =
+            GossSampler::new(0.25, 0.25).sample(&mut rng, &index, &mut grad, &mut hess);
+        assert!(chosen.contains(&1));
+        assert_eq!(grad[1], 2.0);
+    }
+
+    #[test]
+    fn test_goss_returns_values_from_index() {
+        let n = 100;
+        let (mut grad, mut hess) = gradients(n);
+        let index: Vec<usize> = (50..n).collect();
+        let mut rng = StdRng::seed_from_u64(1);
+        let (chosen, excluded) =
+            GossSampler::new(0.2, 0.2).sample(&mut rng, &index, &mut grad, &mut hess);
+        assert_eq!(chosen.len(), 10 + 10);
+        assert!(chosen.iter().chain(&excluded).all(|i| (50..n).contains(i)));
+        assert_eq!(chosen.len() + excluded.len(), index.len());
+    }
+
+    #[test]
+    fn test_goss_is_deterministic_for_a_seed() {
+        let n = 500;
+        let index: Vec<usize> = (0..n).collect();
+        let run = |seed| {
+            let (mut grad, mut hess) = gradients(n);
+            let mut rng = StdRng::seed_from_u64(seed);
+            GossSampler::default()
+                .sample(&mut rng, &index, &mut grad, &mut hess)
+                .0
+        };
+        assert_eq!(run(3), run(3));
+        assert_ne!(run(3), run(4));
+    }
+
+    #[test]
+    fn test_goss_warmup_iterations() {
+        assert_eq!(GossSampler::warmup_iterations(0.1), 10);
+        assert_eq!(GossSampler::warmup_iterations(0.3), 3);
+        assert_eq!(GossSampler::warmup_iterations(1.0), 1);
     }
 }

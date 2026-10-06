@@ -130,10 +130,12 @@ pub struct GradientBooster {
     pub monotone_constraints: Option<ConstraintMap>,
     /// Percent of records to randomly sample at each iteration when training a tree.
     pub subsample: f32,
-    /// Used only in goss. The retain ratio of large gradient data.
+    /// Used only with `SampleMethod::Goss`. The share of rows with the largest
+    /// `|gradient * hessian|` that are always kept.
     #[serde(default = "default_top_rate")]
     pub top_rate: f64,
-    /// Used only in goss. the retain ratio of small gradient data.
+    /// Used only with `SampleMethod::Goss`. The share of rows randomly sampled
+    /// from the remaining rows, whose gradients and hessians are scaled up.
     #[serde(default = "default_other_rate")]
     pub other_rate: f64,
     /// Specify the fraction of columns that should be sampled at each iteration, valid values are in the range (0.0,1.0].
@@ -146,7 +148,10 @@ pub struct GradientBooster {
     pub missing: f64,
     /// Should missing be split out it's own separate branch?
     pub create_missing_branch: bool,
-    /// Specify the method that records should be sampled when training?
+    /// Specify the method that records should be sampled when training. `Random`
+    /// samples `subsample` of the rows; `Goss` uses Gradient-based One-Side Sampling
+    /// with `top_rate` and `other_rate`, after `1 / learning_rate` warm-up iterations
+    /// on all rows.
     #[serde(default = "default_sample_method")]
     pub sample_method: SampleMethod,
     /// Growth policy to use when training a tree, this is how the next node is selected.
@@ -211,10 +216,10 @@ fn default_grow_policy() -> GrowPolicy {
 }
 
 fn default_top_rate() -> f64 {
-    0.1
+    0.2
 }
 fn default_other_rate() -> f64 {
-    0.2
+    0.1
 }
 fn default_sample_method() -> SampleMethod {
     SampleMethod::None
@@ -277,8 +282,8 @@ impl Default for GradientBooster {
             true,
             None,
             1.,
-            0.1,
             0.2,
+            0.1,
             1.0,
             0,
             f64::NAN,
@@ -329,13 +334,13 @@ impl GradientBooster {
     /// * `monotone_constraints` - Constraints that are used to enforce a specific relationship
     ///   between the training features and the target variable.
     /// * `subsample` - Percent of records to randomly sample at each iteration when training a tree.
-    /// * `top_rate` - Used only in goss. The retain ratio of large gradient data.
-    /// * `other_rate` - Used only in goss. the retain ratio of small gradient data.
+    /// * `top_rate` - Used only in goss. The share of rows with the largest gradients that are always kept.
+    /// * `other_rate` - Used only in goss. The share of rows sampled from the rest, with scaled-up gradients.
     /// * `colsample_bytree` - Specify the fraction of columns that should be sampled at each iteration, valid values are in the range (0.0,1.0].
     /// * `seed` - Integer value used to seed any randomness used in the algorithm.
     /// * `missing` - Value to consider missing.
     /// * `create_missing_branch` - Should missing be split out it's own separate branch?
-    /// * `sample_method` - Specify the method that records should be sampled when training?
+    /// * `sample_method` - Specify the method that records should be sampled when training.
     /// * `evaluation_metric` - Define the evaluation metric to record at each iterations.
     /// * `early_stopping_rounds` - Number of rounds that must
     /// * `initialize_base_score` - If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
@@ -429,6 +434,22 @@ impl GradientBooster {
         validate_positive_float_field!(self.top_rate);
         validate_positive_float_field!(self.other_rate);
         validate_positive_float_field!(self.colsample_bytree);
+        if self.sample_method == SampleMethod::Goss {
+            if self.top_rate <= 0. || self.other_rate <= 0. || self.top_rate + self.other_rate > 1. {
+                return Err(ForustError::InvalidParameter(
+                    "top_rate and other_rate".to_string(),
+                    "both greater than 0 with a sum of at most 1".to_string(),
+                    format!("{} and {}", self.top_rate, self.other_rate),
+                ));
+            }
+            if self.subsample != 1. {
+                return Err(ForustError::InvalidParameter(
+                    "subsample".to_string(),
+                    "1.0 when sample_method is Goss".to_string(),
+                    self.subsample.to_string(),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -484,6 +505,7 @@ impl GradientBooster {
         evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
         // Validate inputs
+        self.validate_parameters()?;
         validate_not_nan_vec(y, "y".to_string())?;
         validate_positive_not_nan_vec(sample_weight, "sample_weight".to_string())?;
         if let Some(eval_data) = &evaluation_data {
@@ -533,14 +555,25 @@ impl GradientBooster {
         Ok(())
     }
 
+    /// The sampling to use for a given iteration; GOSS uses all rows during warm-up.
+    fn iteration_sample_method(&self, iteration: usize) -> SampleMethod {
+        match self.sample_method {
+            SampleMethod::Goss if iteration < GossSampler::warmup_iterations(self.learning_rate) => {
+                SampleMethod::None
+            }
+            method => method,
+        }
+    }
+
     fn sample_index(
         &self,
+        sample_method: SampleMethod,
         rng: &mut StdRng,
         index: &[usize],
         grad: &mut [f32],
         hess: &mut [f32],
     ) -> (Vec<usize>, Vec<usize>) {
-        match self.sample_method {
+        match sample_method {
             SampleMethod::None => (index.to_owned(), Vec::new()),
             SampleMethod::Random => {
                 RandomSampler::new(self.subsample).sample(rng, index, grad, hess)
@@ -621,9 +654,10 @@ impl GradientBooster {
             } else {
                 i % self.log_iterations == 0
             };
+            let sample_method = self.iteration_sample_method(i);
             // We will eventually use the excluded index.
             let (chosen_index, _excluded_index) =
-                self.sample_index(&mut rng, &data.index, &mut grad, &mut hess);
+                self.sample_index(sample_method, &mut rng, &data.index, &mut grad, &mut hess);
             let mut tree = Tree::new();
 
             // If we are doing any column sampling...
@@ -658,7 +692,7 @@ impl GradientBooster {
                 self.max_leaves,
                 self.max_depth,
                 self.parallel,
-                &self.sample_method,
+                &sample_method,
                 &self.grow_policy,
             );
 
@@ -1274,6 +1308,20 @@ impl GradientBooster {
         self
     }
 
+    /// Set the GOSS top rate on the booster.
+    /// * `top_rate` - Share of rows with the largest gradients that are always kept.
+    pub fn set_top_rate(mut self, top_rate: f64) -> Self {
+        self.top_rate = top_rate;
+        self
+    }
+
+    /// Set the GOSS other rate on the booster.
+    /// * `other_rate` - Share of rows sampled from the rest, with scaled-up gradients.
+    pub fn set_other_rate(mut self, other_rate: f64) -> Self {
+        self.other_rate = other_rate;
+        self
+    }
+
     /// Set sample method on the booster.
     /// * `evaluation_metric` - Sample method.
     pub fn set_evaluation_metric(mut self, evaluation_metric: Option<Metric>) -> Self {
@@ -1326,6 +1374,86 @@ impl GradientBooster {
 mod tests {
     use super::*;
     use std::fs;
+
+    fn titanic_like_data() -> (Vec<f64>, Vec<f64>) {
+        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file
+            .lines()
+            .map(|x| x.parse::<f64>().unwrap_or(f64::NAN))
+            .collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        (data_vec, y)
+    }
+
+    fn goss_booster(seed: u64) -> GradientBooster {
+        GradientBooster::default()
+            .set_iterations(10)
+            .set_learning_rate(0.3)
+            .set_max_depth(3)
+            .set_sample_method(SampleMethod::Goss)
+            .set_seed(seed)
+    }
+
+    #[test]
+    fn test_booster_fit_goss_warmup() {
+        let (data_vec, y) = titanic_like_data();
+        let data = Matrix::new(&data_vec, 891, 5);
+        let w = vec![1.; y.len()];
+        let mut goss = goss_booster(0);
+        goss.fit(&data, &y, &w, None).unwrap();
+        let mut full = goss_booster(0).set_sample_method(SampleMethod::None);
+        full.fit(&data, &y, &w, None).unwrap();
+
+        // Warm-up is int(1 / 0.3) = 3 iterations on all rows, so those trees match.
+        for i in 0..3 {
+            assert_eq!(
+                serde_json::to_string(&goss.trees[i]).unwrap(),
+                serde_json::to_string(&full.trees[i]).unwrap()
+            );
+        }
+        assert_ne!(goss.trees[3].nodes[0].hessian_sum, full.trees[3].nodes[0].hessian_sum);
+    }
+
+    #[test]
+    fn test_booster_fit_goss_seed() {
+        let (data_vec, y) = titanic_like_data();
+        let data = Matrix::new(&data_vec, 891, 5);
+        let w = vec![1.; y.len()];
+        let fit = |seed| {
+            let mut booster = goss_booster(seed);
+            booster.fit(&data, &y, &w, None).unwrap();
+            booster.predict(&data, false)
+        };
+        assert_eq!(fit(1), fit(1));
+        assert_ne!(fit(1), fit(2));
+    }
+
+    #[test]
+    fn test_booster_goss_validation() {
+        let (data_vec, y) = titanic_like_data();
+        let data = Matrix::new(&data_vec, 891, 5);
+        let w = vec![1.; y.len()];
+        for booster in [
+            goss_booster(0).set_top_rate(0.0),
+            goss_booster(0).set_other_rate(-0.1),
+            goss_booster(0).set_top_rate(0.6).set_other_rate(0.5),
+            goss_booster(0).set_subsample(0.5),
+        ] {
+            let mut booster = booster;
+            assert!(matches!(
+                booster.fit(&data, &y, &w, None),
+                Err(ForustError::InvalidParameter(..))
+            ));
+        }
+        assert!(goss_booster(0)
+            .set_top_rate(0.6)
+            .set_other_rate(0.4)
+            .fit(&data, &y, &w, None)
+            .is_ok());
+    }
 
     #[test]
     fn test_booster_fit_subsample() {
