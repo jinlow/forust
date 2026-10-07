@@ -212,6 +212,7 @@ impl GradientBooster {
     #[pyo3(signature = (flat_data, rows, cols, y, sample_weight, evaluation_data=None))]
     pub fn fit(
         &mut self,
+        py: Python<'_>,
         flat_data: PyReadonlyArray1<f64>,
         rows: usize,
         cols: usize,
@@ -238,7 +239,10 @@ impl GradientBooster {
                 Some(eval_data)
             }
         };
-        match self.booster.fit(&data, y, sample_weight, evaluation_data_) {
+        // Release the GIL while training: training runs on Rayon threads, and logging
+        // from them (`log_iterations`) needs the GIL, which would otherwise deadlock.
+        let booster = &mut self.booster;
+        match py.detach(|| booster.fit(&data, y, sample_weight, evaluation_data_)) {
             Ok(m) => Ok(m),
             Err(e) => Err(PyValueError::new_err(e.to_string())),
         }?;

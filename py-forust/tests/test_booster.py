@@ -1266,6 +1266,28 @@ def test_early_stopping_with_dev(X_y):
     assert model.get_best_iteration() < 99
 
 
+def test_logging_parallel_fit_does_not_deadlock():
+    # Training logs from Rayon threads; fit must release the GIL so they can log.
+    import subprocess
+    import sys
+
+    code = """
+import logging
+import numpy as np
+from forust import GradientBooster
+logging.basicConfig(level=logging.INFO)
+rng = np.random.default_rng(0)
+X = rng.normal(size=(500, 5))
+y = (X[:, 0] > 0).astype(float)
+GradientBooster(iterations=5, log_iterations=1, parallel=True).fit(X, y, evaluation_data=[(X, y)])
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code], timeout=120, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Completed iteration" in result.stderr
+
+
 def test_evaluation_history_none(X_y):
     X, y = X_y
 
@@ -1311,27 +1333,97 @@ def test_early_stopping_with_dev_val(X_y):
     assert model.number_of_trees == model.get_best_iteration() + 5
 
 
+def _goss_logloss(y, log_odds):
+    p = 1 / (1 + np.exp(-log_odds))
+    return float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))
+
+
 def test_goss_sampling_method(X_y):
     X, y = X_y
-    X = X
-    fmod = GradientBooster(
-        iterations=100,
-        learning_rate=0.3,
-        max_depth=5,
-        l2=1,
-        sample_method="goss",
-        min_leaf_weight=1,
-        gamma=1,
-        top_rate=0.2,
-        other_rate=0.3,
-        objective_type="LogLoss",
-        nbins=500,
-        parallel=True,
-        base_score=0.5,
+    X_train, y_train, X_test, y_test = (
+        X.iloc[:600],
+        y.iloc[:600],
+        X.iloc[600:],
+        y.iloc[600:],
     )
-    fmod.fit(X, y=y)
 
-    assert True
+    def fit(**kwargs):
+        model = GradientBooster(
+            iterations=100,
+            learning_rate=0.1,
+            max_depth=3,
+            objective_type="LogLoss",
+            **kwargs,
+        )
+        model.fit(X_train, y=y_train)
+        return model
+
+    full = fit()
+    full_loss = _goss_logloss(y_test, full.predict(X_test))
+    goss_losses = []
+    for seed in range(5):
+        goss = fit(sample_method="goss", seed=seed)
+        goss_losses.append(_goss_logloss(y_test, goss.predict(X_test)))
+    # Each tree sees ~180 rows here, so allow a loose margin (LightGBM's GOSS is ~7%
+    # worse on this split too); the benchmark checks accuracy on large data.
+    assert np.mean(goss_losses) < full_loss * 1.10
+    assert len(set(goss_losses)) > 1
+
+
+def test_goss_warmup_matches_full_data(X_y):
+    X, y = X_y
+    # With learning_rate=0.1 the first 10 trees use all rows, so GOSS matches no sampling.
+    params = dict(iterations=10, learning_rate=0.1, max_depth=3)
+    full = GradientBooster(**params).fit(X, y)
+    goss = GradientBooster(sample_method="goss", **params).fit(X, y)
+    assert np.allclose(full.predict(X), goss.predict(X))
+    goss_more = GradientBooster(sample_method="goss", **{**params, "iterations": 11})
+    full_more = GradientBooster(**{**params, "iterations": 11})
+    assert not np.allclose(
+        full_more.fit(X, y).predict(X), goss_more.fit(X, y).predict(X)
+    )
+
+
+def test_goss_defaults():
+    model = GradientBooster(sample_method="goss")
+    assert model.top_rate == 0.2
+    assert model.other_rate == 0.1
+    params = model.get_params()
+    assert params["top_rate"] == 0.2
+    assert params["other_rate"] == 0.1
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"sample_method": "gos"}, "Invalid sample_method"),
+        ({"sample_method": "goss", "top_rate": 0.0}, "top_rate and other_rate"),
+        ({"sample_method": "goss", "other_rate": -0.1}, "other_rate"),
+        (
+            {"sample_method": "goss", "top_rate": 0.6, "other_rate": 0.5},
+            "top_rate and other_rate",
+        ),
+        ({"sample_method": "goss", "subsample": 0.5}, "subsample"),
+    ],
+)
+def test_goss_invalid_parameters(kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        GradientBooster(**kwargs)
+
+
+def test_goss_save_load(X_y, tmp_path):
+    X, y = X_y
+    model = GradientBooster(
+        iterations=20, sample_method="goss", top_rate=0.3, other_rate=0.2, seed=4
+    )
+    model.fit(X, y)
+    path = tmp_path / "goss.json"
+    model.save_booster(str(path))
+    loaded = GradientBooster.load_booster(str(path))
+    assert loaded.sample_method == "Goss"
+    assert loaded.top_rate == 0.3
+    assert loaded.other_rate == 0.2
+    assert np.allclose(model.predict(X), loaded.predict(X))
 
 
 def test_booster_to_xgboosts_with_base_score_log_loss(X_y):
