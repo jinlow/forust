@@ -7,25 +7,21 @@ const PARALLEL_GATHER_MIN_ROWS: usize = 16_384;
 /// Bins per Rayon task when subtracting histograms in parallel.
 const PARALLEL_SUBTRACT_MIN_BINS: usize = 4_096;
 
-/// Struct to hold the information of a given bin.
-#[derive(Debug, Deserialize, Serialize, Clone)]
+/// Struct to hold the information of a given bin. Bin `k > 0` of a feature's
+/// histogram covers values below cut `k - 1` of that feature; bin 0 is missing.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub struct Bin<T> {
     /// The sum of the gradient for this bin.
     pub gradient_sum: T,
     /// The sum of the hession values for this bin.
     pub hessian_sum: T,
-    /// The value used to split at, this is for deciding
-    /// the split value for non-binned values.
-    /// This value will be missing for the missing bin.
-    pub cut_value: f64,
 }
 
 impl Bin<f32> {
-    pub fn new_f32(cut_value: f64) -> Self {
+    pub fn new_f32() -> Self {
         Bin {
             gradient_sum: f32::ZERO,
             hessian_sum: f32::ZERO,
-            cut_value,
         }
     }
 
@@ -35,7 +31,6 @@ impl Bin<f32> {
         Bin {
             gradient_sum: root_bin.gradient_sum - child_bin.gradient_sum,
             hessian_sum: root_bin.hessian_sum - child_bin.hessian_sum,
-            cut_value: root_bin.cut_value,
         }
     }
 
@@ -51,17 +46,15 @@ impl Bin<f32> {
                 - (first_child_bin.gradient_sum + second_child_bin.gradient_sum),
             hessian_sum: root_bin.hessian_sum
                 - (first_child_bin.hessian_sum + second_child_bin.hessian_sum),
-            cut_value: root_bin.cut_value,
         }
     }
 }
 
 impl Bin<f64> {
-    pub fn new_f64(cut_value: f64) -> Self {
+    pub fn new_f64() -> Self {
         Bin {
             gradient_sum: f64::ZERO,
             hessian_sum: f64::ZERO,
-            cut_value,
         }
     }
 
@@ -69,7 +62,6 @@ impl Bin<f64> {
         Bin {
             gradient_sum: self.gradient_sum as f32,
             hessian_sum: self.hessian_sum as f32,
-            cut_value: self.cut_value,
         }
     }
 }
@@ -85,7 +77,6 @@ pub struct HistogramMatrix(pub JaggedMatrix<Bin<f32>>);
 pub fn fill_feature_histogram(
     out: &mut [Bin<f32>],
     feature: &[u16],
-    cuts: &[f64],
     sorted_grad: &[f32],
     sorted_hess: &[f32],
     index: &[usize],
@@ -101,13 +92,10 @@ pub fn fill_feature_histogram(
                 v.1 += f64::from(*h);
             }
         });
-    // The first bin is always missing; the last cut is only needed for binning.
-    let cut_values = std::iter::once(f64::NAN).chain(cuts[..(cuts.len() - 1)].iter().copied());
-    for ((bin, (g, h)), cut_value) in out.iter_mut().zip(sums).zip(cut_values) {
+    for (bin, (g, h)) in out.iter_mut().zip(sums) {
         *bin = Bin {
             gradient_sum: g as f32,
             hessian_sum: h as f32,
-            cut_value,
         };
     }
 }
@@ -173,10 +161,10 @@ impl HistogramMatrix {
         if parallel {
             (0..total_bins)
                 .into_par_iter()
-                .map(|_| Bin::new_f32(f64::NAN))
+                .map(|_| Bin::new_f32())
                 .collect_into_vec(&mut histograms);
         } else {
-            histograms.resize(total_bins, Bin::new_f32(f64::NAN));
+            histograms.resize(total_bins, Bin::new_f32());
         }
         let mut column_bins: Vec<&mut [Bin<f32>]> = Vec::with_capacity(col_index.len());
         let mut rest = histograms.as_mut_slice();
@@ -186,14 +174,7 @@ impl HistogramMatrix {
             rest = tail;
         }
         let fill = |(out, col): (&mut [Bin<f32>], &usize)| {
-            fill_feature_histogram(
-                out,
-                data.get_col(*col),
-                cuts.get_col(*col),
-                sorted_grad,
-                sorted_hess,
-                index,
-            )
+            fill_feature_histogram(out, data.get_col(*col), sorted_grad, sorted_hess, index)
         };
         if parallel {
             column_bins.into_par_iter().zip(col_index).for_each(fill);
@@ -302,8 +283,8 @@ mod tests {
         let w = vec![1.; y.len()];
         let (g, h) = LogLoss::calc_grad_hess(&y, &yhat, &w);
         let cuts = b.cuts.get_col(1);
-        let mut hist = vec![Bin::new_f32(f64::NAN); cuts.len()];
-        fill_feature_histogram(&mut hist, &bdata.get_col(1), cuts, &g, &h, &bdata.index);
+        let mut hist = vec![Bin::new_f32(); cuts.len()];
+        fill_feature_histogram(&mut hist, &bdata.get_col(1), &g, &h, &bdata.index);
         // println!("{:?}", hist);
         let mut f = bdata.get_col(1).to_owned();
         println!("{:?}", hist);

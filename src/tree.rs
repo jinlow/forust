@@ -130,8 +130,18 @@ impl Tree {
             // more, then just add 1 back to n_leaves
             n_leaves -= 1;
 
+            // Children at max_depth are never split, so skip their histograms.
             let new_nodes = splitter.split_node(
-                &n_nodes, &mut node, &mut index, col_index, data, cuts, grad, hess, parallel,
+                &n_nodes,
+                &mut node,
+                &mut index,
+                col_index,
+                data,
+                cuts,
+                grad,
+                hess,
+                parallel,
+                depth < max_depth,
             );
 
             let n_new_nodes = new_nodes.len();

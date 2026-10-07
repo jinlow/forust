@@ -1266,7 +1266,7 @@ def test_early_stopping_with_dev(X_y):
     assert model.get_best_iteration() < 99
 
 
-def test_logging_parallel_fit_does_not_deadlock():
+def test_logging_parallel_fit_does_not_deadlock(tmp_path):
     # Training logs from Rayon threads; fit must release the GIL so they can log.
     import subprocess
     import sys
@@ -1281,8 +1281,13 @@ X = rng.normal(size=(500, 5))
 y = (X[:, 0] > 0).astype(float)
 GradientBooster(iterations=5, log_iterations=1, parallel=True).fit(X, y, evaluation_data=[(X, y)])
 """
+    # Run outside py-forust so the source package doesn't shadow the installed one.
     result = subprocess.run(
-        [sys.executable, "-c", code], timeout=120, capture_output=True, text=True
+        [sys.executable, "-c", code],
+        timeout=120,
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
     )
     assert result.returncode == 0, result.stderr
     assert "Completed iteration" in result.stderr
