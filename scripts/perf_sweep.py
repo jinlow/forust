@@ -2,7 +2,7 @@
 
 Example:
     python scripts/perf_sweep.py --data /tmp/forust-perf/w200 --rows 50000 100000 \
-        --threads 8 --repeats 3 --label baseline --out agent/feat/optimize/results.jsonl
+        --threads 8 --repeats 3 --label baseline --out target/perf/results.jsonl
 """
 
 from __future__ import annotations

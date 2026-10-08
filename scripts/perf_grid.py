@@ -1,4 +1,4 @@
-"""Run the fixed performance grid from `agent/feat/optimize/plan.md` with a label.
+"""Run the fixed performance grid with a label.
 
 Example:
     python scripts/perf_grid.py --label baseline --grids G1 G2 G3
@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from perf_sweep import git_commit, run
 
 DATA = Path("/tmp/forust-perf")
-RESULTS = Path(__file__).resolve().parents[1] / "agent/feat/optimize/results.jsonl"
+RESULTS = Path(__file__).resolve().parents[1] / "target/perf/results.jsonl"
 
 # name: (dataset, rows, max_depth, iterations, include serial)
 GRIDS = {
@@ -36,6 +36,7 @@ def main() -> None:
     args = parser.parse_args()
 
     commit = git_commit()
+    args.out.parent.mkdir(parents=True, exist_ok=True)
     print(f"label={args.label} commit={commit}")
     print(f"{'grid':>4} {'data':>8} {'rows':>8} {'depth':>5} {'mode':>10} {'tree ms':>9} {'bin s':>7}")
     with open(args.out, "a") as out:

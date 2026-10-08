@@ -1,7 +1,7 @@
 """Print a markdown before/after table of tree time for labels in a results file.
 
 Example:
-    python scripts/perf_compare.py baseline item1
+    python scripts/perf_compare.py baseline item1 --results target/perf/results.jsonl
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import argparse
 import json
 from pathlib import Path
 
-RESULTS = Path(__file__).resolve().parents[1] / "agent/feat/optimize/results.jsonl"
+RESULTS = Path(__file__).resolve().parents[1] / "target/perf/results.jsonl"
 
 
 def key(record: dict) -> tuple:
