@@ -10,6 +10,7 @@ use crate::utils::{
     between, bound_to_parent, constrained_weight, cull_gain, gain_given_weight, pivot_on_split,
     pivot_on_split_exclude_missing,
 };
+use rayon::prelude::*;
 
 #[derive(Debug)]
 pub struct SplitInfo {
@@ -39,7 +40,7 @@ pub enum MissingInfo {
     Branch(NodeInfo),
 }
 
-pub trait Splitter {
+pub trait Splitter: Sync {
     /// When a split happens, how many leaves will the tree increase by?
     /// For example, if a binary split happens, the split will increase the
     /// number of leaves by 1, if a ternary split happens, the number of leaves will
@@ -64,11 +65,38 @@ pub trait Splitter {
     /// Find the best possible split, considering all feature histograms.
     /// If we wanted to add Column sampling, this is probably where
     /// we would need to do it, otherwise, it would be at the tree level.
-    fn best_split(&self, node: &SplittableNode, col_index: &[usize]) -> Option<SplitInfo> {
+    fn best_split(
+        &self,
+        node: &SplittableNode,
+        col_index: &[usize],
+        cuts: &JaggedMatrix<f64>,
+        parallel: bool,
+    ) -> Option<SplitInfo> {
+        if parallel {
+            // Highest gain wins, ties go to the earliest feature, matching the serial loop.
+            return col_index
+                .par_iter()
+                .enumerate()
+                .filter_map(|(idx, feature)| {
+                    self.best_feature_split(node, *feature, idx, cuts)
+                        .filter(|info| info.split_gain > 0.0)
+                        .map(|info| (idx, info))
+                })
+                .reduce_with(|a, b| {
+                    if b.1.split_gain > a.1.split_gain
+                        || (b.1.split_gain == a.1.split_gain && b.0 < a.0)
+                    {
+                        b
+                    } else {
+                        a
+                    }
+                })
+                .map(|(_, info)| info);
+        }
         let mut best_split_info = None;
         let mut best_gain = 0.0;
         for (idx, feature) in col_index.iter().enumerate() {
-            let split_info = self.best_feature_split(node, *feature, idx);
+            let split_info = self.best_feature_split(node, *feature, idx, cuts);
             match split_info {
                 Some(info) => {
                     if info.split_gain > best_gain {
@@ -106,12 +134,14 @@ pub trait Splitter {
         node: &SplittableNode,
         feature: usize,
         idx: usize,
+        cuts: &JaggedMatrix<f64>,
     ) -> Option<SplitInfo> {
         let mut split_info: Option<SplitInfo> = None;
         let mut max_gain: Option<f32> = None;
 
         let HistogramMatrix(histograms) = &node.histograms;
         let histogram = histograms.get_col(idx);
+        let feature_cuts = cuts.get_col(feature);
 
         // We also know we will have a missing bin.
         let missing = &histogram[0];
@@ -187,7 +217,8 @@ pub trait Splitter {
                 split_info = Some(SplitInfo {
                     split_gain,
                     split_feature: feature,
-                    split_value: bin.cut_value,
+                    // Histogram bin i + 1 covers values below cut i.
+                    split_value: feature_cuts[i],
                     split_bin: (i + 1) as u16,
                     left_node: left_node_info,
                     right_node: right_node_info,
@@ -214,10 +245,13 @@ pub trait Splitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
+        build_child_histograms: bool,
     ) -> Vec<SplittableNode>;
 
     /// Split the node, if we cant find a best split, we will need to
     /// return an empty vector, this node is a leaf.
+    /// Set `build_child_histograms` to false when the children can't be split
+    /// further (for example at `max_depth`), so their histograms are never needed.
     #[allow(clippy::too_many_arguments)]
     fn split_node(
         &self,
@@ -230,10 +264,21 @@ pub trait Splitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
+        build_child_histograms: bool,
     ) -> Vec<SplittableNode> {
-        match self.best_split(node, col_index) {
+        match self.best_split(node, col_index, cuts, parallel) {
             Some(split_info) => self.handle_split_info(
-                split_info, n_nodes, node, index, col_index, data, cuts, grad, hess, parallel,
+                split_info,
+                n_nodes,
+                node,
+                index,
+                col_index,
+                data,
+                cuts,
+                grad,
+                hess,
+                parallel,
+                build_child_histograms,
             ),
             None => Vec::new(),
         }
@@ -506,6 +551,7 @@ impl Splitter for MissingBranchSplitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
+        build_child_histograms: bool,
     ) -> Vec<SplittableNode> {
         let missing_child = *n_nodes;
         let left_child = missing_child + 1;
@@ -573,6 +619,12 @@ impl Splitter for MissingBranchSplitter {
             // If there are no missing records, we know the missing value
             // will be a leaf, assign this node as a leaf.
             missing_is_leaf = true;
+        }
+        if !build_child_histograms {
+            missing_histograms = HistogramMatrix::empty();
+            left_histograms = HistogramMatrix::empty();
+            right_histograms = HistogramMatrix::empty();
+        } else if n_missing == 0 {
             if max_ == 1 {
                 missing_histograms = HistogramMatrix::empty();
                 right_histograms = HistogramMatrix::new(
@@ -585,8 +637,11 @@ impl Splitter for MissingBranchSplitter {
                     parallel,
                     true,
                 );
-                left_histograms =
-                    HistogramMatrix::from_parent_child(&node.histograms, &right_histograms);
+                left_histograms = HistogramMatrix::from_parent_child(
+                    &node.histograms,
+                    &right_histograms,
+                    parallel,
+                );
             } else {
                 missing_histograms = HistogramMatrix::empty();
                 left_histograms = HistogramMatrix::new(
@@ -599,8 +654,11 @@ impl Splitter for MissingBranchSplitter {
                     parallel,
                     true,
                 );
-                right_histograms =
-                    HistogramMatrix::from_parent_child(&node.histograms, &left_histograms);
+                right_histograms = HistogramMatrix::from_parent_child(
+                    &node.histograms,
+                    &left_histograms,
+                    parallel,
+                );
             }
         } else if max_ == 0 {
             // Max is missing, calculate the other two
@@ -625,11 +683,17 @@ impl Splitter for MissingBranchSplitter {
                 parallel,
                 true,
             );
-            missing_histograms = HistogramMatrix::from_parent_two_children(
-                &node.histograms,
-                &left_histograms,
-                &right_histograms,
-            )
+            // A missing leaf is never split, so it doesn't need histograms.
+            missing_histograms = if missing_is_leaf {
+                HistogramMatrix::empty()
+            } else {
+                HistogramMatrix::from_parent_two_children(
+                    &node.histograms,
+                    &left_histograms,
+                    &right_histograms,
+                    parallel,
+                )
+            }
         } else if max_ == 1 {
             missing_histograms = HistogramMatrix::new(
                 data,
@@ -655,6 +719,7 @@ impl Splitter for MissingBranchSplitter {
                 &node.histograms,
                 &missing_histograms,
                 &right_histograms,
+                parallel,
             )
         } else {
             // right is the largest
@@ -682,6 +747,7 @@ impl Splitter for MissingBranchSplitter {
                 &node.histograms,
                 &missing_histograms,
                 &left_histograms,
+                parallel,
             )
         }
 
@@ -957,6 +1023,7 @@ impl Splitter for MissingImputerSplitter {
         grad: &[f32],
         hess: &[f32],
         parallel: bool,
+        build_child_histograms: bool,
     ) -> Vec<SplittableNode> {
         let left_child = *n_nodes;
         let right_child = left_child + 1;
@@ -992,7 +1059,10 @@ impl Splitter for MissingImputerSplitter {
         // Build the histograms for the smaller node.
         let left_histograms: HistogramMatrix;
         let right_histograms: HistogramMatrix;
-        if n_left < n_right {
+        if !build_child_histograms {
+            left_histograms = HistogramMatrix::empty();
+            right_histograms = HistogramMatrix::empty();
+        } else if n_left < n_right {
             left_histograms = HistogramMatrix::new(
                 data,
                 cuts,
@@ -1004,7 +1074,7 @@ impl Splitter for MissingImputerSplitter {
                 true,
             );
             right_histograms =
-                HistogramMatrix::from_parent_child(&node.histograms, &left_histograms);
+                HistogramMatrix::from_parent_child(&node.histograms, &left_histograms, parallel);
         } else {
             right_histograms = HistogramMatrix::new(
                 data,
@@ -1017,7 +1087,7 @@ impl Splitter for MissingImputerSplitter {
                 true,
             );
             left_histograms =
-                HistogramMatrix::from_parent_child(&node.histograms, &right_histograms);
+                HistogramMatrix::from_parent_child(&node.histograms, &right_histograms, parallel);
         }
         let missing_child = if missing_right {
             right_child
@@ -1064,7 +1134,7 @@ mod tests {
         let yhat = vec![0.; 7];
         let w = vec![1.; y.len()];
         let (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
-        let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &w, 10, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
         let hists = HistogramMatrix::new(&bdata, &b.cuts, &grad, &hess, &index, &[0], true, true);
@@ -1092,7 +1162,7 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
-        let s = splitter.best_feature_split(&mut n, 0, 0).unwrap();
+        let s = splitter.best_feature_split(&mut n, 0, 0, &b.cuts).unwrap();
         assert_eq!(s.split_value, 4.0);
         assert_eq!(s.left_node.cover, 0.75);
         assert_eq!(s.right_node.cover, 1.0);
@@ -1110,7 +1180,7 @@ mod tests {
         let w = vec![1.; y.len()];
         let (grad, hess) = LogLoss::calc_grad_hess(&y, &yhat, &w);
 
-        let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &w, 10, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
         let hists =
@@ -1140,7 +1210,9 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
-        let s = splitter.best_split(&mut n, &[0, 1]).unwrap();
+        let s = splitter
+            .best_split(&mut n, &[0, 1], &b.cuts, false)
+            .unwrap();
         println!("{:?}", s);
         assert_eq!(s.split_feature, 1);
         assert_eq!(s.split_value, 4.);
@@ -1185,7 +1257,7 @@ mod tests {
         let root_gain = gain(&splitter.l2, gradient_sum, hessian_sum);
         let data = Matrix::new(&data_vec, 891, 5);
 
-        let b = bin_matrix(&data, &w, 10, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &w, 10, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let index = data.index.to_owned();
         let col_index: Vec<usize> = (0..data.cols).collect();
@@ -1207,9 +1279,84 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY,
         );
-        let s = splitter.best_split(&mut n, &col_index).unwrap();
+        let s = splitter
+            .best_split(&mut n, &col_index, &b.cuts, false)
+            .unwrap();
         println!("{:?}", s);
         n.update_children(2, 1, 2, &s);
         assert_eq!(0, s.split_feature);
+    }
+
+    #[test]
+    fn test_parallel_best_split_matches_serial() {
+        use rand::{rngs::StdRng, Rng, SeedableRng};
+        let mut rng = StdRng::seed_from_u64(0);
+        let (rows, cols) = (500, 64);
+        let base: Vec<f64> = (0..rows).map(|_| rng.gen()).collect();
+        // Even columns are copies of one column, so their gains tie exactly.
+        let mut d = Vec::with_capacity(rows * cols);
+        for col in 0..cols {
+            for row in 0..rows {
+                d.push(if col % 2 == 0 { base[row] } else { rng.gen() });
+            }
+        }
+        let y: Vec<f64> = base
+            .iter()
+            .map(|v| {
+                if v + rng.gen::<f64>() * 0.3 > 0.6 {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let data = Matrix::new(&d, rows, cols);
+        let w = vec![1.; rows];
+        let (grad, hess) = LogLoss::calc_grad_hess(&y, &vec![0.; rows], &w);
+        let b = bin_matrix(&data, &w, 64, f64::NAN, false).unwrap();
+        let bdata = Matrix::new(&b.binned_data, rows, cols);
+        let splitter = MissingImputerSplitter {
+            l1: 0.0,
+            l2: 1.0,
+            max_delta_step: 0.,
+            gamma: 0.0,
+            min_leaf_weight: 1.0,
+            learning_rate: 0.3,
+            allow_missing_splits: true,
+            constraints_map: ConstraintMap::new(),
+        };
+        let forward: Vec<usize> = (0..cols).collect();
+        let reversed: Vec<usize> = (0..cols).rev().collect();
+        let odd_only: Vec<usize> = (1..cols).step_by(2).collect();
+        for col_index in [forward, reversed, odd_only] {
+            let hists = HistogramMatrix::new(
+                &bdata,
+                &b.cuts,
+                &grad,
+                &hess,
+                &data.index,
+                &col_index,
+                false,
+                false,
+            );
+            let n = SplittableNode::new(
+                0,
+                hists,
+                0.0,
+                0.0,
+                grad.iter().sum::<f32>(),
+                hess.iter().sum::<f32>(),
+                0,
+                0,
+                rows,
+                f32::NEG_INFINITY,
+                f32::INFINITY,
+            );
+            let serial = splitter.best_split(&n, &col_index, &b.cuts, false).unwrap();
+            let parallel = splitter.best_split(&n, &col_index, &b.cuts, true).unwrap();
+            assert_eq!(serial.split_feature, parallel.split_feature);
+            assert_eq!(serial.split_bin, parallel.split_bin);
+            assert_eq!(serial.split_gain, parallel.split_gain);
+        }
     }
 }

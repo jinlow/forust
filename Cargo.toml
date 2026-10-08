@@ -1,6 +1,6 @@
 [package]
 name = "forust-ml"
-version = "0.5.0"
+version = "0.7.0"
 edition = "2021"
 authors = ["James Inlow <james.d.inlow@gmail.com>"]
 homepage = "https://github.com/jinlow/forust"
@@ -24,8 +24,8 @@ log = "0.4.19"
 
 [dev-dependencies]
 criterion = "0.5"
-polars = "0.32"
-reqwest = { version = "0.11", features = ["blocking"] }
+# polars = "0.32"
+# reqwest = { version = "0.11", features = ["blocking"] }
 
 [[bench]]
 name = "forust_benchmarks"

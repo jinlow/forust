@@ -83,6 +83,7 @@ impl GradientBooster {
         missing_node_treatment,
         log_iterations,
         force_children_to_bound_parent,
+        num_threads=None,
     ))]
     pub fn new(
         objective_type: &str,
@@ -116,6 +117,7 @@ impl GradientBooster {
         missing_node_treatment: &str,
         log_iterations: usize,
         force_children_to_bound_parent: bool,
+        num_threads: Option<usize>,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = to_value_error(serde_plain::from_str(objective_type))?;
@@ -164,7 +166,7 @@ impl GradientBooster {
             force_children_to_bound_parent,
         );
         Ok(GradientBooster {
-            booster: to_value_error(booster)?,
+            booster: to_value_error(booster)?.set_num_threads(num_threads),
         })
     }
 
@@ -210,6 +212,7 @@ impl GradientBooster {
     #[pyo3(signature = (flat_data, rows, cols, y, sample_weight, evaluation_data=None))]
     pub fn fit(
         &mut self,
+        py: Python<'_>,
         flat_data: PyReadonlyArray1<f64>,
         rows: usize,
         cols: usize,
@@ -236,7 +239,10 @@ impl GradientBooster {
                 Some(eval_data)
             }
         };
-        match self.booster.fit(&data, y, sample_weight, evaluation_data_) {
+        // Release the GIL while training: training runs on Rayon threads, and logging
+        // from them (`log_iterations`) needs the GIL, which would otherwise deadlock.
+        let booster = &mut self.booster;
+        match py.detach(|| booster.fit(&data, y, sample_weight, evaluation_data_)) {
             Ok(m) => Ok(m),
             Err(e) => Err(PyValueError::new_err(e.to_string())),
         }?;
@@ -431,6 +437,7 @@ impl GradientBooster {
             "force_children_to_bound_parent",
             self.booster.force_children_to_bound_parent,
         )?;
+        dict.set_item("num_threads", self.booster.num_threads)?;
         Ok(dict.into_any().unbind())
     }
 

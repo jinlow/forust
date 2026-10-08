@@ -336,7 +336,35 @@ where
 {
     let mut idx: Vec<usize> = (0..v.len()).collect();
     idx.sort_unstable_by(|a, b| v[*a].partial_cmp(&v[*b]).unwrap());
+    percentiles_of_sorted(
+        idx.len(),
+        |k| v[idx[k]],
+        |k| sample_weight[idx[k]],
+        fast_sum(sample_weight),
+        percentiles,
+    )
+}
 
+/// Weighted percentiles of values that are already in ascending order.
+///
+/// * `n` - Number of values.
+/// * `value` - Returns the k-th smallest value.
+/// * `weight` - Returns the sample weight of the k-th smallest value.
+/// * `total_weight` - Sum of all the sample weights.
+/// * `percentiles` - Percentiles to look for in the data. This should be
+///     values from 0 to 1, and in sorted order.
+pub fn percentiles_of_sorted<T, V, W>(
+    n: usize,
+    value: V,
+    weight: W,
+    total_weight: T,
+    percentiles: &[T],
+) -> Vec<T>
+where
+    T: FloatData<T>,
+    V: Fn(usize) -> T,
+    W: Fn(usize) -> T,
+{
     // Setup percentiles
     let mut pcts = VecDeque::from_iter(percentiles.iter());
     let mut current_pct = *pcts.pop_front().expect("No percentiles were provided");
@@ -344,14 +372,13 @@ where
     // Prepare a vector to put the percentiles in...
     let mut p = Vec::new();
     let mut cuml_pct = T::ZERO;
-    let mut current_value = v[idx[0]];
-    let total_values = fast_sum(sample_weight);
+    let mut current_value = value(0);
 
-    for i in idx.iter() {
-        if current_value != v[*i] {
-            current_value = v[*i];
+    for k in 0..n {
+        if current_value != value(k) {
+            current_value = value(k);
         }
-        cuml_pct += sample_weight[*i] / total_values;
+        cuml_pct += weight(k) / total_weight;
         if (current_pct == T::ZERO) || (cuml_pct >= current_pct) {
             // We loop here, because the same number might be a valid
             // value to make the percentile several times.
@@ -363,10 +390,8 @@ where
                 }
             }
         } else if current_pct == T::ONE {
-            if let Some(i_) = idx.last() {
-                p.push(v[*i_]);
-                break;
-            }
+            p.push(value(n - 1));
+            break;
         }
     }
     p

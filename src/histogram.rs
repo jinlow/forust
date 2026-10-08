@@ -2,25 +2,26 @@ use crate::data::{FloatData, JaggedMatrix, Matrix};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// Struct to hold the information of a given bin.
-#[derive(Debug, Deserialize, Serialize, Clone)]
+/// Below this many rows, gathering gradients serially is cheaper than scheduling Rayon tasks.
+const PARALLEL_GATHER_MIN_ROWS: usize = 16_384;
+/// Bins per Rayon task when subtracting histograms in parallel.
+const PARALLEL_SUBTRACT_MIN_BINS: usize = 4_096;
+
+/// Struct to hold the information of a given bin. Bin `k > 0` of a feature's
+/// histogram covers values below cut `k - 1` of that feature; bin 0 is missing.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub struct Bin<T> {
     /// The sum of the gradient for this bin.
     pub gradient_sum: T,
     /// The sum of the hession values for this bin.
     pub hessian_sum: T,
-    /// The value used to split at, this is for deciding
-    /// the split value for non-binned values.
-    /// This value will be missing for the missing bin.
-    pub cut_value: f64,
 }
 
 impl Bin<f32> {
-    pub fn new_f32(cut_value: f64) -> Self {
+    pub fn new_f32() -> Self {
         Bin {
             gradient_sum: f32::ZERO,
             hessian_sum: f32::ZERO,
-            cut_value,
         }
     }
 
@@ -30,7 +31,6 @@ impl Bin<f32> {
         Bin {
             gradient_sum: root_bin.gradient_sum - child_bin.gradient_sum,
             hessian_sum: root_bin.hessian_sum - child_bin.hessian_sum,
-            cut_value: root_bin.cut_value,
         }
     }
 
@@ -46,17 +46,15 @@ impl Bin<f32> {
                 - (first_child_bin.gradient_sum + second_child_bin.gradient_sum),
             hessian_sum: root_bin.hessian_sum
                 - (first_child_bin.hessian_sum + second_child_bin.hessian_sum),
-            cut_value: root_bin.cut_value,
         }
     }
 }
 
 impl Bin<f64> {
-    pub fn new_f64(cut_value: f64) -> Self {
+    pub fn new_f64() -> Self {
         Bin {
             gradient_sum: f64::ZERO,
             hessian_sum: f64::ZERO,
-            cut_value,
         }
     }
 
@@ -64,7 +62,6 @@ impl Bin<f64> {
         Bin {
             gradient_sum: self.gradient_sum as f32,
             hessian_sum: self.hessian_sum as f32,
-            cut_value: self.cut_value,
         }
     }
 }
@@ -73,37 +70,34 @@ impl Bin<f64> {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct HistogramMatrix(pub JaggedMatrix<Bin<f32>>);
 
-/// Create a histogram for a given feature, we use f64
-/// values to accumulate, so that we don't lose precision,
-/// but then still return f32 values for memory efficiency
-/// and speed.
-pub fn create_feature_histogram(
+/// Fill the histogram for a given feature. Sums accumulate in f64 so we don't
+/// lose precision, but are stored as f32 values for memory efficiency and speed.
+/// `out` must have one bin per cut value: the missing bin, then one per cut
+/// excluding the final maximum.
+pub fn fill_feature_histogram(
+    out: &mut [Bin<f32>],
     feature: &[u16],
-    cuts: &[f64],
     sorted_grad: &[f32],
     sorted_hess: &[f32],
     index: &[usize],
-) -> Vec<Bin<f32>> {
-    let mut histogram: Vec<Bin<f64>> = Vec::with_capacity(cuts.len());
-    // The first value is missing, it seems to not matter that we are using
-    // Missing here, rather than the booster "missing" definition, because
-    // we just always assume the first bin of the histogram is missing.
-    histogram.push(Bin::new_f64(f64::NAN));
-    // The last cut value is simply the maximum possible value, so we don't need it.
-    // This value is needed initially for binning, but we don't need to count it as
-    // a histogram bin.
-    histogram.extend(cuts[..(cuts.len() - 1)].iter().map(|c| Bin::new_f64(*c)));
+) {
+    let mut sums = vec![(f64::ZERO, f64::ZERO); out.len()];
     index
         .iter()
         .zip(sorted_grad)
         .zip(sorted_hess)
         .for_each(|((i, g), h)| {
-            if let Some(v) = histogram.get_mut(feature[*i] as usize) {
-                v.gradient_sum += f64::from(*g);
-                v.hessian_sum += f64::from(*h);
+            if let Some(v) = sums.get_mut(feature[*i] as usize) {
+                v.0 += f64::from(*g);
+                v.1 += f64::from(*h);
             }
         });
-    histogram.iter().map(|b| b.as_f32_bin()).collect()
+    for (bin, (g, h)) in out.iter_mut().zip(sums) {
+        *bin = Bin {
+            gradient_sum: g as f32,
+            hessian_sum: h as f32,
+        };
+    }
 }
 
 impl HistogramMatrix {
@@ -130,48 +124,16 @@ impl HistogramMatrix {
         // Sort gradients and hessians to reduce cache hits.
         // This made a really sizeable difference on larger datasets
         // Bringing training time down from nearly 6 minutes, to 2 minutes.
-        // Sort gradients and hessians to reduce cache hits.
-        // This made a really sizeable difference on larger datasets
-        // Bringing training time down from nearly 6 minutes, to 2 minutes.
-        let (sorted_grad, sorted_hess) = if !sort {
-            (grad.to_vec(), hess.to_vec())
+        let gathered: (Vec<f32>, Vec<f32>);
+        let (sorted_grad, sorted_hess): (&[f32], &[f32]) = if !sort {
+            (grad, hess)
         } else {
-            let mut n_grad = Vec::new();
-            let mut n_hess = Vec::new();
-            for i in index {
-                let i_ = *i;
-                n_grad.push(grad[i_]);
-                n_hess.push(hess[i_]);
-            }
-            (n_grad, n_hess)
-        };
-
-        let histograms = if parallel {
-            col_index
-                .par_iter()
-                .flat_map(|col| {
-                    create_feature_histogram(
-                        data.get_col(*col),
-                        cuts.get_col(*col),
-                        &sorted_grad,
-                        &sorted_hess,
-                        index,
-                    )
-                })
-                .collect::<Vec<Bin<f32>>>()
-        } else {
-            col_index
-                .iter()
-                .flat_map(|col| {
-                    create_feature_histogram(
-                        data.get_col(*col),
-                        cuts.get_col(*col),
-                        &sorted_grad,
-                        &sorted_hess,
-                        index,
-                    )
-                })
-                .collect::<Vec<Bin<f32>>>()
+            gathered = if parallel && index.len() >= PARALLEL_GATHER_MIN_ROWS {
+                index.par_iter().map(|&i| (grad[i], hess[i])).unzip()
+            } else {
+                index.iter().map(|&i| (grad[i], hess[i])).unzip()
+            };
+            (&gathered.0, &gathered.1)
         };
 
         // If we have sampled down the columns, we need to recalculate the ends.
@@ -194,6 +156,32 @@ impl HistogramMatrix {
             ends.iter().sum()
         };
 
+        let total_bins = ends.last().copied().unwrap_or(0);
+        let mut histograms: Vec<Bin<f32>> = Vec::with_capacity(total_bins);
+        if parallel {
+            (0..total_bins)
+                .into_par_iter()
+                .map(|_| Bin::new_f32())
+                .collect_into_vec(&mut histograms);
+        } else {
+            histograms.resize(total_bins, Bin::new_f32());
+        }
+        let mut column_bins: Vec<&mut [Bin<f32>]> = Vec::with_capacity(col_index.len());
+        let mut rest = histograms.as_mut_slice();
+        for col in col_index {
+            let (head, tail) = std::mem::take(&mut rest).split_at_mut(cuts.get_col(*col).len());
+            column_bins.push(head);
+            rest = tail;
+        }
+        let fill = |(out, col): (&mut [Bin<f32>], &usize)| {
+            fill_feature_histogram(out, data.get_col(*col), sorted_grad, sorted_hess, index)
+        };
+        if parallel {
+            column_bins.into_par_iter().zip(col_index).for_each(fill);
+        } else {
+            column_bins.into_iter().zip(col_index).for_each(fill);
+        }
+
         HistogramMatrix(JaggedMatrix {
             data: histograms,
             ends,
@@ -208,15 +196,24 @@ impl HistogramMatrix {
     pub fn from_parent_child(
         root_histogram: &HistogramMatrix,
         child_histogram: &HistogramMatrix,
+        parallel: bool,
     ) -> Self {
         let HistogramMatrix(root) = root_histogram;
         let HistogramMatrix(child) = child_histogram;
-        let histograms = root
-            .data
-            .iter()
-            .zip(child.data.iter())
-            .map(|(root_bin, child_bin)| Bin::from_parent_child(root_bin, child_bin))
-            .collect();
+        let histograms = if parallel {
+            root.data
+                .par_iter()
+                .zip(child.data.par_iter())
+                .with_min_len(PARALLEL_SUBTRACT_MIN_BINS)
+                .map(|(root_bin, child_bin)| Bin::from_parent_child(root_bin, child_bin))
+                .collect()
+        } else {
+            root.data
+                .iter()
+                .zip(child.data.iter())
+                .map(|(root_bin, child_bin)| Bin::from_parent_child(root_bin, child_bin))
+                .collect()
+        };
         HistogramMatrix(JaggedMatrix {
             data: histograms,
             ends: child.ends.to_owned(),
@@ -232,19 +229,31 @@ impl HistogramMatrix {
         root_histogram: &HistogramMatrix,
         first_child_histogram: &HistogramMatrix,
         second_child_histogram: &HistogramMatrix,
+        parallel: bool,
     ) -> Self {
         let HistogramMatrix(root) = root_histogram;
         let HistogramMatrix(first_child) = first_child_histogram;
         let HistogramMatrix(second_child) = second_child_histogram;
-        let histograms = root
-            .data
-            .iter()
-            .zip(first_child.data.iter())
-            .zip(second_child.data.iter())
-            .map(|((root_bin, first_child_bin), second_child_bin)| {
-                Bin::from_parent_two_children(root_bin, first_child_bin, second_child_bin)
-            })
-            .collect();
+        let histograms = if parallel {
+            root.data
+                .par_iter()
+                .zip(first_child.data.par_iter())
+                .zip(second_child.data.par_iter())
+                .with_min_len(PARALLEL_SUBTRACT_MIN_BINS)
+                .map(|((root_bin, first_child_bin), second_child_bin)| {
+                    Bin::from_parent_two_children(root_bin, first_child_bin, second_child_bin)
+                })
+                .collect()
+        } else {
+            root.data
+                .iter()
+                .zip(first_child.data.iter())
+                .zip(second_child.data.iter())
+                .map(|((root_bin, first_child_bin), second_child_bin)| {
+                    Bin::from_parent_two_children(root_bin, first_child_bin, second_child_bin)
+                })
+                .collect()
+        };
         HistogramMatrix(JaggedMatrix {
             data: histograms,
             ends: first_child.ends.to_owned(),
@@ -267,14 +276,15 @@ mod tests {
         let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let data = Matrix::new(&data_vec, 891, 5);
         let sample_weight = vec![1.; data.rows];
-        let b = bin_matrix(&data, &sample_weight, 10, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &sample_weight, 10, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let yhat = vec![0.5; y.len()];
         let w = vec![1.; y.len()];
         let (g, h) = LogLoss::calc_grad_hess(&y, &yhat, &w);
-        let hist =
-            create_feature_histogram(&bdata.get_col(1), &b.cuts.get_col(1), &g, &h, &bdata.index);
+        let cuts = b.cuts.get_col(1);
+        let mut hist = vec![Bin::new_f32(); cuts.len()];
+        fill_feature_histogram(&mut hist, &bdata.get_col(1), &g, &h, &bdata.index);
         // println!("{:?}", hist);
         let mut f = bdata.get_col(1).to_owned();
         println!("{:?}", hist);

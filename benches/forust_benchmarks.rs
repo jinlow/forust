@@ -44,7 +44,7 @@ pub fn tree_benchmarks(c: &mut Criterion) {
     };
     let mut tree = Tree::new();
 
-    let bindata = bin_matrix(&data, &w, 300, f64::NAN).unwrap();
+    let bindata = bin_matrix(&data, &w, 300, f64::NAN, false).unwrap();
     let bdata = Matrix::new(&bindata.binned_data, data.rows, data.cols);
     let col_index: Vec<usize> = (0..data.cols).collect();
     tree.fit(

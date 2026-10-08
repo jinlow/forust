@@ -1,6 +1,9 @@
 site_name: forust
 repo_name: forust
 repo_url: https://github.com/jinlow/forust
+nav:
+  - API Reference: index.md
+  - Performance Release Notes: release-notes.md
 theme:
   name: material
   icon:

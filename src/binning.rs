@@ -1,6 +1,21 @@
 use crate::data::{FloatData, JaggedMatrix, Matrix};
 use crate::errors::ForustError;
-use crate::utils::{is_missing, map_bin, percentiles};
+use crate::utils::{fast_sum, is_missing, map_bin, percentiles_of_sorted};
+use rayon::prelude::*;
+
+/// The distinct values of an ascending sequence, or `None` if there are more than `max`.
+fn distinct_up_to<T: FloatData<T>>(sorted: impl Iterator<Item = T>, max: usize) -> Option<Vec<T>> {
+    let mut unique: Vec<T> = Vec::new();
+    for x in sorted {
+        if unique.last() != Some(&x) {
+            if unique.len() == max {
+                return None;
+            }
+            unique.push(x);
+        }
+    }
+    Some(unique)
+}
 
 /// If there are fewer unique values than their are
 /// percentiles, just return the unique values of the
@@ -12,13 +27,34 @@ fn percentiles_or_value<T>(v: &[T], sample_weight: &[T], pcts: &[T]) -> Vec<T>
 where
     T: FloatData<T>,
 {
-    let mut v_u = v.to_owned();
-    v_u.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-    v_u.dedup();
-    if v_u.len() <= pcts.len() + 1 {
-        v_u
+    let max_unique = pcts.len() + 1;
+    let total_weight = fast_sum(sample_weight);
+    // With equal weights, the order of tied values can't change the percentile walk,
+    // so sorting the values directly gives the same cuts as sorting an index.
+    if sample_weight.windows(2).all(|w| w[0] == w[1]) {
+        let mut sorted = v.to_owned();
+        sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+        distinct_up_to(sorted.iter().copied(), max_unique).unwrap_or_else(|| {
+            percentiles_of_sorted(
+                sorted.len(),
+                |k| sorted[k],
+                |_| sample_weight[0],
+                total_weight,
+                pcts,
+            )
+        })
     } else {
-        percentiles(v, sample_weight, pcts)
+        let mut idx: Vec<usize> = (0..v.len()).collect();
+        idx.sort_unstable_by(|a, b| v[*a].partial_cmp(&v[*b]).unwrap());
+        distinct_up_to(idx.iter().map(|i| v[*i]), max_unique).unwrap_or_else(|| {
+            percentiles_of_sorted(
+                idx.len(),
+                |k| v[idx[k]],
+                |k| sample_weight[idx[k]],
+                total_weight,
+                pcts,
+            )
+        })
     }
 }
 
@@ -49,20 +85,31 @@ fn bin_matrix_from_cuts<T: FloatData<T>>(
     data: &Matrix<T>,
     cuts: &JaggedMatrix<T>,
     missing: &T,
+    parallel: bool,
 ) -> Vec<u16> {
-    // loop through the matrix, binning the data.
-    // We will determine the column we are in, by
-    // using the modulo operator, on the record value.
-    data.data
-        .iter()
-        .enumerate()
-        .map(|(i, v)| {
-            let col = i / data.rows;
+    let mut binned = vec![0; data.data.len()];
+    if data.rows == 0 {
+        return binned;
+    }
+    let bin_column = |(col, out): (usize, &mut [u16])| {
+        for (b, v) in out.iter_mut().zip(data.get_col(col)) {
             // This will always be smaller than u16::MAX so we
             // are good to just unwrap here.
-            map_bin(cuts.get_col(col), v, missing).unwrap()
-        })
-        .collect()
+            *b = map_bin(cuts.get_col(col), v, missing).unwrap();
+        }
+    };
+    if parallel {
+        binned
+            .par_chunks_mut(data.rows)
+            .enumerate()
+            .for_each(bin_column);
+    } else {
+        binned
+            .chunks_mut(data.rows)
+            .enumerate()
+            .for_each(bin_column);
+    }
+    binned
 }
 
 /// Bin a numeric matrix.
@@ -71,11 +118,13 @@ fn bin_matrix_from_cuts<T: FloatData<T>>(
 /// * `sample_weight` - Instance weights for each row of the data.
 /// * `nbins` - The number of bins each column should be binned into.
 /// * `missing` - Float value to consider as missing.
+/// * `parallel` - Bin the columns in parallel.
 pub fn bin_matrix(
     data: &Matrix<f64>,
     sample_weight: &[f64],
     nbins: u16,
     missing: f64,
+    parallel: bool,
 ) -> Result<BinnedData<f64>, ForustError> {
     let mut pcts = Vec::new();
     let nbins_ = f64::from_u16(nbins);
@@ -85,10 +134,7 @@ pub fn bin_matrix(
     }
 
     // First we need to generate the bins for each of the columns.
-    // We will loop through all of the columns, and generate the cuts.
-    let mut cuts = JaggedMatrix::new();
-    let mut nunique = Vec::new();
-    for i in 0..data.cols {
+    let column_cuts = |i: usize| {
         let (no_miss, w): (Vec<f64>, Vec<f64>) = data
             .get_col(i)
             .iter()
@@ -101,6 +147,17 @@ pub fn bin_matrix(
         let mut col_cuts = percentiles_or_value(&no_miss, &w, &pcts);
         col_cuts.push(f64::MAX);
         col_cuts.dedup();
+        col_cuts
+    };
+    let all_cuts: Vec<Vec<f64>> = if parallel {
+        (0..data.cols).into_par_iter().map(column_cuts).collect()
+    } else {
+        (0..data.cols).map(column_cuts).collect()
+    };
+
+    let mut cuts = JaggedMatrix::new();
+    let mut nunique = Vec::new();
+    for col_cuts in all_cuts {
         // if col_cuts.len() < 2 {
         //     return Err(ForustError::NoVariance(i));
         // }
@@ -118,7 +175,7 @@ pub fn bin_matrix(
         cuts.n_records = cuts.ends.iter().sum();
     }
 
-    let binned_data = bin_matrix_from_cuts(data, &cuts, &missing);
+    let binned_data = bin_matrix_from_cuts(data, &cuts, &missing, parallel);
 
     Ok(BinnedData {
         binned_data,
@@ -130,7 +187,81 @@ pub fn bin_matrix(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::percentiles;
+    use rand::{rngs::StdRng, Rng, SeedableRng};
     use std::fs;
+
+    #[test]
+    fn test_percentiles_or_value_matches_original_algorithm() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let pcts: Vec<f64> = (0..64).map(|i| i as f64 / 64.0).collect();
+        // (rows, distinct levels or 0 for continuous, weighted)
+        for (n, levels, weighted) in [
+            (2000, 10, false),
+            (2000, 10, true),
+            (5000, 1000, false),
+            (5000, 1000, true),
+            (5000, 0, false),
+            (5000, 0, true),
+            (1, 0, false),
+        ] {
+            let v: Vec<f64> = (0..n)
+                .map(|_| {
+                    let x: f64 = rng.gen();
+                    if levels == 0 {
+                        x
+                    } else {
+                        (x * levels as f64).floor()
+                    }
+                })
+                .collect();
+            let w: Vec<f64> = (0..n)
+                .map(|_| {
+                    if weighted {
+                        rng.gen_range(0.5..2.0)
+                    } else {
+                        1.0
+                    }
+                })
+                .collect();
+            let mut expected = v.clone();
+            expected.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+            expected.dedup();
+            if expected.len() > pcts.len() + 1 {
+                expected = percentiles(&v, &w, &pcts);
+            }
+            assert_eq!(percentiles_or_value(&v, &w, &pcts), expected);
+        }
+    }
+
+    #[test]
+    fn test_bin_matrix_parallel_matches_serial() {
+        let (rows, cols) = (3000, 12);
+        let mut rng = StdRng::seed_from_u64(1);
+        let data_vec: Vec<f64> = (0..rows * cols)
+            .map(|i| {
+                let x: f64 = rng.gen();
+                if i % 7 == 0 {
+                    f64::NAN
+                } else if (i / rows) % 3 == 0 {
+                    (x * 5.0).floor()
+                } else {
+                    x
+                }
+            })
+            .collect();
+        let data = Matrix::new(&data_vec, rows, cols);
+        let weighted: Vec<f64> = (0..rows).map(|_| rng.gen_range(0.5..2.0)).collect();
+        for w in [vec![1.; rows], weighted] {
+            let serial = bin_matrix(&data, &w, 64, f64::NAN, false).unwrap();
+            let parallel = bin_matrix(&data, &w, 64, f64::NAN, true).unwrap();
+            assert_eq!(serial.binned_data, parallel.binned_data);
+            assert_eq!(serial.cuts.data, parallel.cuts.data);
+            assert_eq!(serial.cuts.ends, parallel.cuts.ends);
+            assert_eq!(serial.nunique, parallel.nunique);
+        }
+    }
+
     #[test]
     fn test_bin_data() {
         let file = fs::read_to_string("resources/contiguous_no_missing.csv")
@@ -138,7 +269,7 @@ mod tests {
         let data_vec: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
         let data = Matrix::new(&data_vec, 891, 5);
         let sample_weight = vec![1.; data.rows];
-        let b = bin_matrix(&data, &sample_weight, 50, f64::NAN).unwrap();
+        let b = bin_matrix(&data, &sample_weight, 50, f64::NAN, false).unwrap();
         let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
         for column in 0..data.cols {
             let mut b_compare = 1;

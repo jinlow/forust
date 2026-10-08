@@ -3,7 +3,7 @@ on:
   pull_request:
   push:
     branches:
-      - '**'
+      - main
     tags:
       - '*'
   workflow_dispatch:
@@ -50,7 +50,7 @@ jobs:
         run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Run Package Tests
         run: |
-          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
+          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' 'ruff==0.6.9' setuptools --upgrade
           cd py-forust
           ruff check .
           black --check .
@@ -101,7 +101,7 @@ jobs:
         run: cd py-forust; pip install --no-deps --force-reinstall -e .; cd ..
       - name: Run Package Tests
         run: |
-          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
+          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' 'ruff==0.6.9' setuptools --upgrade
           cd py-forust
           ruff check .
           black --check .
@@ -152,7 +152,7 @@ jobs:
         run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Run Package Tests
         run: |
-          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
+          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' 'ruff==0.6.9' setuptools --upgrade
           cd py-forust
           ruff check .
           black --check .
@@ -206,7 +206,7 @@ jobs:
         run: pip install forust --no-index --find-links dist --no-deps --force-reinstall
       - name: Run Package Tests
         run: |
-          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' ruff setuptools --upgrade
+          pip install pytest pytest-cov 'black>=24.0.0,<25.0.0' 'ruff==0.6.9' setuptools --upgrade
           cd py-forust
           ruff check .
           black --check .

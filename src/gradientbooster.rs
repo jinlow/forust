@@ -7,7 +7,7 @@ use crate::objective::{
     calc_init_callables, gradient_hessian_callables, LogLoss, ObjectiveFunction, ObjectiveType,
     SquaredLoss,
 };
-use crate::sampler::{GossSampler, RandomSampler, SampleMethod, Sampler};
+use crate::sampler::{GossSampler, RandomSampler, RowSubset, SampleMethod, Sampler};
 use crate::shapley::predict_contributions_row_shapley;
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
 use crate::tree::Tree;
@@ -130,10 +130,12 @@ pub struct GradientBooster {
     pub monotone_constraints: Option<ConstraintMap>,
     /// Percent of records to randomly sample at each iteration when training a tree.
     pub subsample: f32,
-    /// Used only in goss. The retain ratio of large gradient data.
+    /// Used only with `SampleMethod::Goss`. The share of rows with the largest
+    /// `|gradient * hessian|` that are always kept.
     #[serde(default = "default_top_rate")]
     pub top_rate: f64,
-    /// Used only in goss. the retain ratio of small gradient data.
+    /// Used only with `SampleMethod::Goss`. The share of rows randomly sampled
+    /// from the remaining rows, whose gradients and hessians are scaled up.
     #[serde(default = "default_other_rate")]
     pub other_rate: f64,
     /// Specify the fraction of columns that should be sampled at each iteration, valid values are in the range (0.0,1.0].
@@ -146,7 +148,10 @@ pub struct GradientBooster {
     pub missing: f64,
     /// Should missing be split out it's own separate branch?
     pub create_missing_branch: bool,
-    /// Specify the method that records should be sampled when training?
+    /// Specify the method that records should be sampled when training. `Random`
+    /// samples `subsample` of the rows; `Goss` uses Gradient-based One-Side Sampling
+    /// with `top_rate` and `other_rate`, after `1 / learning_rate` warm-up iterations
+    /// on all rows.
     #[serde(default = "default_sample_method")]
     pub sample_method: SampleMethod,
     /// Growth policy to use when training a tree, this is how the next node is selected.
@@ -185,6 +190,10 @@ pub struct GradientBooster {
     /// Should the children nodes contain the parent node in their bounds, setting this to true, will result in no children being created that result in the higher and lower child values both being greater than, or less than the parent weight.
     #[serde(default = "default_force_children_to_bound_parent")]
     pub force_children_to_bound_parent: bool,
+    /// Number of threads to use when running in parallel. `None` (or 0) uses Rayon's
+    /// global thread pool, which defaults to one thread per logical CPU.
+    #[serde(default)]
+    pub num_threads: Option<usize>,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -207,10 +216,10 @@ fn default_grow_policy() -> GrowPolicy {
 }
 
 fn default_top_rate() -> f64 {
-    0.1
+    0.2
 }
 fn default_other_rate() -> f64 {
-    0.2
+    0.1
 }
 fn default_sample_method() -> SampleMethod {
     SampleMethod::None
@@ -273,8 +282,8 @@ impl Default for GradientBooster {
             true,
             None,
             1.,
-            0.1,
             0.2,
+            0.1,
             1.0,
             0,
             f64::NAN,
@@ -325,13 +334,13 @@ impl GradientBooster {
     /// * `monotone_constraints` - Constraints that are used to enforce a specific relationship
     ///   between the training features and the target variable.
     /// * `subsample` - Percent of records to randomly sample at each iteration when training a tree.
-    /// * `top_rate` - Used only in goss. The retain ratio of large gradient data.
-    /// * `other_rate` - Used only in goss. the retain ratio of small gradient data.
+    /// * `top_rate` - Used only in goss. The share of rows with the largest gradients that are always kept.
+    /// * `other_rate` - Used only in goss. The share of rows sampled from the rest, with scaled-up gradients.
     /// * `colsample_bytree` - Specify the fraction of columns that should be sampled at each iteration, valid values are in the range (0.0,1.0].
     /// * `seed` - Integer value used to seed any randomness used in the algorithm.
     /// * `missing` - Value to consider missing.
     /// * `create_missing_branch` - Should missing be split out it's own separate branch?
-    /// * `sample_method` - Specify the method that records should be sampled when training?
+    /// * `sample_method` - Specify the method that records should be sampled when training.
     /// * `evaluation_metric` - Define the evaluation metric to record at each iterations.
     /// * `early_stopping_rounds` - Number of rounds that must
     /// * `initialize_base_score` - If this is specified, the base_score will be calculated using the sample_weight and y data in accordance with the requested objective_type.
@@ -406,6 +415,7 @@ impl GradientBooster {
             missing_node_treatment,
             log_iterations,
             force_children_to_bound_parent,
+            num_threads: None,
             trees: Vec::new(),
             metadata: HashMap::new(),
         };
@@ -424,7 +434,46 @@ impl GradientBooster {
         validate_positive_float_field!(self.top_rate);
         validate_positive_float_field!(self.other_rate);
         validate_positive_float_field!(self.colsample_bytree);
+        if self.sample_method == SampleMethod::Goss {
+            if self.top_rate <= 0. || self.other_rate <= 0. || self.top_rate + self.other_rate > 1.
+            {
+                return Err(ForustError::InvalidParameter(
+                    "top_rate and other_rate".to_string(),
+                    "both greater than 0 with a sum of at most 1".to_string(),
+                    format!("{} and {}", self.top_rate, self.other_rate),
+                ));
+            }
+            if self.subsample != 1. {
+                return Err(ForustError::InvalidParameter(
+                    "subsample".to_string(),
+                    "1.0 when sample_method is Goss".to_string(),
+                    self.subsample.to_string(),
+                ));
+            }
+        }
         Ok(())
+    }
+
+    /// A dedicated thread pool, if `num_threads` is set and the work runs in parallel.
+    fn thread_pool(&self, parallel: bool) -> Option<rayon::ThreadPool> {
+        match self.num_threads {
+            Some(n) if parallel && n > 0 => Some(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(n)
+                    .build()
+                    .expect("failed to build the Rayon thread pool"),
+            ),
+            _ => None,
+        }
+    }
+
+    fn in_thread_pool<R: Send>(&self, parallel: bool, op: impl FnOnce() -> R + Send) -> R {
+        match self.thread_pool(parallel) {
+            Some(pool) => pool.install(op),
+            // Run on a pool thread so each parallel step isn't a hand-off from a blocked caller.
+            None if parallel => rayon::scope(|_| op()),
+            None => op(),
+        }
     }
 
     /// Fit the gradient booster on a provided dataset.
@@ -440,7 +489,24 @@ impl GradientBooster {
         sample_weight: &[f64],
         evaluation_data: Option<Vec<EvaluationData>>,
     ) -> Result<(), ForustError> {
+        match self.thread_pool(self.parallel) {
+            Some(pool) => pool.install(|| self.fit_inner(data, y, sample_weight, evaluation_data)),
+            None if self.parallel => {
+                rayon::scope(|_| self.fit_inner(data, y, sample_weight, evaluation_data))
+            }
+            None => self.fit_inner(data, y, sample_weight, evaluation_data),
+        }
+    }
+
+    fn fit_inner(
+        &mut self,
+        data: &Matrix<f64>,
+        y: &[f64],
+        sample_weight: &[f64],
+        evaluation_data: Option<Vec<EvaluationData>>,
+    ) -> Result<(), ForustError> {
         // Validate inputs
+        self.validate_parameters()?;
         validate_not_nan_vec(y, "y".to_string())?;
         validate_positive_not_nan_vec(sample_weight, "sample_weight".to_string())?;
         if let Some(eval_data) = &evaluation_data {
@@ -490,21 +556,34 @@ impl GradientBooster {
         Ok(())
     }
 
+    /// The sampling to use for a given iteration; GOSS uses all rows during warm-up.
+    fn iteration_sample_method(&self, iteration: usize) -> SampleMethod {
+        match self.sample_method {
+            SampleMethod::Goss
+                if iteration < GossSampler::warmup_iterations(self.learning_rate) =>
+            {
+                SampleMethod::None
+            }
+            method => method,
+        }
+    }
+
     fn sample_index(
         &self,
+        sample_method: SampleMethod,
         rng: &mut StdRng,
         index: &[usize],
         grad: &mut [f32],
         hess: &mut [f32],
     ) -> (Vec<usize>, Vec<usize>) {
-        match self.sample_method {
+        match sample_method {
             SampleMethod::None => (index.to_owned(), Vec::new()),
             SampleMethod::Random => {
                 RandomSampler::new(self.subsample).sample(rng, index, grad, hess)
             }
-            SampleMethod::Goss => {
-                GossSampler::new(self.top_rate, self.other_rate).sample(rng, index, grad, hess)
-            }
+            SampleMethod::Goss => GossSampler::new(self.top_rate, self.other_rate)
+                .with_parallel(self.parallel)
+                .sample(rng, index, grad, hess),
         }
     }
 
@@ -555,7 +634,7 @@ impl GradientBooster {
         // TODO
         // In scikit-learn, they sample 200_000 records for generating the bins.
         // we could consider that, especially if this proved to be a large bottleneck...
-        let binned_data = bin_matrix(data, sample_weight, self.nbins, self.missing)?;
+        let binned_data = bin_matrix(data, sample_weight, self.nbins, self.missing, self.parallel)?;
         let bdata = Matrix::new(&binned_data.binned_data, data.rows, data.cols);
 
         // Create the predictions, saving them with the evaluation data.
@@ -572,15 +651,17 @@ impl GradientBooster {
         // This will always be false, unless early stopping rounds are used.
         let mut stop_early = false;
         let col_index: Vec<usize> = (0..data.cols).collect();
+        let mut row_subset = RowSubset::default();
         for i in 0..self.iterations {
             let verbose = if self.log_iterations == 0 {
                 false
             } else {
                 i % self.log_iterations == 0
             };
+            let sample_method = self.iteration_sample_method(i);
             // We will eventually use the excluded index.
             let (chosen_index, _excluded_index) =
-                self.sample_index(&mut rng, &data.index, &mut grad, &mut hess);
+                self.sample_index(sample_method, &mut rng, &data.index, &mut grad, &mut hess);
             let mut tree = Tree::new();
 
             // If we are doing any column sampling...
@@ -604,20 +685,49 @@ impl GradientBooster {
                 &colsample_index
             };
 
-            tree.fit(
-                &bdata,
-                chosen_index,
-                fit_col_index,
-                &binned_data.cuts,
-                &grad,
-                &hess,
-                splitter,
-                self.max_leaves,
-                self.max_depth,
-                self.parallel,
-                &self.sample_method,
-                &self.grow_policy,
-            );
+            // When few rows are sampled, build the tree on a contiguous copy of them.
+            if sample_method != SampleMethod::None
+                && RowSubset::should_use(chosen_index.len(), data.rows)
+            {
+                row_subset.fill(
+                    &bdata,
+                    &chosen_index,
+                    fit_col_index,
+                    &grad,
+                    &hess,
+                    self.parallel,
+                );
+                let (subset_data, subset_index) = row_subset.matrix();
+                tree.fit(
+                    &subset_data,
+                    subset_index,
+                    fit_col_index,
+                    &binned_data.cuts,
+                    &row_subset.grad,
+                    &row_subset.hess,
+                    splitter,
+                    self.max_leaves,
+                    self.max_depth,
+                    self.parallel,
+                    &sample_method,
+                    &self.grow_policy,
+                );
+            } else {
+                tree.fit(
+                    &bdata,
+                    chosen_index,
+                    fit_col_index,
+                    &binned_data.cuts,
+                    &grad,
+                    &hess,
+                    splitter,
+                    self.max_leaves,
+                    self.max_depth,
+                    self.parallel,
+                    &sample_method,
+                    &self.grow_policy,
+                );
+            }
 
             self.update_predictions_inplace(&mut yhat, &tree, data);
 
@@ -731,24 +841,29 @@ impl GradientBooster {
     ///
     /// * `data` -  Either a pandas DataFrame, or a 2 dimensional numpy array.
     pub fn predict(&self, data: &Matrix<f64>, parallel: bool) -> Vec<f64> {
-        let mut init_preds = vec![self.base_score; data.rows];
-        self.get_prediction_trees().iter().for_each(|tree| {
-            for (p_, val) in init_preds
-                .iter_mut()
-                .zip(tree.predict(data, parallel, &self.missing))
-            {
-                *p_ += val;
-            }
-        });
-        init_preds
+        self.in_thread_pool(parallel, || {
+            let mut init_preds = vec![self.base_score; data.rows];
+            self.get_prediction_trees().iter().for_each(|tree| {
+                for (p_, val) in
+                    init_preds
+                        .iter_mut()
+                        .zip(tree.predict(data, parallel, &self.missing))
+                {
+                    *p_ += val;
+                }
+            });
+            init_preds
+        })
     }
 
     /// Predict the leaf Indexes, this returns a vector of length N records * N Trees
     pub fn predict_leaf_indices(&self, data: &Matrix<f64>) -> Vec<usize> {
-        self.get_prediction_trees()
-            .iter()
-            .flat_map(|tree| tree.predict_leaf_indices(data, &self.missing))
-            .collect()
+        self.in_thread_pool(true, || {
+            self.get_prediction_trees()
+                .iter()
+                .flat_map(|tree| tree.predict_leaf_indices(data, &self.missing))
+                .collect()
+        })
     }
 
     /// Predict the contributions matrix for the provided dataset.
@@ -758,7 +873,7 @@ impl GradientBooster {
         method: ContributionsMethod,
         parallel: bool,
     ) -> Vec<f64> {
-        match method {
+        self.in_thread_pool(parallel, || match method {
             ContributionsMethod::Average => self.predict_contributions_average(data, parallel),
             ContributionsMethod::ProbabilityChange => {
                 match self.objective_type {
@@ -768,7 +883,7 @@ impl GradientBooster {
                 self.predict_contributions_probability_change(data, parallel)
             }
             _ => self.predict_contributions_tree_alone(data, parallel, method),
-        }
+        })
     }
 
     // All of the contribution calculation methods, except for average are calculated
@@ -957,10 +1072,12 @@ impl GradientBooster {
     /// * `value` - The value for which to calculate the partial dependence.
     pub fn value_partial_dependence(&self, feature: usize, value: f64) -> f64 {
         let pd: f64 = if self.parallel {
-            self.get_prediction_trees()
-                .par_iter()
-                .map(|t| t.value_partial_dependence(feature, value, &self.missing))
-                .sum()
+            self.in_thread_pool(true, || {
+                self.get_prediction_trees()
+                    .par_iter()
+                    .map(|t| t.value_partial_dependence(feature, value, &self.missing))
+                    .sum()
+            })
         } else {
             self.get_prediction_trees()
                 .iter()
@@ -1160,6 +1277,13 @@ impl GradientBooster {
         self
     }
 
+    /// Set the number of threads to use when running in parallel.
+    /// * `num_threads` - Thread count; `None` (or 0) uses Rayon's global thread pool.
+    pub fn set_num_threads(mut self, num_threads: Option<usize>) -> Self {
+        self.num_threads = num_threads;
+        self
+    }
+
     /// Set the allow_missing_splits on the booster.
     /// * `allow_missing_splits` - Set if missing splits are allowed for the booster.
     pub fn set_allow_missing_splits(mut self, allow_missing_splits: bool) -> Self {
@@ -1217,6 +1341,20 @@ impl GradientBooster {
         self
     }
 
+    /// Set the GOSS top rate on the booster.
+    /// * `top_rate` - Share of rows with the largest gradients that are always kept.
+    pub fn set_top_rate(mut self, top_rate: f64) -> Self {
+        self.top_rate = top_rate;
+        self
+    }
+
+    /// Set the GOSS other rate on the booster.
+    /// * `other_rate` - Share of rows sampled from the rest, with scaled-up gradients.
+    pub fn set_other_rate(mut self, other_rate: f64) -> Self {
+        self.other_rate = other_rate;
+        self
+    }
+
     /// Set sample method on the booster.
     /// * `evaluation_metric` - Sample method.
     pub fn set_evaluation_metric(mut self, evaluation_metric: Option<Metric>) -> Self {
@@ -1269,6 +1407,89 @@ impl GradientBooster {
 mod tests {
     use super::*;
     use std::fs;
+
+    fn titanic_like_data() -> (Vec<f64>, Vec<f64>) {
+        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file
+            .lines()
+            .map(|x| x.parse::<f64>().unwrap_or(f64::NAN))
+            .collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        (data_vec, y)
+    }
+
+    fn goss_booster(seed: u64) -> GradientBooster {
+        GradientBooster::default()
+            .set_iterations(10)
+            .set_learning_rate(0.3)
+            .set_max_depth(3)
+            .set_sample_method(SampleMethod::Goss)
+            .set_seed(seed)
+    }
+
+    #[test]
+    fn test_booster_fit_goss_warmup() {
+        let (data_vec, y) = titanic_like_data();
+        let data = Matrix::new(&data_vec, 891, 5);
+        let w = vec![1.; y.len()];
+        let mut goss = goss_booster(0);
+        goss.fit(&data, &y, &w, None).unwrap();
+        let mut full = goss_booster(0).set_sample_method(SampleMethod::None);
+        full.fit(&data, &y, &w, None).unwrap();
+
+        // Warm-up is int(1 / 0.3) = 3 iterations on all rows, so those trees match.
+        for i in 0..3 {
+            assert_eq!(
+                serde_json::to_string(&goss.trees[i]).unwrap(),
+                serde_json::to_string(&full.trees[i]).unwrap()
+            );
+        }
+        assert_ne!(
+            goss.trees[3].nodes[0].hessian_sum,
+            full.trees[3].nodes[0].hessian_sum
+        );
+    }
+
+    #[test]
+    fn test_booster_fit_goss_seed() {
+        let (data_vec, y) = titanic_like_data();
+        let data = Matrix::new(&data_vec, 891, 5);
+        let w = vec![1.; y.len()];
+        let fit = |seed| {
+            let mut booster = goss_booster(seed);
+            booster.fit(&data, &y, &w, None).unwrap();
+            booster.predict(&data, false)
+        };
+        assert_eq!(fit(1), fit(1));
+        assert_ne!(fit(1), fit(2));
+    }
+
+    #[test]
+    fn test_booster_goss_validation() {
+        let (data_vec, y) = titanic_like_data();
+        let data = Matrix::new(&data_vec, 891, 5);
+        let w = vec![1.; y.len()];
+        for booster in [
+            goss_booster(0).set_top_rate(0.0),
+            goss_booster(0).set_other_rate(-0.1),
+            goss_booster(0).set_top_rate(0.6).set_other_rate(0.5),
+            goss_booster(0).set_subsample(0.5),
+        ] {
+            let mut booster = booster;
+            assert!(matches!(
+                booster.fit(&data, &y, &w, None),
+                Err(ForustError::InvalidParameter(..))
+            ));
+        }
+        assert!(goss_booster(0)
+            .set_top_rate(0.6)
+            .set_other_rate(0.4)
+            .fit(&data, &y, &w, None)
+            .is_ok());
+    }
 
     #[test]
     fn test_booster_fit_subsample() {
@@ -1399,5 +1620,78 @@ mod tests {
         let booster3 = GradientBooster::load_booster("resources/modelmissing.json").unwrap();
         assert_eq!(booster3.missing, 0.);
         assert_eq!(booster3.missing, booster.missing);
+    }
+
+    fn make_determinism_data(rows: usize, cols: usize) -> (Vec<f64>, Vec<f64>) {
+        use rand::Rng;
+        let mut rng = StdRng::seed_from_u64(0);
+        let mut data = Vec::with_capacity(rows * cols);
+        for col in 0..cols {
+            for _ in 0..rows {
+                let v: f64 = rng.gen();
+                let v = if col % 4 == 0 { (v * 5.0).floor() } else { v };
+                let v = if col % 5 == 1 && rng.gen::<f64>() < 0.1 {
+                    f64::NAN
+                } else {
+                    v
+                };
+                data.push(v);
+            }
+        }
+        let y = (0..rows)
+            .map(|r| {
+                let score = data[r] + data[rows + r] * 3.0 - data[2 * rows + r] * 2.0;
+                if score + rng.gen::<f64>() * 2.0 > 2.5 {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        (data, y)
+    }
+
+    #[test]
+    fn test_parallel_and_serial_trees_identical() {
+        let (rows, cols) = (5000, 40);
+        let (data_vec, y) = make_determinism_data(rows, cols);
+        let data = Matrix::new(&data_vec, rows, cols);
+        let w = vec![1.; rows];
+        for missing_branch in [false, true] {
+            let trees: Vec<String> = [false, true]
+                .into_iter()
+                .map(|parallel| {
+                    let mut booster = GradientBooster::default()
+                        .set_iterations(10)
+                        .set_max_depth(6)
+                        .set_parallel(parallel)
+                        .set_create_missing_branch(missing_branch);
+                    booster.fit(&data, &y, &w, None).unwrap();
+                    serde_json::to_string(&booster.trees).unwrap()
+                })
+                .collect();
+            assert_eq!(trees[0], trees[1], "missing_branch={}", missing_branch);
+        }
+    }
+
+    #[test]
+    fn test_num_threads_trees_identical() {
+        let (rows, cols) = (5000, 40);
+        let (data_vec, y) = make_determinism_data(rows, cols);
+        let data = Matrix::new(&data_vec, rows, cols);
+        let w = vec![1.; rows];
+        let fit = |num_threads: Option<usize>| {
+            let mut booster = GradientBooster::default()
+                .set_iterations(10)
+                .set_max_depth(6)
+                .set_num_threads(num_threads);
+            booster.fit(&data, &y, &w, None).unwrap();
+            let preds = booster.predict(&data, true);
+            (serde_json::to_string(&booster.trees).unwrap(), preds)
+        };
+        let reference = fit(None);
+        for num_threads in [Some(1), Some(2), Some(4)] {
+            assert_eq!(fit(num_threads), reference, "num_threads={:?}", num_threads);
+        }
     }
 }
