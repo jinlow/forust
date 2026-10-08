@@ -3,7 +3,7 @@
 To run this example, add the following code to your `Cargo.toml` file.
 ```toml
 [dependencies]
-forust-ml = "0.7.0-rc.1"
+forust-ml = "0.7.0"
 polars = "0.28"
 reqwest = { version = "0.11", features = ["blocking"] }
 ```
