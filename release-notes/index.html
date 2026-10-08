@@ -1,0 +1,992 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="..">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Performance Release Notes - forust</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#performance-release-notes" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="forust" class="md-header__button md-logo" aria-label="forust" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19.19 18H24l-3.86-6H22L15 2l-2.39 3.41L17.92 13h-1.95zM16 12 9 2 2 12h1.86L0 18h7v4h4v-4h7l-3.86-6zm-3.84-2H10.5l3.84 6H3.67l3.86-6H5.84L9 5.5zm.84 9v3h4v-3z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            forust
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Performance Release Notes
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 7H7a5 5 0 0 0-5 5 5 5 0 0 0 5 5h10a5 5 0 0 0 5-5 5 5 0 0 0-5-5m0 8a3 3 0 0 1-3-3 3 3 0 0 1 3-3 3 3 0 0 1 3 3 3 3 0 0 1-3 3"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 6H7c-3.31 0-6 2.69-6 6s2.69 6 6 6h10c3.31 0 6-2.69 6-6s-2.69-6-6-6m0 10H7c-2.21 0-4-1.79-4-4s1.79-4 4-4h10c2.21 0 4 1.79 4 4s-1.79 4-4 4M7 9c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jinlow/forust" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    forust
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="forust" class="md-nav__button md-logo" aria-label="forust" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19.19 18H24l-3.86-6H22L15 2l-2.39 3.41L17.92 13h-1.95zM16 12 9 2 2 12h1.86L0 18h7v4h4v-4h7l-3.86-6zm-3.84-2H10.5l3.84 6H3.67l3.86-6H5.84L9 5.5zm.84 9v3h4v-3z"/></svg>
+
+    </a>
+    forust
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jinlow/forust" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    forust
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Release Notes
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tree-building-optimizations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tree-Building Optimizations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tree-Building Optimizations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#histogram-follow-up" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Histogram follow-up
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#goss-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GOSS Sampling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiments-that-were-not-kept" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiments That Were Not Kept
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reproducing-the-measurements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproducing the Measurements
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tree-building-optimizations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tree-Building Optimizations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tree-Building Optimizations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#histogram-follow-up" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Histogram follow-up
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#goss-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GOSS Sampling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiments-that-were-not-kept" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiments That Were Not Kept
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reproducing-the-measurements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproducing the Measurements
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="performance-release-notes">Performance Release Notes</h1>
+<h2 id="scope">Scope</h2>
+<p>This page preserves the results and reasoning from the performance work recorded
+in October 2026. The original working notes and raw JSONL benchmark output were
+kept under <code>agent/</code> while the work was in progress. They are now summarized here
+so the repository keeps the durable conclusions without carrying a temporary
+experiment archive.</p>
+<p>The measurements were taken on an Azure VM with 8 physical cores, 16 vCPUs,
+and 62 GB of RAM. Unless noted otherwise, runs used release builds, 8 threads,
+synthetic data generated by <code>scripts/make_perf_data.py</code> with seed 0, 256 bins,
+learning rate 0.1, depth 5, and one evaluation set. Timings vary by roughly
+5-10% between runs.</p>
+<h2 id="executive-summary">Executive Summary</h2>
+<p>The main bottleneck was tree construction, not prediction or evaluation. In the
+original 1,000-iteration workload with 100,000 rows and 200 columns, tree
+building accounted for 93.3% of total time. The optimization work moved the
+largest serial sections into parallel execution, reduced repeated allocations
+and copies, and made binning parallel.</p>
+<p>The recorded end-to-end results were:</p>
+<table>
+<thead>
+<tr>
+<th>Workload</th>
+<th style="text-align: right;">Before</th>
+<th style="text-align: right;">After</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>100 iterations, 1M x 200, 8 threads</td>
+<td style="text-align: right;">52.7 s</td>
+<td style="text-align: right;">26.1 s</td>
+<td>2.0x faster</td>
+</tr>
+<tr>
+<td>1,000 iterations, 100k x 200, default threads</td>
+<td style="text-align: right;">80.8 s</td>
+<td style="text-align: right;">37.2 s</td>
+<td>2.2x faster</td>
+</tr>
+<tr>
+<td>Tree time, 8 threads, 25k-250k rows</td>
+<td style="text-align: right;">baseline</td>
+<td style="text-align: right;">-39% to -81%</td>
+<td>substantially lower</td>
+</tr>
+<tr>
+<td>Binning, 8 threads, 1M x 200</td>
+<td style="text-align: right;">24.7 s</td>
+<td style="text-align: right;">1.8 s</td>
+<td>91-93% less</td>
+</tr>
+<tr>
+<td>8-thread speedup over serial</td>
+<td style="text-align: right;">1.0-3.1x</td>
+<td style="text-align: right;">4.6-5.2x</td>
+<td>much better scaling</td>
+</tr>
+</tbody>
+</table>
+<p>Every kept change was checked for byte-identical model output. The recorded
+Python test suite passed with 112 tests during the main optimization work and
+121 tests during the histogram follow-up.</p>
+<h2 id="tree-building-optimizations">Tree-Building Optimizations</h2>
+<p>The following changes were measured and kept:</p>
+<table>
+<thead>
+<tr>
+<th>Change</th>
+<th>Recorded effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Parallel split search</td>
+<td>17-38% faster at 8 threads</td>
+</tr>
+<tr>
+<td>Borrow gradients instead of copying</td>
+<td>3-10% faster</td>
+</tr>
+<tr>
+<td>Write histograms in place</td>
+<td>15-33% faster at 8 threads</td>
+</tr>
+<tr>
+<td>Parallel histogram subtraction</td>
+<td>Up to 28% faster at 8 threads</td>
+</tr>
+<tr>
+<td>Parallel binning with one sort per column</td>
+<td>Binning 11-14x faster</td>
+</tr>
+<tr>
+<td>Configurable <code>num_threads</code></td>
+<td>Makes thread-count tuning explicit</td>
+</tr>
+<tr>
+<td>Run parallel work on a pool thread</td>
+<td>4-40% faster at 8 threads</td>
+</tr>
+</tbody>
+</table>
+<p>The analysis found that histogram accumulation was only part of the problem.
+Split search, histogram subtraction, gradient/Hessian gathering, per-column
+histogram assembly, and row partitioning remained serial and dominated smaller
+or deeper trees. Parallelizing independent feature scans and per-column work
+improved scaling while preserving the existing tie-breaking behavior.</p>
+<p>The recommended setting on the benchmark host was 8 threads, one per physical
+core. The default 16 threads was 2-18% slower at depth 5 and 25-66% slower at
+depth 8. This is workload and machine dependent; applications should measure
+on their own hosts before changing thread settings.</p>
+<h3 id="histogram-follow-up">Histogram follow-up</h3>
+<p>Two additional changes were kept:</p>
+<ul>
+<li>Skip histogram construction for children at <code>max_depth</code>, reducing tree time by
+  10-35% in the measured cases.</li>
+<li>Remove the redundant <code>cut_value</code> field from <code>Bin</code>, reducing tree time by up to
+  21% on small nodes and deep trees.</li>
+</ul>
+<p>The combined before/after measurements were:</p>
+<table>
+<thead>
+<tr>
+<th>Data</th>
+<th style="text-align: right;">Rows</th>
+<th>Setting</th>
+<th style="text-align: right;">Before</th>
+<th style="text-align: right;">After</th>
+<th style="text-align: right;">Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>w200</td>
+<td style="text-align: right;">100k</td>
+<td>none</td>
+<td style="text-align: right;">3.47 s</td>
+<td style="text-align: right;">2.49 s</td>
+<td style="text-align: right;">-28.1%</td>
+</tr>
+<tr>
+<td>w200</td>
+<td style="text-align: right;">100k</td>
+<td>random80</td>
+<td style="text-align: right;">3.21 s</td>
+<td style="text-align: right;">2.30 s</td>
+<td style="text-align: right;">-28.3%</td>
+</tr>
+<tr>
+<td>w200</td>
+<td style="text-align: right;">100k</td>
+<td>GOSS</td>
+<td style="text-align: right;">2.31 s</td>
+<td style="text-align: right;">1.94 s</td>
+<td style="text-align: right;">-16.0%</td>
+</tr>
+<tr>
+<td>w200</td>
+<td style="text-align: right;">250k</td>
+<td>none</td>
+<td style="text-align: right;">7.91 s</td>
+<td style="text-align: right;">5.60 s</td>
+<td style="text-align: right;">-29.2%</td>
+</tr>
+<tr>
+<td>w200</td>
+<td style="text-align: right;">250k</td>
+<td>random80</td>
+<td style="text-align: right;">7.13 s</td>
+<td style="text-align: right;">5.18 s</td>
+<td style="text-align: right;">-27.4%</td>
+</tr>
+<tr>
+<td>w200</td>
+<td style="text-align: right;">250k</td>
+<td>GOSS</td>
+<td style="text-align: right;">4.42 s</td>
+<td style="text-align: right;">3.46 s</td>
+<td style="text-align: right;">-21.7%</td>
+</tr>
+<tr>
+<td>w500</td>
+<td style="text-align: right;">100k</td>
+<td>none</td>
+<td style="text-align: right;">7.92 s</td>
+<td style="text-align: right;">5.76 s</td>
+<td style="text-align: right;">-27.3%</td>
+</tr>
+<tr>
+<td>w500</td>
+<td style="text-align: right;">100k</td>
+<td>random80</td>
+<td style="text-align: right;">7.20 s</td>
+<td style="text-align: right;">4.98 s</td>
+<td style="text-align: right;">-30.9%</td>
+</tr>
+<tr>
+<td>w500</td>
+<td style="text-align: right;">100k</td>
+<td>GOSS</td>
+<td style="text-align: right;">4.88 s</td>
+<td style="text-align: right;">3.57 s</td>
+<td style="text-align: right;">-26.8%</td>
+</tr>
+<tr>
+<td>w200-1m</td>
+<td style="text-align: right;">1M</td>
+<td>none</td>
+<td style="text-align: right;">26.74 s</td>
+<td style="text-align: right;">19.53 s</td>
+<td style="text-align: right;">-27.0%</td>
+</tr>
+<tr>
+<td>w200-1m</td>
+<td style="text-align: right;">1M</td>
+<td>random80</td>
+<td style="text-align: right;">24.10 s</td>
+<td style="text-align: right;">18.35 s</td>
+<td style="text-align: right;">-23.8%</td>
+</tr>
+<tr>
+<td>w200-1m</td>
+<td style="text-align: right;">1M</td>
+<td>GOSS</td>
+<td style="text-align: right;">15.35 s</td>
+<td style="text-align: right;">12.92 s</td>
+<td style="text-align: right;">-15.8%</td>
+</tr>
+</tbody>
+</table>
+<p>These are median total fit times for 100 iterations with one evaluation set.
+Evaluation logloss was identical before and after for these comparisons.</p>
+<h2 id="goss-sampling">GOSS Sampling</h2>
+<p>Forust now supports Gradient-based One-Side Sampling (GOSS), following the
+LightGBM approach. GOSS keeps the rows with the largest gradients and samples
+from the remaining rows, scaling the retained small-gradient rows to keep split
+statistics close to unbiased. With the default <code>top_rate=0.2</code> and
+<code>other_rate=0.1</code>, the first <code>int(1 / learning_rate)</code> trees use all rows as a
+warm-up.</p>
+<p>Against random 80% row sampling (<code>random80</code>), fixed 100-iteration runs showed:</p>
+<table>
+<thead>
+<tr>
+<th>Data</th>
+<th style="text-align: right;">random80</th>
+<th style="text-align: right;">GOSS</th>
+<th style="text-align: right;">Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>w200, 100k</td>
+<td style="text-align: right;">3.21 s</td>
+<td style="text-align: right;">2.31 s</td>
+<td style="text-align: right;">1.39x</td>
+</tr>
+<tr>
+<td>w200, 250k</td>
+<td style="text-align: right;">7.13 s</td>
+<td style="text-align: right;">4.42 s</td>
+<td style="text-align: right;">1.61x</td>
+</tr>
+<tr>
+<td>w500, 100k</td>
+<td style="text-align: right;">7.20 s</td>
+<td style="text-align: right;">4.88 s</td>
+<td style="text-align: right;">1.48x</td>
+</tr>
+<tr>
+<td>w200-1m, 1M</td>
+<td style="text-align: right;">24.10 s</td>
+<td style="text-align: right;">15.35 s</td>
+<td style="text-align: right;">1.57x</td>
+</tr>
+</tbody>
+</table>
+<p>Across these datasets, fixed-iteration GOSS logloss was within -0.55% to
++0.19% of the random80 baseline. Early stopping was within +0.98% on w200
+100k and -0.11% on w500 100k, but was +1.63% worse on w200 250k. That last
+case exceeded the recorded 1% tolerance and is an important caveat rather than
+a result to hide. The early-stopping runs usually reached the 1,000-tree cap,
+so they were not all fully converged comparisons.</p>
+<p>GOSS-specific implementation measurements on 1M x 200 were:</p>
+<table>
+<thead>
+<tr>
+<th>Configuration</th>
+<th style="text-align: right;">Tree</th>
+<th style="text-align: right;">Row selection</th>
+<th style="text-align: right;">Subset copy</th>
+<th style="text-align: right;">Total</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>No sampling</td>
+<td style="text-align: right;">220.5 ms</td>
+<td style="text-align: right;">-</td>
+<td style="text-align: right;">-</td>
+<td style="text-align: right;">220.5 ms</td>
+</tr>
+<tr>
+<td>GOSS, serial selection</td>
+<td style="text-align: right;">111.1 ms</td>
+<td style="text-align: right;">17.6 ms</td>
+<td style="text-align: right;">-</td>
+<td style="text-align: right;">128.7 ms</td>
+</tr>
+<tr>
+<td>GOSS plus contiguous row subset</td>
+<td style="text-align: right;">89.2 ms</td>
+<td style="text-align: right;">15.2 ms</td>
+<td style="text-align: right;">11.6 ms</td>
+<td style="text-align: right;">116.0 ms</td>
+</tr>
+<tr>
+<td>GOSS plus parallel block selection</td>
+<td style="text-align: right;">85.5 ms</td>
+<td style="text-align: right;">4.8 ms</td>
+<td style="text-align: right;">11.1 ms</td>
+<td style="text-align: right;">101.4 ms</td>
+</tr>
+</tbody>
+</table>
+<p>The subset tree output was byte-identical to the full-data tree output in the
+recorded checks. Parallel and serial GOSS block selection also produced
+identical models.</p>
+<h2 id="experiments-that-were-not-kept">Experiments That Were Not Kept</h2>
+<p>Several ideas were measured and rejected, and recording those results prevents
+repeating the same investigations:</p>
+<ul>
+<li>Reusing histogram buffers was slower at depth 5: about 6% slower at 250k
+  rows and 7% slower at 1M rows.</li>
+<li>Reusing the per-column <code>sums</code> buffer was 6-30% slower in the tested cases.</li>
+<li><code>u8</code> bins were 7-20% faster in the histogram-fill microbenchmark, but only
+  apply when all columns fit within 255 bins. The default 256-bin layout needs
+  <code>u16</code>, and the required generic plumbing was not justified by the measured
+  end-to-end gain.</li>
+<li><code>u32</code> row indices showed no useful microbenchmark gain.</li>
+<li>Building small nodes serially was slower at every tested threshold.</li>
+<li>A faster weighted pair sort gained about 2% but carried a small risk of
+  changing last-digit cut values.</li>
+</ul>
+<p>The remaining likely bottlenecks are row partitioning after each split, split
+evaluation for every bin, histogram accumulation and Rayon scheduling for many
+small deep-tree nodes. These are candidates for future profiling, not claims
+of completed work.</p>
+<h2 id="reproducing-the-measurements">Reproducing the Measurements</h2>
+<p>Synthetic datasets can be regenerated with:</p>
+<div class="language-shell highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>python<span class="w"> </span>scripts/make_perf_data.py<span class="w"> </span>--out<span class="w"> </span>/tmp/forust-perf/w200<span class="w"> </span>--rows<span class="w"> </span><span class="m">250000</span><span class="w"> </span>--eval-rows<span class="w"> </span><span class="m">62500</span><span class="w"> </span>--cols<span class="w"> </span><span class="m">200</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>python<span class="w"> </span>scripts/make_perf_data.py<span class="w"> </span>--out<span class="w"> </span>/tmp/forust-perf/w500<span class="w"> </span>--rows<span class="w"> </span><span class="m">100000</span><span class="w"> </span>--eval-rows<span class="w"> </span><span class="m">25000</span><span class="w"> </span>--cols<span class="w"> </span><span class="m">500</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>python<span class="w"> </span>scripts/make_perf_data.py<span class="w"> </span>--out<span class="w"> </span>/tmp/forust-perf/w200-1m<span class="w"> </span>--rows<span class="w"> </span><span class="m">1000000</span><span class="w"> </span>--eval-rows<span class="w"> </span><span class="m">250000</span><span class="w"> </span>--cols<span class="w"> </span><span class="m">200</span>
+</span></code></pre></div>
+<p>The benchmark helpers are kept under <code>scripts/</code>. Their generated result files
+default to ignored <code>target/perf/</code>, while the larger datasets and golden files
+use <code>/tmp/forust-perf/</code>. The main tools are:</p>
+<ul>
+<li><code>perf_sweep.py</code> for steady-state tree timing and thread scaling.</li>
+<li><code>perf_grid.py</code> for repeatable before/after grids.</li>
+<li><code>perf_compare.py</code> for markdown comparisons between labels.</li>
+<li><code>perf_golden.py</code> for byte-identical tree checks.</li>
+<li><code>perf_goss.py</code> for GOSS accuracy and speed checks.</li>
+<li><code>perf_reference.py</code> and <code>perf_xgboost.py</code> for external reference timings.</li>
+<li><code>perf_serial_share.py</code> for Linux <code>perf</code> sampling of serial work.</li>
+</ul>
+<p>These numbers are historical engineering measurements, not a promise of a
+fixed speedup for every dataset or machine. Hardware, feature cardinality,
+tree depth, sampling, thread count, and evaluation frequency all affect the
+result.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": [], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
