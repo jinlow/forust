@@ -13,10 +13,10 @@ it for the references and equals the total for Forust, whose `fit` bins internal
 
 Example:
     python scripts/perf_goss.py run --data /tmp/forust-perf/w200 --rows 100000 --threads 8 \
-        --iterations 100 --out agent/feat/goss/results.jsonl --references
+        --iterations 100 --out target/perf/goss-results.jsonl --references
     python scripts/perf_goss.py run --data /tmp/forust-perf/w200 --rows 100000 --threads 8 \
-        --iterations 1000 --early-stopping-rounds 20 --out agent/feat/goss/results.jsonl
-    python scripts/perf_goss.py report --results agent/feat/goss/results.jsonl
+        --iterations 1000 --early-stopping-rounds 20 --out target/perf/goss-results.jsonl
+    python scripts/perf_goss.py report --results target/perf/goss-results.jsonl
 """
 
 from __future__ import annotations

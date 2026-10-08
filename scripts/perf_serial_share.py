@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from perf_sweep import BINARY, git_commit
 
-RESULTS = Path(__file__).resolve().parents[1] / "agent/feat/optimize/results.jsonl"
+RESULTS = Path(__file__).resolve().parents[1] / "target/perf/results.jsonl"
 PERF_DATA = Path("/tmp/forust-perf/serial_share.data")
 SAMPLE = re.compile(r"^\s*(\d+)/(\d+)\s+([\d.]+):\s*(?:[0-9a-f]+\s*)?(\S*)")
 
@@ -53,6 +53,7 @@ def main() -> None:
     parser.add_argument("--delay-ms", type=int, default=3500, help="Skip loading and binning.")
     parser.add_argument("--out", type=Path, default=RESULTS)
     args = parser.parse_args()
+    args.out.parent.mkdir(parents=True, exist_ok=True)
 
     command = [
         "perf", "record", "-q", "-F", "999", "--delay", str(args.delay_ms), "-o", str(PERF_DATA), "--",
