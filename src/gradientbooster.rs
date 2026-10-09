@@ -1,6 +1,6 @@
 use crate::binning::bin_matrix;
 use crate::constraints::ConstraintMap;
-use crate::data::{Matrix, RowMajorMatrix};
+use crate::data::{JaggedMatrix, Matrix, RowMajorMatrix};
 use crate::errors::ForustError;
 use crate::metric::{is_comparison_better, metric_callables, Metric, MetricFn};
 use crate::objective::{
@@ -10,7 +10,7 @@ use crate::objective::{
 use crate::sampler::{GossSampler, RandomSampler, RowSubset, SampleMethod, Sampler};
 use crate::shapley::predict_contributions_row_shapley;
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
-use crate::tree::Tree;
+use crate::tree::{split_bins, Tree, TreeRows};
 use crate::utils::{
     fmt_vec_output, odds, validate_not_nan_vec, validate_positive_float_field,
     validate_positive_not_nan_vec,
@@ -700,8 +700,7 @@ impl GradientBooster {
                 i % self.log_iterations == 0
             };
             let sample_method = self.iteration_sample_method(i);
-            // We will eventually use the excluded index.
-            let (chosen_index, _excluded_index) =
+            let (chosen_index, excluded_index) =
                 self.sample_index(sample_method, &mut rng, &data.index, &mut grad, &mut hess);
             let mut tree = Tree::new();
 
@@ -739,7 +738,7 @@ impl GradientBooster {
                     self.parallel,
                 );
                 let (subset_data, subset_index) = row_subset.matrix();
-                tree.fit(
+                let tree_rows = tree.fit(
                     &subset_data,
                     subset_index,
                     fit_col_index,
@@ -753,8 +752,19 @@ impl GradientBooster {
                     &sample_method,
                     &self.grow_policy,
                 );
+                // The subset's rows are positions in `chosen_index`.
+                self.update_training_predictions(
+                    &mut yhat,
+                    &tree,
+                    tree_rows,
+                    Some(&chosen_index),
+                    &excluded_index,
+                    &bdata,
+                    &binned_data.cuts,
+                    data,
+                );
             } else {
-                tree.fit(
+                let tree_rows = tree.fit(
                     &bdata,
                     chosen_index,
                     fit_col_index,
@@ -768,9 +778,17 @@ impl GradientBooster {
                     &sample_method,
                     &self.grow_policy,
                 );
+                self.update_training_predictions(
+                    &mut yhat,
+                    &tree,
+                    tree_rows,
+                    None,
+                    &excluded_index,
+                    &bdata,
+                    &binned_data.cuts,
+                    data,
+                );
             }
-
-            self.update_predictions_inplace(&mut yhat, &tree, data);
 
             // Update Evaluation data, if it's needed.
             if let Some(eval_sets) = &mut evaluation_sets {
@@ -865,6 +883,53 @@ impl GradientBooster {
     fn update_best_iteration(&mut self, i: usize) {
         self.best_iteration = Some(i);
         self.prediction_iteration = Some(i + 1);
+    }
+
+    /// Add a new tree's predictions to the training predictions. Rows the tree was fit
+    /// on get the weight of the leaf they were partitioned into, which is the leaf
+    /// predicting them would reach, so no tree walk is needed. The other (sampled
+    /// out) rows walk the tree on their bins.
+    ///
+    /// * `tree_rows` - The rows in each node, from `Tree::fit`. If `None`, every row
+    ///   is predicted from `data`.
+    /// * `row_map` - Maps the rows in `tree_rows` to training rows, if the tree was fit
+    ///   on a subset of the rows.
+    /// * `excluded` - Training rows the tree wasn't fit on.
+    #[allow(clippy::too_many_arguments)]
+    fn update_training_predictions(
+        &self,
+        yhat: &mut [f64],
+        tree: &Tree,
+        tree_rows: Option<TreeRows>,
+        row_map: Option<&[usize]>,
+        excluded: &[usize],
+        bdata: &Matrix<u16>,
+        cuts: &JaggedMatrix<f64>,
+        data: &Matrix<f64>,
+    ) {
+        let Some(tree_rows) = tree_rows else {
+            self.update_predictions_inplace(yhat, tree, data);
+            return;
+        };
+        for (rows, weight) in tree_rows.leaves(tree) {
+            match row_map {
+                Some(map) => rows.iter().for_each(|&i| yhat[map[i]] += weight),
+                None => rows.iter().for_each(|&i| yhat[i] += weight),
+            }
+        }
+        if !excluded.is_empty() {
+            let split_bins = split_bins(tree, cuts);
+            let predict = |&row: &usize| tree.predict_row_binned(bdata, row, &split_bins, 0);
+            let preds: Vec<f64> = if self.parallel {
+                excluded.par_iter().map(predict).collect()
+            } else {
+                excluded.iter().map(predict).collect()
+            };
+            excluded
+                .iter()
+                .zip(preds)
+                .for_each(|(&row, p)| yhat[row] += p);
+        }
     }
 
     fn update_predictions_inplace(&self, yhat: &mut [f64], tree: &Tree, data: &Matrix<f64>) {

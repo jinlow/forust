@@ -18,6 +18,65 @@ pub struct Tree {
     pub nodes: Vec<Node>,
 }
 
+/// The training rows in each node of a tree, as left by `Tree::fit`.
+pub struct TreeRows {
+    /// The rows the tree was fit on, ordered so each node's rows are contiguous.
+    pub index: Vec<usize>,
+    /// The `(start, stop)` range of `index` for each node, by node number.
+    pub ranges: Vec<(usize, usize)>,
+}
+
+impl TreeRows {
+    /// Each leaf's rows and weight.
+    pub fn leaves<'a>(&'a self, tree: &'a Tree) -> impl Iterator<Item = (&'a [usize], f64)> + 'a {
+        tree.nodes.iter().filter(|n| n.is_leaf).map(|n| {
+            let (start, stop) = self.ranges[n.num];
+            (&self.index[start..stop], n.weight_value as f64)
+        })
+    }
+}
+
+/// The split bin of each node, from its split value: values below the split value
+/// fall in the bins below it. Leaves get 0.
+pub fn split_bins(tree: &Tree, cuts: &JaggedMatrix<f64>) -> Vec<u16> {
+    tree.nodes
+        .iter()
+        .map(|n| {
+            if n.is_leaf {
+                return 0;
+            }
+            let feature_cuts = cuts.get_col(n.split_feature);
+            let bin = feature_cuts.partition_point(|c| *c < n.split_value) + 1;
+            debug_assert_eq!(feature_cuts[bin - 1], n.split_value);
+            bin as u16
+        })
+        .collect()
+}
+
+/// Does the right child of a split hold rows that go right? The partition functions
+/// are only wrong when no row goes right, and then the right child holds a row that
+/// goes left, or none. Checking its first row is enough.
+fn right_child_rows_exact(
+    parent: &SplittableNode,
+    children: &[SplittableNode],
+    index: &[usize],
+    data: &Matrix<u16>,
+    cuts: &JaggedMatrix<f64>,
+) -> bool {
+    let right = children.last().expect("a split has children");
+    if right.start_idx == right.stop_idx {
+        return false;
+    }
+    let feature_cuts = cuts.get_col(parent.split_feature);
+    let split_bin = (feature_cuts.partition_point(|c| *c < parent.split_value) + 1) as u16;
+    let bin = *data.get(index[right.start_idx], parent.split_feature);
+    if bin == 0 {
+        parent.missing_node == right.num
+    } else {
+        bin >= split_bin
+    }
+}
+
 impl Default for Tree {
     fn default() -> Self {
         Self::new()
@@ -44,7 +103,7 @@ impl Tree {
         parallel: bool,
         sample_method: &SampleMethod,
         grow_policy: &GrowPolicy,
-    ) {
+    ) -> Option<TreeRows> {
         // Recreating the index for each tree, ensures that the tree construction is faster
         // for the root node. This also ensures that sorting the records is always fast,
         // because we are starting from a nearly sorted array.
@@ -66,6 +125,9 @@ impl Tree {
         };
 
         let mut n_nodes = 1;
+        let mut ranges = vec![(0, index.len())];
+        // False if a split's partition could disagree with predicting the rows.
+        let mut rows_exact = true;
         let root_gain = gain(&splitter.get_l2(), gradient_sum, hessian_sum);
         let root_weight = weight(
             &splitter.get_l1(),
@@ -148,6 +210,13 @@ impl Tree {
             if n_new_nodes == 0 {
                 n_leaves += 1;
             } else {
+                rows_exact &= right_child_rows_exact(&node, &new_nodes, &index, data, cuts);
+                for n in new_nodes.iter() {
+                    if ranges.len() <= n.num {
+                        ranges.resize(n.num + 1, (0, 0));
+                    }
+                    ranges[n.num] = (n.start_idx, n.stop_idx);
+                }
                 self.nodes[n_idx].make_parent_node(node);
                 n_leaves += n_new_nodes;
                 n_nodes += n_new_nodes;
@@ -162,6 +231,34 @@ impl Tree {
 
         // Any final post processing required.
         splitter.clean_up_splits(self);
+        rows_exact.then_some(TreeRows { index, ranges })
+    }
+
+    /// Predict a row of binned data. `split_bins` comes from `split_bins`, and
+    /// `missing_bin` is the bin of missing values.
+    #[inline]
+    pub fn predict_row_binned(
+        &self,
+        data: &Matrix<u16>,
+        row: usize,
+        split_bins: &[u16],
+        missing_bin: u16,
+    ) -> f64 {
+        let mut node_idx = 0;
+        loop {
+            let node = &self.nodes[node_idx];
+            if node.is_leaf {
+                return node.weight_value as f64;
+            }
+            let bin = *data.get(row, node.split_feature);
+            node_idx = if bin == missing_bin {
+                node.missing_node
+            } else if bin < split_bins[node_idx] {
+                node.left_child
+            } else {
+                node.right_child
+            };
+        }
     }
 
     pub fn predict_contributions_row_probability_change(
@@ -635,6 +732,110 @@ mod tests {
         let from_subset = fit(&subset_data, subset_index, &subset.grad, &subset.hess);
         assert!(full.matches("split_feature").count() > 3);
         assert_eq!(full, from_subset);
+    }
+
+    /// The rows `fit` leaves in each leaf must be the rows predicting reaches, and
+    /// walking the tree on bins must match walking it on values.
+    fn assert_tree_rows_match_predictions<T: Splitter>(
+        splitter: &T,
+        grow_policy: &GrowPolicy,
+        sampled: bool,
+    ) {
+        use crate::sampler::GossSampler;
+        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file
+            .lines()
+            .map(|x| x.parse::<f64>().unwrap_or(f64::NAN))
+            .collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let yhat: Vec<f64> = (0..y.len())
+            .map(|i| ((i * 7919) % 101) as f64 / 50. - 1.)
+            .collect();
+        let w = vec![1.; y.len()];
+        let (mut g, mut h) = LogLoss::calc_grad_hess(&y, &yhat, &w);
+        let data = Matrix::new(&data_vec, 891, 5);
+        let b = bin_matrix(&data, &w, 300, f64::NAN, false).unwrap();
+        let bdata = Matrix::new(&b.binned_data, data.rows, data.cols);
+        let (index, sample_method) = if sampled {
+            let mut rng = StdRng::seed_from_u64(0);
+            let (index, _) =
+                GossSampler::new(0.2, 0.1).sample(&mut rng, &data.index, &mut g, &mut h);
+            (index, SampleMethod::Goss)
+        } else {
+            (data.index.to_owned(), SampleMethod::None)
+        };
+        let mut tree = Tree::new();
+        let rows = tree
+            .fit(
+                &bdata,
+                index.clone(),
+                &[0, 1, 2, 3, 4],
+                &b.cuts,
+                &g,
+                &h,
+                splitter,
+                24,
+                6,
+                true,
+                &sample_method,
+                grow_policy,
+            )
+            .expect("partition matches predictions");
+        assert!(tree.nodes.len() > 9);
+        let predictions = tree.predict(&data, false, &f64::NAN);
+        let mut seen = vec![0; data.rows];
+        for (leaf_rows, weight) in rows.leaves(&tree) {
+            for &row in leaf_rows {
+                seen[row] += 1;
+                assert_eq!(predictions[row], weight);
+            }
+        }
+        for (row, count) in seen.iter().enumerate() {
+            assert_eq!(*count, index.contains(&row) as usize);
+        }
+        let split_bins = split_bins(&tree, &b.cuts);
+        for (row, prediction) in predictions.iter().enumerate() {
+            assert_eq!(
+                tree.predict_row_binned(&bdata, row, &split_bins, 0),
+                *prediction
+            );
+        }
+    }
+
+    #[test]
+    fn test_tree_rows_match_predictions() {
+        let imputer = MissingImputerSplitter {
+            l1: 0.0,
+            l2: 1.0,
+            max_delta_step: 0.,
+            gamma: 0.0,
+            min_leaf_weight: 1.0,
+            learning_rate: 0.3,
+            allow_missing_splits: true,
+            constraints_map: ConstraintMap::new(),
+        };
+        let branch = crate::splitter::MissingBranchSplitter {
+            l1: 0.0,
+            l2: 1.0,
+            max_delta_step: 0.,
+            gamma: 0.0,
+            min_leaf_weight: 1.0,
+            learning_rate: 0.3,
+            allow_missing_splits: true,
+            constraints_map: ConstraintMap::new(),
+            terminate_missing_features: std::collections::HashSet::new(),
+            missing_node_treatment: crate::gradientbooster::MissingNodeTreatment::AverageLeafWeight,
+            force_children_to_bound_parent: false,
+        };
+        for grow_policy in [GrowPolicy::DepthWise, GrowPolicy::LossGuide] {
+            for sampled in [false, true] {
+                assert_tree_rows_match_predictions(&imputer, &grow_policy, sampled);
+                assert_tree_rows_match_predictions(&branch, &grow_policy, sampled);
+            }
+        }
     }
 
     #[test]
