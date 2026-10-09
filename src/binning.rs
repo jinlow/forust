@@ -76,6 +76,58 @@ pub struct BinnedData<T> {
     pub nunique: Vec<usize>,
 }
 
+/// The bin of missing values in `bin_for_prediction`.
+pub const PREDICT_MISSING_BIN: u16 = u16::MAX;
+/// The bin of NAN values in `bin_for_prediction`, when the missing value isn't NAN.
+pub const PREDICT_NAN_BIN: u16 = u16::MAX - 1;
+
+/// Can trees be predicted from bins made with these cuts? A value's bin can be as
+/// large as its column's number of cuts, which must stay below the reserved bins.
+pub fn cuts_support_bin_prediction(cuts: &JaggedMatrix<f64>) -> bool {
+    (0..cuts.cols).all(|c| cuts.get_col(c).len() < usize::from(PREDICT_NAN_BIN))
+}
+
+/// Bin data with existing cuts, column-major like the data, for predicting trees from
+/// bins. Each value gets the number of cuts at or below it, so a value is below a
+/// cut exactly when its bin is below the cut's split bin, including values below the
+/// smallest cut (bin 0). Missing values get `PREDICT_MISSING_BIN`, and NAN values get
+/// `PREDICT_NAN_BIN` when `missing` isn't NAN.
+pub fn bin_for_prediction(
+    data: &Matrix<f64>,
+    cuts: &JaggedMatrix<f64>,
+    missing: &f64,
+    parallel: bool,
+) -> Vec<u16> {
+    let mut binned = vec![0; data.rows * data.cols];
+    if data.rows == 0 {
+        return binned;
+    }
+    let bin_column = |(col, out): (usize, &mut [u16])| {
+        let col_cuts = cuts.get_col(col);
+        for (b, v) in out.iter_mut().zip(data.get_col(col)) {
+            *b = if v.is_nan() && !missing.is_nan() {
+                PREDICT_NAN_BIN
+            } else if is_missing(v, missing) {
+                PREDICT_MISSING_BIN
+            } else {
+                col_cuts.partition_point(|c| c <= v) as u16
+            };
+        }
+    };
+    if parallel {
+        binned
+            .par_chunks_mut(data.rows)
+            .enumerate()
+            .for_each(bin_column);
+    } else {
+        binned
+            .chunks_mut(data.rows)
+            .enumerate()
+            .for_each(bin_column);
+    }
+    binned
+}
+
 /// Convert a matrix of data, into a binned matrix.
 ///
 /// * `data` - Numeric data to be binned.
@@ -187,6 +239,22 @@ pub fn bin_matrix(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_cuts_support_bin_prediction() {
+        let cuts_of_len = |len: usize| {
+            let mut cuts = JaggedMatrix::new();
+            cuts.data = (0..len + 3).map(|v| v as f64).collect();
+            cuts.ends = vec![3, len + 3];
+            cuts.cols = 2;
+            cuts.n_records = len + 3;
+            cuts
+        };
+        assert!(cuts_support_bin_prediction(&cuts_of_len(257)));
+        assert!(cuts_support_bin_prediction(&cuts_of_len(65533)));
+        assert!(!cuts_support_bin_prediction(&cuts_of_len(65534)));
+        assert!(!cuts_support_bin_prediction(&cuts_of_len(65536)));
+    }
     use crate::utils::percentiles;
     use rand::{rngs::StdRng, Rng, SeedableRng};
     use std::fs;

@@ -645,6 +645,45 @@ mod tests {
         assert_eq!(missing_compare(&10, 1, true), Ordering::Greater);
     }
 
+    /// `tree::right_child_rows_exact` relies on this: both partition functions are
+    /// correct whenever at least one row goes right.
+    #[test]
+    fn test_pivot_correct_when_a_row_goes_right() {
+        let mut rng = StdRng::seed_from_u64(1);
+        for _ in 0..200_000 {
+            let n = rng.gen_range(1..16);
+            let max_bin = rng.gen_range(1..6u16);
+            let missing_rate = rng.gen_range(0..4);
+            let f: Vec<u16> = (0..n)
+                .map(|_| {
+                    if rng.gen_range(0..4) < missing_rate {
+                        0
+                    } else {
+                        rng.gen_range(1..=max_bin)
+                    }
+                })
+                .collect();
+            let split = rng.gen_range(1..=max_bin + 1);
+            let missing_right = rng.gen_bool(0.5);
+
+            let goes_left = |b: u16| missing_compare(&split, b, missing_right) == Ordering::Greater;
+            if f.iter().any(|&b| !goes_left(b)) {
+                let mut idx: Vec<usize> = (0..n).collect();
+                let s = pivot_on_split(&mut idx, &f, split, missing_right);
+                assert!(idx[..s].iter().all(|&i| goes_left(f[i])));
+                assert!(idx[s..].iter().all(|&i| !goes_left(f[i])));
+            }
+
+            if f.iter().any(|&b| b != 0 && b >= split) {
+                let mut idx: Vec<usize> = (0..n).collect();
+                let (m, s) = pivot_on_split_exclude_missing(&mut idx, &f, split);
+                assert!(idx[..m].iter().all(|&i| f[i] == 0));
+                assert!(idx[m..s].iter().all(|&i| f[i] != 0 && f[i] < split));
+                assert!(idx[s..].iter().all(|&i| f[i] != 0 && f[i] >= split));
+            }
+        }
+    }
+
     #[test]
     fn test_pivot() {
         fn pivot_assert(
