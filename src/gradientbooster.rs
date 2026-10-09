@@ -27,6 +27,37 @@ use std::fs;
 pub type EvaluationData<'a> = (Matrix<'a, f64>, &'a [f64], &'a [f64]);
 pub type TrainingEvaluationData<'a> = (&'a Matrix<'a, f64>, &'a [f64], &'a [f64], Vec<f64>);
 type ImportanceFn = fn(&Tree, &mut HashMap<usize, (f32, usize)>);
+type GradHessFn = fn(&[f64], &[f64], &[f64]) -> (Vec<f32>, Vec<f32>);
+
+/// Rows per task when computing gradients and hessians in parallel.
+const GRAD_HESS_CHUNK_ROWS: usize = 16_384;
+
+/// Compute the gradients and hessians into `grad` and `hess`. Each row only depends
+/// on its own values, so computing blocks of rows in parallel gives identical results.
+fn update_grad_hess(
+    calc_grad_hess: GradHessFn,
+    y: &[f64],
+    yhat: &[f64],
+    sample_weight: &[f64],
+    grad: &mut [f32],
+    hess: &mut [f32],
+    parallel: bool,
+) {
+    let fill = |(block, (grad, hess)): (usize, (&mut [f32], &mut [f32]))| {
+        let rows = block * GRAD_HESS_CHUNK_ROWS..block * GRAD_HESS_CHUNK_ROWS + grad.len();
+        let (g, h) = calc_grad_hess(&y[rows.clone()], &yhat[rows.clone()], &sample_weight[rows]);
+        grad.copy_from_slice(&g);
+        hess.copy_from_slice(&h);
+    };
+    if parallel && y.len() > GRAD_HESS_CHUNK_ROWS {
+        grad.par_chunks_mut(GRAD_HESS_CHUNK_ROWS)
+            .zip(hess.par_chunks_mut(GRAD_HESS_CHUNK_ROWS))
+            .enumerate()
+            .for_each(fill);
+    } else {
+        fill((0, (grad, hess)));
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub enum GrowPolicy {
@@ -628,7 +659,17 @@ impl GradientBooster {
         let mut yhat = vec![self.base_score; y.len()];
 
         let calc_grad_hess = gradient_hessian_callables(&self.objective_type);
-        let (mut grad, mut hess) = calc_grad_hess(y, &yhat, sample_weight);
+        let mut grad = vec![0.0; y.len()];
+        let mut hess = vec![0.0; y.len()];
+        update_grad_hess(
+            calc_grad_hess,
+            y,
+            &yhat,
+            sample_weight,
+            &mut grad,
+            &mut hess,
+            self.parallel,
+        );
 
         // Generate binned data
         // TODO
@@ -799,7 +840,15 @@ impl GradientBooster {
                 break;
             }
 
-            (grad, hess) = calc_grad_hess(y, &yhat, sample_weight);
+            update_grad_hess(
+                calc_grad_hess,
+                y,
+                &yhat,
+                sample_weight,
+                &mut grad,
+                &mut hess,
+                self.parallel,
+            );
             if verbose {
                 info!("Completed iteration {} of {}", i, self.iterations);
             }
@@ -1649,6 +1698,24 @@ mod tests {
             })
             .collect();
         (data, y)
+    }
+
+    #[test]
+    fn test_parallel_grad_hess_matches_serial() {
+        let n = 3 * GRAD_HESS_CHUNK_ROWS + 123;
+        let y: Vec<f64> = (0..n).map(|i| (i % 3 == 0) as u8 as f64).collect();
+        let yhat: Vec<f64> = (0..n)
+            .map(|i| ((i * 7919) % 1000) as f64 / 250.0 - 2.0)
+            .collect();
+        let w: Vec<f64> = (0..n).map(|i| 0.5 + (i % 5) as f64).collect();
+        for objective in [ObjectiveType::LogLoss, ObjectiveType::SquaredLoss] {
+            let calc = gradient_hessian_callables(&objective);
+            let (expected_g, expected_h) = calc(&y, &yhat, &w);
+            let (mut g, mut h) = (vec![0.0; n], vec![0.0; n]);
+            update_grad_hess(calc, &y, &yhat, &w, &mut g, &mut h, true);
+            assert_eq!(g, expected_g);
+            assert_eq!(h, expected_h);
+        }
     }
 
     #[test]
