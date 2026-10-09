@@ -6,12 +6,12 @@ use crate::histogram::HistogramMatrix;
 use crate::node::{Node, SplittableNode};
 use crate::partial_dependence::tree_partial_dependence;
 use crate::sampler::SampleMethod;
-use crate::splitter::Splitter;
+use crate::splitter::{MissingInfo, SplitInfo, Splitter};
 use crate::utils::{fast_f64_sum, is_missing};
 use crate::utils::{gain, odds, weight};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::collections::{BinaryHeap, HashMap};
 use std::fmt::{self, Display};
 
 #[derive(Deserialize, Serialize)]
@@ -52,6 +52,14 @@ pub fn split_bins(tree: &Tree, cuts: &JaggedMatrix<f64>) -> Vec<u16> {
             bin as u16
         })
         .collect()
+}
+
+/// The number of children a split creates: a separate missing branch adds a third.
+fn children_of_split(split: &SplitInfo) -> usize {
+    match split.missing_node {
+        MissingInfo::Left | MissingInfo::Right => 2,
+        MissingInfo::Leaf(_) | MissingInfo::Branch(_) => 3,
+    }
 }
 
 /// Does the right child of a split hold rows that go right? The partition functions
@@ -125,7 +133,6 @@ impl Tree {
             }
         };
 
-        let mut n_nodes = 1;
         let mut ranges = vec![(0, index.len())];
         // False if a split's partition could disagree with predicting the rows.
         let mut rows_exact = true;
@@ -156,75 +163,90 @@ impl Tree {
         // Add the first node to the tree nodes.
         self.nodes
             .push(root_node.as_node(splitter.get_learning_rate()));
-        let mut n_leaves = 1;
 
-        let mut growable: Box<dyn Grower> = match grow_policy {
-            GrowPolicy::DepthWise => Box::<VecDeque<SplittableNode>>::default(),
-            GrowPolicy::LossGuide => Box::<BinaryHeap<SplittableNode>>::default(),
-        };
-
-        growable.add_node(root_node);
-        while !growable.is_empty() {
-            // If this will push us over the max leaves parameter, break.
-            if (n_leaves + splitter.new_leaves_added()) > max_leaves {
-                break;
-            }
-            // We know there is a value here, because of how the
-            // while loop is setup.
-            // Grab a splitable node from the stack
-            // If we can split it, and update the corresponding
-            // tree nodes children.
-            let mut node = growable.get_next_node();
-            let n_idx = node.num;
-
-            let depth = node.depth + 1;
-
-            // If we have hit max depth, skip this node
-            // but keep going, because there may be other
-            // valid shallower nodes.
-            if depth > max_depth {
-                continue;
-            }
-
-            // For max_leaves, subtract 1 from the n_leaves
-            // every time we pop from the growable stack
-            // then, if we can add two children, add two to
-            // n_leaves. If we can't split the node any
-            // more, then just add 1 back to n_leaves
-            n_leaves -= 1;
-
-            // Children at max_depth are never split, so skip their histograms.
-            let new_nodes = splitter.split_node(
-                &n_nodes,
-                &mut node,
+        if let GrowPolicy::DepthWise = grow_policy {
+            self.grow_depth_wise(
+                root_node,
                 &mut index,
                 col_index,
                 data,
                 cuts,
                 grad,
                 hess,
+                splitter,
+                max_leaves,
+                max_depth,
                 parallel,
-                depth < max_depth,
+                &mut ranges,
+                &mut rows_exact,
             );
-
-            let n_new_nodes = new_nodes.len();
-            if n_new_nodes == 0 {
-                n_leaves += 1;
-            } else {
-                rows_exact &= right_child_rows_exact(&node, &new_nodes, &index, data, cuts);
-                for n in new_nodes.iter() {
-                    if ranges.len() <= n.num {
-                        ranges.resize(n.num + 1, (0, 0));
-                    }
-                    ranges[n.num] = (n.start_idx, n.stop_idx);
+        } else {
+            let mut n_nodes = 1;
+            let mut n_leaves = 1;
+            let mut growable: Box<dyn Grower> = Box::<BinaryHeap<SplittableNode>>::default();
+            growable.add_node(root_node);
+            while !growable.is_empty() {
+                // If this will push us over the max leaves parameter, break.
+                if (n_leaves + splitter.new_leaves_added()) > max_leaves {
+                    break;
                 }
-                self.nodes[n_idx].make_parent_node(node);
-                n_leaves += n_new_nodes;
-                n_nodes += n_new_nodes;
-                for n in new_nodes {
-                    self.nodes.push(n.as_node(splitter.get_learning_rate()));
-                    if !n.is_missing_leaf {
-                        growable.add_node(n)
+                // We know there is a value here, because of how the
+                // while loop is setup.
+                // Grab a splitable node from the stack
+                // If we can split it, and update the corresponding
+                // tree nodes children.
+                let mut node = growable.get_next_node();
+                let n_idx = node.num;
+
+                let depth = node.depth + 1;
+
+                // If we have hit max depth, skip this node
+                // but keep going, because there may be other
+                // valid shallower nodes.
+                if depth > max_depth {
+                    continue;
+                }
+
+                // For max_leaves, subtract 1 from the n_leaves
+                // every time we pop from the growable stack
+                // then, if we can add two children, add two to
+                // n_leaves. If we can't split the node any
+                // more, then just add 1 back to n_leaves
+                n_leaves -= 1;
+
+                // Children at max_depth are never split, so skip their histograms.
+                let new_nodes = splitter.split_node(
+                    &n_nodes,
+                    &mut node,
+                    &mut index,
+                    col_index,
+                    data,
+                    cuts,
+                    grad,
+                    hess,
+                    parallel,
+                    depth < max_depth,
+                );
+
+                let n_new_nodes = new_nodes.len();
+                if n_new_nodes == 0 {
+                    n_leaves += 1;
+                } else {
+                    rows_exact &= right_child_rows_exact(&node, &new_nodes, &index, data, cuts);
+                    for n in new_nodes.iter() {
+                        if ranges.len() <= n.num {
+                            ranges.resize(n.num + 1, (0, 0));
+                        }
+                        ranges[n.num] = (n.start_idx, n.stop_idx);
+                    }
+                    self.nodes[n_idx].make_parent_node(node);
+                    n_leaves += n_new_nodes;
+                    n_nodes += n_new_nodes;
+                    for n in new_nodes {
+                        self.nodes.push(n.as_node(splitter.get_learning_rate()));
+                        if !n.is_missing_leaf {
+                            growable.add_node(n)
+                        }
                     }
                 }
             }
@@ -233,6 +255,148 @@ impl Tree {
         // Any final post processing required.
         splitter.clean_up_splits(self);
         rows_exact.then_some(TreeRows { index, ranges })
+    }
+
+    /// Grow the tree a level at a time. All nodes of a level find their best splits
+    /// together, then all of them are split together, each on its own rows. This
+    /// gives the same tree as splitting the nodes one at a time, in order: node
+    /// numbers, `max_leaves` and the order nodes are added are all handled as the
+    /// node-at-a-time loop would, but there is one parallel step per level instead
+    /// of several per node.
+    #[allow(clippy::too_many_arguments)]
+    fn grow_depth_wise<T: Splitter>(
+        &mut self,
+        root_node: SplittableNode,
+        index: &mut [usize],
+        col_index: &[usize],
+        data: &Matrix<u16>,
+        cuts: &JaggedMatrix<f64>,
+        grad: &[f32],
+        hess: &[f32],
+        splitter: &T,
+        max_leaves: usize,
+        max_depth: usize,
+        parallel: bool,
+        ranges: &mut Vec<(usize, usize)>,
+        rows_exact: &mut bool,
+    ) {
+        let mut n_nodes = 1;
+        let mut n_leaves = 1;
+        let mut level = vec![root_node];
+        while !level.is_empty() {
+            let depth = level[0].depth + 1;
+            if depth > max_depth {
+                break;
+            }
+            let best_split =
+                |node: &SplittableNode| splitter.best_split(node, col_index, cuts, parallel);
+            let splits: Vec<Option<SplitInfo>> = if parallel {
+                level.par_iter().map(best_split).collect()
+            } else {
+                level.iter().map(best_split).collect()
+            };
+
+            // Number the children, and apply max_leaves, as splitting the nodes in
+            // order would.
+            let mut first_child: Vec<Option<usize>> = vec![None; level.len()];
+            let mut stop = false;
+            for (first, split) in first_child.iter_mut().zip(&splits) {
+                if (n_leaves + splitter.new_leaves_added()) > max_leaves {
+                    stop = true;
+                    break;
+                }
+                n_leaves -= 1;
+                match split {
+                    Some(split) => {
+                        let n_children = children_of_split(split);
+                        *first = Some(n_nodes);
+                        n_nodes += n_children;
+                        n_leaves += n_children;
+                    }
+                    None => n_leaves += 1,
+                }
+            }
+
+            // A level's nodes hold disjoint, increasing ranges of the index, so each
+            // can be split on its own rows at the same time.
+            let mut work = Vec::new();
+            let mut rest: &mut [usize] = index;
+            let mut consumed = 0;
+            for ((node, split), first) in level.iter_mut().zip(splits).zip(&first_child) {
+                if let (Some(split), Some(first)) = (split, first) {
+                    assert!(node.start_idx >= consumed, "nodes out of order");
+                    let tail = std::mem::take(&mut rest)
+                        .split_at_mut(node.start_idx - consumed)
+                        .1;
+                    let (rows, tail) = tail.split_at_mut(node.stop_idx - node.start_idx);
+                    rest = tail;
+                    consumed = node.stop_idx;
+                    work.push((node, rows, split, *first));
+                }
+            }
+            // Children at max_depth are never split, so skip their histograms.
+            let build_child_histograms = depth < max_depth;
+            let split_node = |(node, rows, split, first): (
+                &mut SplittableNode,
+                &mut [usize],
+                SplitInfo,
+                usize,
+            )| {
+                let children = splitter.handle_split_info(
+                    split,
+                    &first,
+                    node,
+                    rows,
+                    col_index,
+                    data,
+                    cuts,
+                    grad,
+                    hess,
+                    parallel,
+                    build_child_histograms,
+                );
+                // The parent's histograms aren't needed anymore.
+                node.histograms = HistogramMatrix::empty();
+                children
+            };
+            let children: Vec<Vec<SplittableNode>> = if parallel {
+                work.into_par_iter().map(split_node).collect()
+            } else {
+                work.into_iter().map(split_node).collect()
+            };
+
+            let mut next_level = Vec::new();
+            let split_nodes = level
+                .into_iter()
+                .zip(first_child)
+                .filter(|(_, first)| first.is_some());
+            for ((node, first), new_nodes) in split_nodes.zip(children) {
+                assert_eq!(
+                    new_nodes.first().map(|n| n.num),
+                    first,
+                    "children misnumbered"
+                );
+                *rows_exact &= right_child_rows_exact(&node, &new_nodes, index, data, cuts);
+                for n in new_nodes.iter() {
+                    if ranges.len() <= n.num {
+                        ranges.resize(n.num + 1, (0, 0));
+                    }
+                    ranges[n.num] = (n.start_idx, n.stop_idx);
+                }
+                let n_idx = node.num;
+                self.nodes[n_idx].make_parent_node(node);
+                for n in new_nodes {
+                    self.nodes.push(n.as_node(splitter.get_learning_rate()));
+                    if !n.is_missing_leaf {
+                        next_level.push(n);
+                    }
+                }
+            }
+            if stop {
+                break;
+            }
+            level = next_level;
+        }
     }
 
     /// Predict a row from its bins. `bin(feature)` gives the row's bin for a feature,
