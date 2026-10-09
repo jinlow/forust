@@ -114,6 +114,7 @@ fn main() {
     let other_rate = args.get("other-rate", 0.1f64);
     let subsample = args.get("subsample", 1.0f32);
     let seed = args.get("seed", 0u64);
+    let colsample = args.get("colsample", 1.0f64);
     let early_stopping_rounds = args.get("early-stopping-rounds", 0usize);
     // Phases mode only: copy sampled rows into a contiguous subset, as `fit` does.
     let use_subset = args.get("subset", true);
@@ -146,6 +147,7 @@ fn main() {
         "other_rate": other_rate,
         "subsample": subsample,
         "seed": seed,
+        "colsample": colsample,
         "early_stopping_rounds": early_stopping_rounds,
         "subset": use_subset,
     });
@@ -162,6 +164,7 @@ fn main() {
             .set_sample_method(sample_method)
             .set_subsample(subsample)
             .set_seed(seed)
+            .set_colsample_bytree(colsample)
             .set_early_stopping_rounds(
                 (early_stopping_rounds > 0).then_some(early_stopping_rounds),
             );
@@ -184,9 +187,14 @@ fn main() {
             .unwrap();
         let total = start.elapsed().as_secs_f64();
         let eval_logloss = log_loss(&eval_y, &booster.predict(&eval_data, parallel), &eval_w);
-        // Trees only: the full model JSON also records the `parallel` setting.
+        // Trees and evaluation history only: the full model JSON also records the
+        // `parallel` setting.
         if let Some(path) = args.0.get("save-trees") {
-            fs::write(path, serde_json::to_string(&booster.trees).unwrap()).unwrap();
+            let dump = json!({
+                "trees": booster.trees,
+                "evaluation_history": booster.evaluation_history.as_ref().map(|h| &h.data),
+            });
+            fs::write(path, serde_json::to_string(&dump).unwrap()).unwrap();
         }
         // Time repeated predictions on a small batch, where per-call overhead shows up.
         let predict_ms = (predict_calls > 0).then(|| {
