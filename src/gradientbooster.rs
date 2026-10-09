@@ -1,6 +1,6 @@
-use crate::binning::bin_matrix;
+use crate::binning::{bin_for_prediction, bin_matrix, PREDICT_MISSING_BIN};
 use crate::constraints::ConstraintMap;
-use crate::data::{JaggedMatrix, Matrix, RowMajorMatrix};
+use crate::data::{Matrix, RowMajorMatrix};
 use crate::errors::ForustError;
 use crate::metric::{is_comparison_better, metric_callables, Metric, MetricFn};
 use crate::objective::{
@@ -10,7 +10,7 @@ use crate::objective::{
 use crate::sampler::{GossSampler, RandomSampler, RowSubset, SampleMethod, Sampler};
 use crate::shapley::predict_contributions_row_shapley;
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
-use crate::tree::{split_bins, Tree, TreeRows};
+use crate::tree::{split_bins as tree_split_bins, Tree, TreeRows};
 use crate::utils::{
     fmt_vec_output, odds, validate_not_nan_vec, validate_positive_float_field,
     validate_positive_not_nan_vec,
@@ -686,6 +686,21 @@ impl GradientBooster {
                     .map(|(d, y, w)| (d, *y, *w, vec![self.base_score; y.len()]))
                     .collect()
             });
+        // Evaluation data binned with the training cuts, so trees can be predicted from
+        // bins. `None` if the data has a different number of columns.
+        let evaluation_bins: Vec<Option<Vec<u16>>> = evaluation_data
+            .as_ref()
+            .map(|evals| {
+                evals
+                    .iter()
+                    .map(|(d, _, _)| {
+                        (d.cols == data.cols).then(|| {
+                            bin_for_prediction(d, &binned_data.cuts, &self.missing, self.parallel)
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let mut best_metric: Option<f64> = None;
 
@@ -725,6 +740,7 @@ impl GradientBooster {
                 &colsample_index
             };
 
+            let split_bins: Vec<u16>;
             // When few rows are sampled, build the tree on a contiguous copy of them.
             if sample_method != SampleMethod::None
                 && RowSubset::should_use(chosen_index.len(), data.rows)
@@ -752,6 +768,7 @@ impl GradientBooster {
                     &sample_method,
                     &self.grow_policy,
                 );
+                split_bins = tree_split_bins(&tree, &binned_data.cuts);
                 // The subset's rows are positions in `chosen_index`.
                 self.update_training_predictions(
                     &mut yhat,
@@ -760,7 +777,7 @@ impl GradientBooster {
                     Some(&chosen_index),
                     &excluded_index,
                     &bdata,
-                    &binned_data.cuts,
+                    &split_bins,
                     data,
                 );
             } else {
@@ -778,6 +795,7 @@ impl GradientBooster {
                     &sample_method,
                     &self.grow_policy,
                 );
+                split_bins = tree_split_bins(&tree, &binned_data.cuts);
                 self.update_training_predictions(
                     &mut yhat,
                     &tree,
@@ -785,7 +803,7 @@ impl GradientBooster {
                     None,
                     &excluded_index,
                     &bdata,
-                    &binned_data.cuts,
+                    &split_bins,
                     data,
                 );
             }
@@ -799,7 +817,12 @@ impl GradientBooster {
                 let mut metrics: Vec<f64> = Vec::new();
                 let n_eval_sets = eval_sets.len();
                 for (eval_i, (data, y, w, yhat)) in eval_sets.iter_mut().enumerate() {
-                    self.update_predictions_inplace(yhat, &tree, data);
+                    match &evaluation_bins[eval_i] {
+                        Some(bins) => {
+                            self.update_predictions_from_bins(yhat, &tree, bins, &split_bins)
+                        }
+                        None => self.update_predictions_inplace(yhat, &tree, data),
+                    }
                     let (metric_fn, maximize) = self.get_metric_fn();
                     let m = metric_fn(y, yhat, w);
                     // If early stopping rounds are defined, and this is the last
@@ -904,7 +927,7 @@ impl GradientBooster {
         row_map: Option<&[usize]>,
         excluded: &[usize],
         bdata: &Matrix<u16>,
-        cuts: &JaggedMatrix<f64>,
+        split_bins: &[u16],
         data: &Matrix<f64>,
     ) {
         let Some(tree_rows) = tree_rows else {
@@ -918,8 +941,9 @@ impl GradientBooster {
             }
         }
         if !excluded.is_empty() {
-            let split_bins = split_bins(tree, cuts);
-            let predict = |&row: &usize| tree.predict_row_binned(bdata, row, &split_bins, 0);
+            let predict = |&row: &usize| {
+                tree.predict_row_from_bins(|f| *bdata.get(row, f), split_bins, 0, &self.missing)
+            };
             let preds: Vec<f64> = if self.parallel {
                 excluded.par_iter().map(predict).collect()
             } else {
@@ -929,6 +953,31 @@ impl GradientBooster {
                 .iter()
                 .zip(preds)
                 .for_each(|(&row, p)| yhat[row] += p);
+        }
+    }
+
+    /// Add a tree's predictions to `yhat`, predicting from `bins` made by
+    /// `bin_for_prediction`. Gives the same values as predicting from the data.
+    fn update_predictions_from_bins(
+        &self,
+        yhat: &mut [f64],
+        tree: &Tree,
+        bins: &[u16],
+        split_bins: &[u16],
+    ) {
+        let rows = yhat.len();
+        let update = |(row, y): (usize, &mut f64)| {
+            *y += tree.predict_row_from_bins(
+                |f| bins[f * rows + row],
+                split_bins,
+                PREDICT_MISSING_BIN,
+                &self.missing,
+            );
+        };
+        if self.parallel {
+            yhat.par_iter_mut().enumerate().for_each(update);
+        } else {
+            yhat.iter_mut().enumerate().for_each(update);
         }
     }
 

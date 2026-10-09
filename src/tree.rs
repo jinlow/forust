@@ -1,3 +1,4 @@
+use crate::binning::PREDICT_NAN_BIN;
 use crate::data::{JaggedMatrix, Matrix};
 use crate::gradientbooster::GrowPolicy;
 use crate::grower::Grower;
@@ -6,7 +7,7 @@ use crate::node::{Node, SplittableNode};
 use crate::partial_dependence::tree_partial_dependence;
 use crate::sampler::SampleMethod;
 use crate::splitter::Splitter;
-use crate::utils::fast_f64_sum;
+use crate::utils::{fast_f64_sum, is_missing};
 use crate::utils::{gain, odds, weight};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -234,15 +235,17 @@ impl Tree {
         rows_exact.then_some(TreeRows { index, ranges })
     }
 
-    /// Predict a row of binned data. `split_bins` comes from `split_bins`, and
-    /// `missing_bin` is the bin of missing values.
+    /// Predict a row from its bins. `bin(feature)` gives the row's bin for a feature,
+    /// `split_bins` comes from `split_bins`, and `missing_bin` is the bin of missing
+    /// values. A bin of `PREDICT_NAN_BIN` is a NAN when `missing` isn't, which panics
+    /// like predicting the value would.
     #[inline]
-    pub fn predict_row_binned(
+    pub fn predict_row_from_bins(
         &self,
-        data: &Matrix<u16>,
-        row: usize,
+        bin: impl Fn(usize) -> u16,
         split_bins: &[u16],
         missing_bin: u16,
+        missing: &f64,
     ) -> f64 {
         let mut node_idx = 0;
         loop {
@@ -250,12 +253,15 @@ impl Tree {
             if node.is_leaf {
                 return node.weight_value as f64;
             }
-            let bin = *data.get(row, node.split_feature);
-            node_idx = if bin == missing_bin {
+            let b = bin(node.split_feature);
+            node_idx = if b == missing_bin {
                 node.missing_node
-            } else if bin < split_bins[node_idx] {
+            } else if b < split_bins[node_idx] {
                 node.left_child
             } else {
+                if b == PREDICT_NAN_BIN {
+                    is_missing(&f64::NAN, missing);
+                }
                 node.right_child
             };
         }
@@ -799,10 +805,129 @@ mod tests {
         let split_bins = split_bins(&tree, &b.cuts);
         for (row, prediction) in predictions.iter().enumerate() {
             assert_eq!(
-                tree.predict_row_binned(&bdata, row, &split_bins, 0),
+                tree.predict_row_from_bins(|f| *bdata.get(row, f), &split_bins, 0, &f64::NAN),
                 *prediction
             );
         }
+    }
+
+    /// Predicting from `bin_for_prediction` bins must match predicting from values,
+    /// including values outside the training range, on a cut, missing, and infinite.
+    #[test]
+    fn test_predict_from_bins_matches_values() {
+        use crate::binning::{bin_for_prediction, PREDICT_MISSING_BIN};
+        let file = fs::read_to_string("resources/contiguous_with_missing.csv")
+            .expect("Something went wrong reading the file");
+        let data_vec: Vec<f64> = file
+            .lines()
+            .map(|x| x.parse::<f64>().unwrap_or(f64::NAN))
+            .collect();
+        let file = fs::read_to_string("resources/performance.csv")
+            .expect("Something went wrong reading the file");
+        let y: Vec<f64> = file.lines().map(|x| x.parse::<f64>().unwrap()).collect();
+        let w = vec![1.; y.len()];
+        let (g, h) = LogLoss::calc_grad_hess(&y, &vec![0.5; y.len()], &w);
+        let (rows, cols) = (891, 5);
+        // Missing as NAN, and missing as a number (with the NANs replaced).
+        for missing in [f64::NAN, -9999.0] {
+            let train: Vec<f64> = data_vec
+                .iter()
+                .map(|v| if v.is_nan() { missing } else { *v })
+                .collect();
+            let data = Matrix::new(&train, rows, cols);
+            let b = bin_matrix(&data, &w, 64, missing, false).unwrap();
+            let bdata = Matrix::new(&b.binned_data, rows, cols);
+            let splitter = MissingImputerSplitter {
+                l1: 0.0,
+                l2: 1.0,
+                max_delta_step: 0.,
+                gamma: 0.0,
+                min_leaf_weight: 1.0,
+                learning_rate: 0.3,
+                allow_missing_splits: true,
+                constraints_map: ConstraintMap::new(),
+            };
+            let mut tree = Tree::new();
+            tree.fit(
+                &bdata,
+                data.index.to_owned(),
+                &[0, 1, 2, 3, 4],
+                &b.cuts,
+                &g,
+                &h,
+                &splitter,
+                usize::MAX,
+                6,
+                false,
+                &SampleMethod::None,
+                &GrowPolicy::DepthWise,
+            );
+            assert!(tree.nodes.len() > 9);
+            // Each column: every cut, values just around each cut, beyond the range,
+            // infinities and missing.
+            let mut columns: Vec<Vec<f64>> = (0..cols)
+                .map(|c| {
+                    let mut v = Vec::new();
+                    for cut in b.cuts.get_col(c) {
+                        v.extend([*cut, cut - 1e-9, cut + 1e-9, cut - 0.5, cut + 0.5]);
+                    }
+                    v.extend([f64::INFINITY, f64::NEG_INFINITY, f64::MIN, missing, -1e300]);
+                    v
+                })
+                .collect();
+            let n = columns.iter().map(|c| c.len()).max().unwrap();
+            for c in columns.iter_mut() {
+                let len = c.len();
+                for k in len..n {
+                    c.push(c[k % len]);
+                }
+            }
+            // Pair each value with every other column's values at a few offsets.
+            let mut eval_cols: Vec<Vec<f64>> = vec![Vec::new(); cols];
+            for shift in 0..7 {
+                for (c, col) in columns.iter().enumerate() {
+                    eval_cols[c].extend((0..n).map(|k| col[(k + shift * (c + 1)) % n]));
+                }
+            }
+            let eval_rows = eval_cols[0].len();
+            let eval_vec: Vec<f64> = eval_cols.concat();
+            let eval = Matrix::new(&eval_vec, eval_rows, cols);
+            let expected = tree.predict(&eval, false, &missing);
+            let bins = bin_for_prediction(&eval, &b.cuts, &missing, true);
+            let split_bins = split_bins(&tree, &b.cuts);
+            for (row, e) in expected.iter().enumerate() {
+                let p = tree.predict_row_from_bins(
+                    |f| bins[f * eval_rows + row],
+                    &split_bins,
+                    PREDICT_MISSING_BIN,
+                    &missing,
+                );
+                assert_eq!(p, *e);
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "NAN value found in data")]
+    fn test_predict_from_bins_panics_on_nan_when_missing_is_a_number() {
+        use crate::binning::{bin_for_prediction, PREDICT_MISSING_BIN};
+        let tree: Tree = serde_json::from_str(
+            r#"{"nodes":[
+            {"num":0,"weight_value":0.0,"hessian_sum":2.0,"depth":0,"split_value":1.5,"split_feature":0,"split_gain":1.0,"missing_node":1,"left_child":1,"right_child":2,"is_leaf":false},
+            {"num":1,"weight_value":-1.0,"hessian_sum":1.0,"depth":1,"split_value":0.0,"split_feature":0,"split_gain":0.0,"missing_node":0,"left_child":0,"right_child":0,"is_leaf":true},
+            {"num":2,"weight_value":1.0,"hessian_sum":1.0,"depth":1,"split_value":0.0,"split_feature":0,"split_gain":0.0,"missing_node":0,"left_child":0,"right_child":0,"is_leaf":true}]}"#,
+        )
+        .unwrap();
+        let mut cuts = crate::data::JaggedMatrix::new();
+        cuts.data = vec![1.0, 1.5, f64::MAX];
+        cuts.ends = vec![3];
+        cuts.cols = 1;
+        cuts.n_records = 3;
+        let values = [f64::NAN];
+        let data = Matrix::new(&values, 1, 1);
+        let bins = bin_for_prediction(&data, &cuts, &-1.0, false);
+        let split_bins = split_bins(&tree, &cuts);
+        tree.predict_row_from_bins(|f| bins[f], &split_bins, PREDICT_MISSING_BIN, &-1.0);
     }
 
     #[test]
