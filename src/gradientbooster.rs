@@ -1,4 +1,6 @@
-use crate::binning::{bin_for_prediction, bin_matrix, PREDICT_MISSING_BIN};
+use crate::binning::{
+    bin_for_prediction, bin_matrix, cuts_support_bin_prediction, PREDICT_MISSING_BIN,
+};
 use crate::constraints::ConstraintMap;
 use crate::data::{Matrix, RowMajorMatrix};
 use crate::errors::ForustError;
@@ -686,6 +688,9 @@ impl GradientBooster {
                     .map(|(d, y, w)| (d, *y, *w, vec![self.base_score; y.len()]))
                     .collect()
             });
+        // With huge `nbins`, bins could collide with the reserved missing and NAN bins,
+        // so trees are predicted from values instead.
+        let predict_from_bins = cuts_support_bin_prediction(&binned_data.cuts);
         // Evaluation data binned with the training cuts, so trees can be predicted from
         // bins. `None` if the data has a different number of columns.
         let evaluation_bins: Vec<Option<Vec<u16>>> = evaluation_data
@@ -694,7 +699,7 @@ impl GradientBooster {
                 evals
                     .iter()
                     .map(|(d, _, _)| {
-                        (d.cols == data.cols).then(|| {
+                        (predict_from_bins && d.cols == data.cols).then(|| {
                             bin_for_prediction(d, &binned_data.cuts, &self.missing, self.parallel)
                         })
                     })
@@ -778,6 +783,7 @@ impl GradientBooster {
                     &excluded_index,
                     &bdata,
                     &split_bins,
+                    predict_from_bins,
                     data,
                 );
             } else {
@@ -804,6 +810,7 @@ impl GradientBooster {
                     &excluded_index,
                     &bdata,
                     &split_bins,
+                    predict_from_bins,
                     data,
                 );
             }
@@ -918,6 +925,8 @@ impl GradientBooster {
     /// * `row_map` - Maps the rows in `tree_rows` to training rows, if the tree was fit
     ///   on a subset of the rows.
     /// * `excluded` - Training rows the tree wasn't fit on.
+    /// * `predict_from_bins` - If false, every row is predicted from `data` when there
+    ///   are excluded rows.
     #[allow(clippy::too_many_arguments)]
     fn update_training_predictions(
         &self,
@@ -928,9 +937,10 @@ impl GradientBooster {
         excluded: &[usize],
         bdata: &Matrix<u16>,
         split_bins: &[u16],
+        predict_from_bins: bool,
         data: &Matrix<f64>,
     ) {
-        let Some(tree_rows) = tree_rows else {
+        let Some(tree_rows) = tree_rows.filter(|_| excluded.is_empty() || predict_from_bins) else {
             self.update_predictions_inplace(yhat, tree, data);
             return;
         };

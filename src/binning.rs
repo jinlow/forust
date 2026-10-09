@@ -81,6 +81,12 @@ pub const PREDICT_MISSING_BIN: u16 = u16::MAX;
 /// The bin of NAN values in `bin_for_prediction`, when the missing value isn't NAN.
 pub const PREDICT_NAN_BIN: u16 = u16::MAX - 1;
 
+/// Can trees be predicted from bins made with these cuts? A value's bin can be as
+/// large as its column's number of cuts, which must stay below the reserved bins.
+pub fn cuts_support_bin_prediction(cuts: &JaggedMatrix<f64>) -> bool {
+    (0..cuts.cols).all(|c| cuts.get_col(c).len() < usize::from(PREDICT_NAN_BIN))
+}
+
 /// Bin data with existing cuts, column-major like the data, for predicting trees from
 /// bins. Each value gets the number of cuts at or below it, so a value is below a
 /// cut exactly when its bin is below the cut's split bin, including values below the
@@ -233,6 +239,22 @@ pub fn bin_matrix(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_cuts_support_bin_prediction() {
+        let cuts_of_len = |len: usize| {
+            let mut cuts = JaggedMatrix::new();
+            cuts.data = (0..len + 3).map(|v| v as f64).collect();
+            cuts.ends = vec![3, len + 3];
+            cuts.cols = 2;
+            cuts.n_records = len + 3;
+            cuts
+        };
+        assert!(cuts_support_bin_prediction(&cuts_of_len(257)));
+        assert!(cuts_support_bin_prediction(&cuts_of_len(65533)));
+        assert!(!cuts_support_bin_prediction(&cuts_of_len(65534)));
+        assert!(!cuts_support_bin_prediction(&cuts_of_len(65536)));
+    }
     use crate::utils::percentiles;
     use rand::{rngs::StdRng, Rng, SeedableRng};
     use std::fs;
