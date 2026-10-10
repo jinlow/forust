@@ -16,6 +16,9 @@ const TILE_PARTIALS_MAX_BYTES: usize = 64 << 20;
 /// The tiled fill is only used when it has at least this many tasks; smaller
 /// nodes use the column-wise fill, which has a task per column.
 const TILE_MIN_TASKS: usize = 8;
+/// The tiled fill reads every column of a tile's rows, so it's only used when a
+/// histogram uses at least this share of the columns of the tiles it touches.
+const TILE_MIN_COLUMN_SHARE: f64 = 0.25;
 /// Rows ahead the tiled fill prefetches, when a node's rows are scattered.
 const TILE_PREFETCH_ROWS: usize = 16;
 
@@ -184,7 +187,8 @@ struct TilePlan {
 }
 
 impl TilePlan {
-    /// `None` if the columns aren't in increasing order, or there's too little work.
+    /// `None` if the columns aren't in increasing order, if too few of the columns of
+    /// the tiles touched are used, or if there's too little work.
     fn new(
         tiles: &TiledBins,
         cuts: &JaggedMatrix<f64>,
@@ -220,6 +224,11 @@ impl TilePlan {
                     scratch,
                 });
             }
+        }
+        let used: usize = work.iter().map(|w| w.positions.len()).sum();
+        let touched: usize = work.iter().map(|w| tiles.width(w.tile)).sum();
+        if (used as f64) < TILE_MIN_COLUMN_SHARE * (touched as f64) {
+            return None;
         }
         let scratch: usize = work.iter().map(|w| w.scratch).sum();
         let max_segments =
@@ -705,8 +714,13 @@ mod tests {
         };
         let all: Vec<usize> = (0..cols).collect();
         let unordered = vec![5, 3, 40];
+        let sparse: Vec<usize> = (0..cols).step_by(8).collect();
         let small: Vec<usize> = (0..100).collect();
-        for (index, col_index) in [(&data.index, &unordered), (&small, &all)] {
+        for (index, col_index) in [
+            (&data.index, &unordered),
+            (&data.index, &sparse),
+            (&small, &all),
+        ] {
             let new =
                 HistogramMatrix::new(&data, &cuts, &grad, &hess, index, col_index, true, true);
             let build = HistogramMatrix::build(
