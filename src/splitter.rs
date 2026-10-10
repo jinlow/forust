@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::binning::TiledBins;
 use crate::constraints::{Constraint, ConstraintMap};
 use crate::data::{JaggedMatrix, Matrix};
 use crate::gradientbooster::MissingNodeTreatment;
@@ -248,6 +249,7 @@ pub trait Splitter: Sync {
         hess: &[f32],
         parallel: bool,
         build_child_histograms: bool,
+        tiles: Option<&TiledBins>,
     ) -> Vec<SplittableNode>;
 
     /// Split the node, if we cant find a best split, we will need to
@@ -267,6 +269,7 @@ pub trait Splitter: Sync {
         hess: &[f32],
         parallel: bool,
         build_child_histograms: bool,
+        tiles: Option<&TiledBins>,
     ) -> Vec<SplittableNode> {
         match self.best_split(node, col_index, cuts, parallel) {
             Some(split_info) => self.handle_split_info(
@@ -281,6 +284,7 @@ pub trait Splitter: Sync {
                 hess,
                 parallel,
                 build_child_histograms,
+                tiles,
             ),
             None => Vec::new(),
         }
@@ -554,6 +558,7 @@ impl Splitter for MissingBranchSplitter {
         hess: &[f32],
         parallel: bool,
         build_child_histograms: bool,
+        tiles: Option<&TiledBins>,
     ) -> Vec<SplittableNode> {
         // `index` starts at this node's first row.
         let offset = node.start_idx;
@@ -631,7 +636,8 @@ impl Splitter for MissingBranchSplitter {
         } else if n_missing == 0 {
             if max_ == 1 {
                 missing_histograms = HistogramMatrix::empty();
-                right_histograms = HistogramMatrix::new(
+                right_histograms = HistogramMatrix::build(
+                    tiles,
                     data,
                     cuts,
                     grad,
@@ -648,7 +654,8 @@ impl Splitter for MissingBranchSplitter {
                 );
             } else {
                 missing_histograms = HistogramMatrix::empty();
-                left_histograms = HistogramMatrix::new(
+                left_histograms = HistogramMatrix::build(
+                    tiles,
                     data,
                     cuts,
                     grad,
@@ -667,7 +674,8 @@ impl Splitter for MissingBranchSplitter {
         } else if max_ == 0 {
             // Max is missing, calculate the other two
             // levels histograms.
-            left_histograms = HistogramMatrix::new(
+            left_histograms = HistogramMatrix::build(
+                tiles,
                 data,
                 cuts,
                 grad,
@@ -677,7 +685,8 @@ impl Splitter for MissingBranchSplitter {
                 parallel,
                 true,
             );
-            right_histograms = HistogramMatrix::new(
+            right_histograms = HistogramMatrix::build(
+                tiles,
                 data,
                 cuts,
                 grad,
@@ -699,7 +708,8 @@ impl Splitter for MissingBranchSplitter {
                 )
             }
         } else if max_ == 1 {
-            missing_histograms = HistogramMatrix::new(
+            missing_histograms = HistogramMatrix::build(
+                tiles,
                 data,
                 cuts,
                 grad,
@@ -709,7 +719,8 @@ impl Splitter for MissingBranchSplitter {
                 parallel,
                 true,
             );
-            right_histograms = HistogramMatrix::new(
+            right_histograms = HistogramMatrix::build(
+                tiles,
                 data,
                 cuts,
                 grad,
@@ -727,7 +738,8 @@ impl Splitter for MissingBranchSplitter {
             )
         } else {
             // right is the largest
-            missing_histograms = HistogramMatrix::new(
+            missing_histograms = HistogramMatrix::build(
+                tiles,
                 data,
                 cuts,
                 grad,
@@ -737,7 +749,8 @@ impl Splitter for MissingBranchSplitter {
                 parallel,
                 true,
             );
-            left_histograms = HistogramMatrix::new(
+            left_histograms = HistogramMatrix::build(
+                tiles,
                 data,
                 cuts,
                 grad,
@@ -1028,6 +1041,7 @@ impl Splitter for MissingImputerSplitter {
         hess: &[f32],
         parallel: bool,
         build_child_histograms: bool,
+        tiles: Option<&TiledBins>,
     ) -> Vec<SplittableNode> {
         // `index` starts at this node's first row.
         let offset = node.start_idx;
@@ -1069,7 +1083,8 @@ impl Splitter for MissingImputerSplitter {
             left_histograms = HistogramMatrix::empty();
             right_histograms = HistogramMatrix::empty();
         } else if n_left < n_right {
-            left_histograms = HistogramMatrix::new(
+            left_histograms = HistogramMatrix::build(
+                tiles,
                 data,
                 cuts,
                 grad,
@@ -1082,7 +1097,8 @@ impl Splitter for MissingImputerSplitter {
             right_histograms =
                 HistogramMatrix::from_parent_child(&node.histograms, &left_histograms, parallel);
         } else {
-            right_histograms = HistogramMatrix::new(
+            right_histograms = HistogramMatrix::build(
+                tiles,
                 data,
                 cuts,
                 grad,
