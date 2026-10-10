@@ -1,5 +1,5 @@
 use crate::binning::{
-    bin_for_prediction, bin_matrix, cuts_support_bin_prediction, PREDICT_MISSING_BIN,
+    bin_for_prediction, bin_matrix, cuts_support_bin_prediction, TiledBins, PREDICT_MISSING_BIN,
 };
 use crate::constraints::ConstraintMap;
 use crate::data::{Matrix, RowMajorMatrix};
@@ -227,6 +227,13 @@ pub struct GradientBooster {
     /// global thread pool, which defaults to one thread per logical CPU.
     #[serde(default)]
     pub num_threads: Option<usize>,
+    /// Build histograms row by row from a tiled copy of the binned data, instead of a
+    /// column at a time. This is usually faster with many rows and few to a moderate
+    /// number of columns, at the cost of a second copy of the binned data. Sums are added
+    /// in a different order, so trees can differ slightly from the default; they don't
+    /// depend on the number of threads.
+    #[serde(default)]
+    pub tiled_histograms: bool,
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
@@ -449,6 +456,7 @@ impl GradientBooster {
             log_iterations,
             force_children_to_bound_parent,
             num_threads: None,
+            tiled_histograms: false,
             trees: Vec::new(),
             metadata: HashMap::new(),
         };
@@ -679,6 +687,9 @@ impl GradientBooster {
         // we could consider that, especially if this proved to be a large bottleneck...
         let binned_data = bin_matrix(data, sample_weight, self.nbins, self.missing, self.parallel)?;
         let bdata = Matrix::new(&binned_data.binned_data, data.rows, data.cols);
+        let tiles = self
+            .tiled_histograms
+            .then(|| TiledBins::new(&bdata, &binned_data.cuts, self.parallel));
 
         // Create the predictions, saving them with the evaluation data.
         let mut evaluation_sets: Option<Vec<TrainingEvaluationData>> =
@@ -747,7 +758,9 @@ impl GradientBooster {
 
             let split_bins: Vec<u16>;
             // When few rows are sampled, build the tree on a contiguous copy of them.
-            if sample_method != SampleMethod::None
+            // Tiled histograms read the sampled rows in place instead.
+            if tiles.is_none()
+                && sample_method != SampleMethod::None
                 && RowSubset::should_use(chosen_index.len(), data.rows)
             {
                 row_subset.fill(
@@ -787,7 +800,7 @@ impl GradientBooster {
                     data,
                 );
             } else {
-                let tree_rows = tree.fit(
+                let tree_rows = tree.fit_with_tiles(
                     &bdata,
                     chosen_index,
                     fit_col_index,
@@ -800,6 +813,7 @@ impl GradientBooster {
                     self.parallel,
                     &sample_method,
                     &self.grow_policy,
+                    tiles.as_ref(),
                 );
                 split_bins = tree_split_bins(&tree, &binned_data.cuts);
                 self.update_training_predictions(
@@ -1457,6 +1471,13 @@ impl GradientBooster {
         self
     }
 
+    /// Set whether histograms are built row by row from a tiled copy of the binned data.
+    /// * `tiled_histograms` - Use the tiled, row-wise histogram fill.
+    pub fn set_tiled_histograms(mut self, tiled_histograms: bool) -> Self {
+        self.tiled_histograms = tiled_histograms;
+        self
+    }
+
     /// Set the allow_missing_splits on the booster.
     /// * `allow_missing_splits` - Set if missing splits are allowed for the booster.
     pub fn set_allow_missing_splits(mut self, allow_missing_splits: bool) -> Self {
@@ -1884,5 +1905,69 @@ mod tests {
         for num_threads in [Some(1), Some(2), Some(4)] {
             assert_eq!(fit(num_threads), reference, "num_threads={:?}", num_threads);
         }
+    }
+
+    /// Big enough for the root and its children to use the tiled fill.
+    fn tiled_test_data() -> (Vec<f64>, Vec<f64>, usize, usize) {
+        let (rows, cols) = (30_000, 40);
+        let (data, y) = make_determinism_data(rows, cols);
+        (data, y, rows, cols)
+    }
+
+    #[test]
+    fn test_tiled_histograms_close_to_default() {
+        let (data_vec, y, rows, cols) = tiled_test_data();
+        let data = Matrix::new(&data_vec, rows, cols);
+        let w = vec![1.; rows];
+        let fit = |tiled: bool| {
+            let mut booster = GradientBooster::default()
+                .set_iterations(10)
+                .set_max_depth(5)
+                .set_tiled_histograms(tiled);
+            booster.fit(&data, &y, &w, None).unwrap();
+            crate::metric::log_loss(&y, &booster.predict(&data, true), &w)
+        };
+        let (default, tiled) = (fit(false), fit(true));
+        assert!((default - tiled).abs() < 1e-4, "{default} {tiled}");
+    }
+
+    #[test]
+    fn test_tiled_histograms_same_for_any_thread_count() {
+        let (data_vec, y, rows, cols) = tiled_test_data();
+        let data = Matrix::new(&data_vec, rows, cols);
+        let w = vec![1.; rows];
+        for sample_method in [SampleMethod::None, SampleMethod::Goss] {
+            let fit = |num_threads: Option<usize>| {
+                let mut booster = GradientBooster::default()
+                    .set_iterations(15)
+                    .set_max_depth(5)
+                    .set_learning_rate(0.3)
+                    .set_sample_method(sample_method)
+                    .set_tiled_histograms(true)
+                    .set_num_threads(num_threads);
+                booster.fit(&data, &y, &w, None).unwrap();
+                serde_json::to_string(&booster.trees).unwrap()
+            };
+            let reference = fit(None);
+            for num_threads in [Some(1), Some(3)] {
+                assert_eq!(
+                    fit(num_threads),
+                    reference,
+                    "{sample_method:?} {num_threads:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_tiled_histograms_serde() {
+        let booster = GradientBooster::default().set_tiled_histograms(true);
+        let json = booster.json_dump().unwrap();
+        assert!(GradientBooster::from_json(&json).unwrap().tiled_histograms);
+        // Models saved before `tiled_histograms` existed load with it off.
+        let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        value.as_object_mut().unwrap().remove("tiled_histograms");
+        let old = GradientBooster::from_json(&value.to_string()).unwrap();
+        assert!(!old.tiled_histograms);
     }
 }

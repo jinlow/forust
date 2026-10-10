@@ -236,6 +236,88 @@ pub fn bin_matrix(
     })
 }
 
+/// Columns in a tile, at most.
+const TILE_MAX_COLS: usize = 32;
+/// Histogram bins in a tile, at most. At 16 bytes a bin (`f64` gradient and hessian
+/// sums), a tile's histogram stays well within L2.
+const TILE_MAX_BINS: usize = 8_192;
+/// Rows copied at a time when building a tile.
+const TILE_COPY_ROWS: usize = 4_096;
+
+/// Binned data laid out for building histograms row by row.
+///
+/// The columns are split into tiles of consecutive columns, and each tile keeps
+/// each row's bins together: row `i` of a tile `w` columns wide is
+/// `tiles[t][i * w..(i + 1) * w]`. A row's bins for a tile are then read together,
+/// and a tile's histogram fits in cache. This is a second copy of the binned data,
+/// the same size as the first.
+pub struct TiledBins {
+    /// The bins of each tile.
+    pub tiles: Vec<Vec<u16>>,
+    /// The first column of each tile, followed by the number of columns.
+    pub starts: Vec<usize>,
+    pub rows: usize,
+}
+
+impl TiledBins {
+    /// Tile column-major binned `data`; `cuts` gives each column's number of bins.
+    pub fn new(data: &Matrix<u16>, cuts: &JaggedMatrix<f64>, parallel: bool) -> Self {
+        let mut starts = vec![0];
+        let mut tile_bins = 0;
+        for col in 0..data.cols {
+            let bins = cuts.get_col(col).len();
+            let start = *starts.last().unwrap();
+            if col > start && (col - start == TILE_MAX_COLS || tile_bins + bins > TILE_MAX_BINS) {
+                starts.push(col);
+                tile_bins = 0;
+            }
+            tile_bins += bins;
+        }
+        if data.cols > 0 {
+            starts.push(data.cols);
+        }
+        let tiles = starts
+            .windows(2)
+            .map(|w| Self::tile(data, w[0], w[1], parallel))
+            .collect();
+        TiledBins {
+            tiles,
+            starts,
+            rows: data.rows,
+        }
+    }
+
+    fn tile(data: &Matrix<u16>, start: usize, stop: usize, parallel: bool) -> Vec<u16> {
+        let width = stop - start;
+        let mut tile = vec![0; data.rows * width];
+        let copy = |(block, out): (usize, &mut [u16])| {
+            let first = block * TILE_COPY_ROWS;
+            let rows = out.len() / width;
+            for (j, col) in (start..stop).enumerate() {
+                let values = &data.get_col(col)[first..first + rows];
+                for (r, v) in values.iter().enumerate() {
+                    out[r * width + j] = *v;
+                }
+            }
+        };
+        if parallel {
+            tile.par_chunks_mut(TILE_COPY_ROWS * width)
+                .enumerate()
+                .for_each(copy);
+        } else {
+            tile.chunks_mut(TILE_COPY_ROWS * width)
+                .enumerate()
+                .for_each(copy);
+        }
+        tile
+    }
+
+    /// The number of columns in tile `t`.
+    pub fn width(&self, t: usize) -> usize {
+        self.starts[t + 1] - self.starts[t]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -84,6 +84,7 @@ impl GradientBooster {
         log_iterations,
         force_children_to_bound_parent,
         num_threads=None,
+        tiled_histograms=false,
     ))]
     pub fn new(
         objective_type: &str,
@@ -118,6 +119,7 @@ impl GradientBooster {
         log_iterations: usize,
         force_children_to_bound_parent: bool,
         num_threads: Option<usize>,
+        tiled_histograms: bool,
     ) -> PyResult<Self> {
         let constraints = int_map_to_constraint_map(monotone_constraints)?;
         let objective_ = to_value_error(serde_plain::from_str(objective_type))?;
@@ -166,7 +168,9 @@ impl GradientBooster {
             force_children_to_bound_parent,
         );
         Ok(GradientBooster {
-            booster: to_value_error(booster)?.set_num_threads(num_threads),
+            booster: to_value_error(booster)?
+                .set_num_threads(num_threads)
+                .set_tiled_histograms(tiled_histograms),
         })
     }
 
@@ -438,6 +442,7 @@ impl GradientBooster {
             self.booster.force_children_to_bound_parent,
         )?;
         dict.set_item("num_threads", self.booster.num_threads)?;
+        dict.set_item("tiled_histograms", self.booster.tiled_histograms)?;
         Ok(dict.into_any().unbind())
     }
 
