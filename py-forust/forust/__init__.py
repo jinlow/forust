@@ -323,6 +323,7 @@ class GradientBooster:
         feature_importance_method: str = "Gain",
         force_children_to_bound_parent: bool = False,
         num_threads: int | None = None,
+        tiled_histograms: bool = False,
     ):
         """Gradient Booster Class, used to generate gradient boosted decision tree ensembles.
 
@@ -421,6 +422,7 @@ class GradientBooster:
             feature_importance_method (str, optional): The feature importance method type that will be used to calculate the `feature_importances_` attribute on the booster.
             force_children_to_bound_parent (bool, optional): Setting this parameter to `True` will restrict children nodes, so that they always contain the parent node inside of their range. Without setting this it's possible that both, the left and the right nodes could be greater, than or less than, the parent node. Defaults to `False`.
             num_threads (int | None, optional): Number of threads to use when `parallel` is `True`, for training and prediction. `None` (or 0) uses one thread per logical CPU, or the `RAYON_NUM_THREADS` environment variable if it is set. On machines with hyperthreading, the number of physical cores is often faster. Defaults to `None`.
+            tiled_histograms (bool, optional): An experimental parameter, that if `True`, builds histograms row by row from a second, tiled copy of the binned data, instead of a column at a time. This is usually faster on data with many rows, and uses as much extra memory as the binned data. Sums are added in a different order, so the trees can differ slightly from the default; they don't depend on the number of threads. Defaults to `False`.
 
         Raises:
             TypeError: Raised if an invalid dtype is passed.
@@ -513,6 +515,7 @@ class GradientBooster:
             log_iterations=log_iterations,
             force_children_to_bound_parent=force_children_to_bound_parent,
             num_threads=num_threads,
+            tiled_histograms=tiled_histograms,
         )
         monotone_constraints_ = (
             {} if monotone_constraints is None else monotone_constraints
@@ -555,6 +558,7 @@ class GradientBooster:
         self.feature_importance_method = feature_importance_method
         self.force_children_to_bound_parent = force_children_to_bound_parent
         self.num_threads = num_threads
+        self.tiled_histograms = tiled_histograms
 
         self._set_metadata_attributes(
             "feature_importance_method", feature_importance_method
