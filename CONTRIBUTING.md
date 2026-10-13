@@ -53,7 +53,7 @@ This repository has two Cargo packages and one Python package. The Python packag
 - Set the `forust-ml` path dependency in `py-forust/Cargo.toml` to the same version.
 - Leave `project.dynamic = ["version"]` in `py-forust/pyproject.toml`; maturin reads the version from Cargo.
 
-Cargo and Python use different prerelease spellings. In Cargo manifests, use SemVer syntax such as `0.8.0-rc.1`. Maturin converts that to the PEP 440 Python version `0.8.0rc1` and produces wheel names such as `forust-0.8.0rc1-...whl`. Do not use `0.8.0rc1` directly in a Cargo manifest; Cargo rejects it.
+Cargo and Python use different prerelease spellings. In Cargo manifests, use SemVer syntax such as `X.Y.Z-rc.N`. Maturin converts that to the PEP 440 Python version `X.Y.ZrcN` and produces wheel names such as `forust-X.Y.ZrcN-...whl`. Do not use `X.Y.ZrcN` directly in a Cargo manifest; Cargo rejects it.
 
 Before tagging, validate the metadata and build a wheel:
 
@@ -66,8 +66,8 @@ maturin build --release --manifest-path py-forust/Cargo.toml --out dist
 Create an annotated tag after committing and pushing the version changes:
 
 ```sh
-git tag -a v0.8.0-rc.1 -m "Release 0.8.0rc1"
-git push origin v0.8.0-rc.1
+git tag -a vX.Y.Z-rc.N -m "Release X.Y.ZrcN"
+git push origin vX.Y.Z-rc.N
 ```
 
 The CI workflow runs when a tag is pushed. It publishes the Rust crate and, after the platform builds pass, publishes the Python wheels and source distribution to PyPI. Published versions cannot be reused. If a tagged workflow fails after the Rust publish step, increment the candidate number (`rc.2`, `rc.3`, and so on) before trying again, even if the Python artifacts were never published.
