@@ -1,4 +1,6 @@
-use crate::binning::bin_matrix;
+use crate::binning::{
+    bin_for_prediction, bin_matrix, cuts_support_bin_prediction, PREDICT_MISSING_BIN,
+};
 use crate::constraints::ConstraintMap;
 use crate::data::{Matrix, RowMajorMatrix};
 use crate::errors::ForustError;
@@ -10,7 +12,7 @@ use crate::objective::{
 use crate::sampler::{GossSampler, RandomSampler, RowSubset, SampleMethod, Sampler};
 use crate::shapley::predict_contributions_row_shapley;
 use crate::splitter::{MissingBranchSplitter, MissingImputerSplitter, Splitter};
-use crate::tree::Tree;
+use crate::tree::{split_bins as tree_split_bins, Tree, TreeRows};
 use crate::utils::{
     fmt_vec_output, odds, validate_not_nan_vec, validate_positive_float_field,
     validate_positive_not_nan_vec,
@@ -27,6 +29,37 @@ use std::fs;
 pub type EvaluationData<'a> = (Matrix<'a, f64>, &'a [f64], &'a [f64]);
 pub type TrainingEvaluationData<'a> = (&'a Matrix<'a, f64>, &'a [f64], &'a [f64], Vec<f64>);
 type ImportanceFn = fn(&Tree, &mut HashMap<usize, (f32, usize)>);
+type GradHessFn = fn(&[f64], &[f64], &[f64]) -> (Vec<f32>, Vec<f32>);
+
+/// Rows per task when computing gradients and hessians in parallel.
+const GRAD_HESS_CHUNK_ROWS: usize = 16_384;
+
+/// Compute the gradients and hessians into `grad` and `hess`. Each row only depends
+/// on its own values, so computing blocks of rows in parallel gives identical results.
+fn update_grad_hess(
+    calc_grad_hess: GradHessFn,
+    y: &[f64],
+    yhat: &[f64],
+    sample_weight: &[f64],
+    grad: &mut [f32],
+    hess: &mut [f32],
+    parallel: bool,
+) {
+    let fill = |(block, (grad, hess)): (usize, (&mut [f32], &mut [f32]))| {
+        let rows = block * GRAD_HESS_CHUNK_ROWS..block * GRAD_HESS_CHUNK_ROWS + grad.len();
+        let (g, h) = calc_grad_hess(&y[rows.clone()], &yhat[rows.clone()], &sample_weight[rows]);
+        grad.copy_from_slice(&g);
+        hess.copy_from_slice(&h);
+    };
+    if parallel && y.len() > GRAD_HESS_CHUNK_ROWS {
+        grad.par_chunks_mut(GRAD_HESS_CHUNK_ROWS)
+            .zip(hess.par_chunks_mut(GRAD_HESS_CHUNK_ROWS))
+            .enumerate()
+            .for_each(fill);
+    } else {
+        fill((0, (grad, hess)));
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub enum GrowPolicy {
@@ -628,7 +661,17 @@ impl GradientBooster {
         let mut yhat = vec![self.base_score; y.len()];
 
         let calc_grad_hess = gradient_hessian_callables(&self.objective_type);
-        let (mut grad, mut hess) = calc_grad_hess(y, &yhat, sample_weight);
+        let mut grad = vec![0.0; y.len()];
+        let mut hess = vec![0.0; y.len()];
+        update_grad_hess(
+            calc_grad_hess,
+            y,
+            &yhat,
+            sample_weight,
+            &mut grad,
+            &mut hess,
+            self.parallel,
+        );
 
         // Generate binned data
         // TODO
@@ -645,6 +688,24 @@ impl GradientBooster {
                     .map(|(d, y, w)| (d, *y, *w, vec![self.base_score; y.len()]))
                     .collect()
             });
+        // With huge `nbins`, bins could collide with the reserved missing and NAN bins,
+        // so trees are predicted from values instead.
+        let predict_from_bins = cuts_support_bin_prediction(&binned_data.cuts);
+        // Evaluation data binned with the training cuts, so trees can be predicted from
+        // bins. `None` if the data has a different number of columns.
+        let evaluation_bins: Vec<Option<Vec<u16>>> = evaluation_data
+            .as_ref()
+            .map(|evals| {
+                evals
+                    .iter()
+                    .map(|(d, _, _)| {
+                        (predict_from_bins && d.cols == data.cols).then(|| {
+                            bin_for_prediction(d, &binned_data.cuts, &self.missing, self.parallel)
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let mut best_metric: Option<f64> = None;
 
@@ -659,8 +720,7 @@ impl GradientBooster {
                 i % self.log_iterations == 0
             };
             let sample_method = self.iteration_sample_method(i);
-            // We will eventually use the excluded index.
-            let (chosen_index, _excluded_index) =
+            let (chosen_index, excluded_index) =
                 self.sample_index(sample_method, &mut rng, &data.index, &mut grad, &mut hess);
             let mut tree = Tree::new();
 
@@ -685,6 +745,7 @@ impl GradientBooster {
                 &colsample_index
             };
 
+            let split_bins: Vec<u16>;
             // When few rows are sampled, build the tree on a contiguous copy of them.
             if sample_method != SampleMethod::None
                 && RowSubset::should_use(chosen_index.len(), data.rows)
@@ -698,7 +759,7 @@ impl GradientBooster {
                     self.parallel,
                 );
                 let (subset_data, subset_index) = row_subset.matrix();
-                tree.fit(
+                let tree_rows = tree.fit(
                     &subset_data,
                     subset_index,
                     fit_col_index,
@@ -712,8 +773,21 @@ impl GradientBooster {
                     &sample_method,
                     &self.grow_policy,
                 );
+                split_bins = tree_split_bins(&tree, &binned_data.cuts);
+                // The subset's rows are positions in `chosen_index`.
+                self.update_training_predictions(
+                    &mut yhat,
+                    &tree,
+                    tree_rows,
+                    Some(&chosen_index),
+                    &excluded_index,
+                    &bdata,
+                    &split_bins,
+                    predict_from_bins,
+                    data,
+                );
             } else {
-                tree.fit(
+                let tree_rows = tree.fit(
                     &bdata,
                     chosen_index,
                     fit_col_index,
@@ -727,9 +801,19 @@ impl GradientBooster {
                     &sample_method,
                     &self.grow_policy,
                 );
+                split_bins = tree_split_bins(&tree, &binned_data.cuts);
+                self.update_training_predictions(
+                    &mut yhat,
+                    &tree,
+                    tree_rows,
+                    None,
+                    &excluded_index,
+                    &bdata,
+                    &split_bins,
+                    predict_from_bins,
+                    data,
+                );
             }
-
-            self.update_predictions_inplace(&mut yhat, &tree, data);
 
             // Update Evaluation data, if it's needed.
             if let Some(eval_sets) = &mut evaluation_sets {
@@ -740,7 +824,12 @@ impl GradientBooster {
                 let mut metrics: Vec<f64> = Vec::new();
                 let n_eval_sets = eval_sets.len();
                 for (eval_i, (data, y, w, yhat)) in eval_sets.iter_mut().enumerate() {
-                    self.update_predictions_inplace(yhat, &tree, data);
+                    match &evaluation_bins[eval_i] {
+                        Some(bins) => {
+                            self.update_predictions_from_bins(yhat, &tree, bins, &split_bins)
+                        }
+                        None => self.update_predictions_inplace(yhat, &tree, data),
+                    }
                     let (metric_fn, maximize) = self.get_metric_fn();
                     let m = metric_fn(y, yhat, w);
                     // If early stopping rounds are defined, and this is the last
@@ -799,7 +888,15 @@ impl GradientBooster {
                 break;
             }
 
-            (grad, hess) = calc_grad_hess(y, &yhat, sample_weight);
+            update_grad_hess(
+                calc_grad_hess,
+                y,
+                &yhat,
+                sample_weight,
+                &mut grad,
+                &mut hess,
+                self.parallel,
+            );
             if verbose {
                 info!("Completed iteration {} of {}", i, self.iterations);
             }
@@ -816,6 +913,82 @@ impl GradientBooster {
     fn update_best_iteration(&mut self, i: usize) {
         self.best_iteration = Some(i);
         self.prediction_iteration = Some(i + 1);
+    }
+
+    /// Add a new tree's predictions to the training predictions. Rows the tree was fit
+    /// on get the weight of the leaf they were partitioned into, which is the leaf
+    /// predicting them would reach, so no tree walk is needed. The other (sampled
+    /// out) rows walk the tree on their bins.
+    ///
+    /// * `tree_rows` - The rows in each node, from `Tree::fit`. If `None`, every row
+    ///   is predicted from `data`.
+    /// * `row_map` - Maps the rows in `tree_rows` to training rows, if the tree was fit
+    ///   on a subset of the rows.
+    /// * `excluded` - Training rows the tree wasn't fit on.
+    /// * `predict_from_bins` - If false, every row is predicted from `data` when there
+    ///   are excluded rows.
+    #[allow(clippy::too_many_arguments)]
+    fn update_training_predictions(
+        &self,
+        yhat: &mut [f64],
+        tree: &Tree,
+        tree_rows: Option<TreeRows>,
+        row_map: Option<&[usize]>,
+        excluded: &[usize],
+        bdata: &Matrix<u16>,
+        split_bins: &[u16],
+        predict_from_bins: bool,
+        data: &Matrix<f64>,
+    ) {
+        let Some(tree_rows) = tree_rows.filter(|_| excluded.is_empty() || predict_from_bins) else {
+            self.update_predictions_inplace(yhat, tree, data);
+            return;
+        };
+        for (rows, weight) in tree_rows.leaves(tree) {
+            match row_map {
+                Some(map) => rows.iter().for_each(|&i| yhat[map[i]] += weight),
+                None => rows.iter().for_each(|&i| yhat[i] += weight),
+            }
+        }
+        if !excluded.is_empty() {
+            let predict = |&row: &usize| {
+                tree.predict_row_from_bins(|f| *bdata.get(row, f), split_bins, 0, &self.missing)
+            };
+            let preds: Vec<f64> = if self.parallel {
+                excluded.par_iter().map(predict).collect()
+            } else {
+                excluded.iter().map(predict).collect()
+            };
+            excluded
+                .iter()
+                .zip(preds)
+                .for_each(|(&row, p)| yhat[row] += p);
+        }
+    }
+
+    /// Add a tree's predictions to `yhat`, predicting from `bins` made by
+    /// `bin_for_prediction`. Gives the same values as predicting from the data.
+    fn update_predictions_from_bins(
+        &self,
+        yhat: &mut [f64],
+        tree: &Tree,
+        bins: &[u16],
+        split_bins: &[u16],
+    ) {
+        let rows = yhat.len();
+        let update = |(row, y): (usize, &mut f64)| {
+            *y += tree.predict_row_from_bins(
+                |f| bins[f * rows + row],
+                split_bins,
+                PREDICT_MISSING_BIN,
+                &self.missing,
+            );
+        };
+        if self.parallel {
+            yhat.par_iter_mut().enumerate().for_each(update);
+        } else {
+            yhat.iter_mut().enumerate().for_each(update);
+        }
     }
 
     fn update_predictions_inplace(&self, yhat: &mut [f64], tree: &Tree, data: &Matrix<f64>) {
@@ -1649,6 +1822,24 @@ mod tests {
             })
             .collect();
         (data, y)
+    }
+
+    #[test]
+    fn test_parallel_grad_hess_matches_serial() {
+        let n = 3 * GRAD_HESS_CHUNK_ROWS + 123;
+        let y: Vec<f64> = (0..n).map(|i| (i % 3 == 0) as u8 as f64).collect();
+        let yhat: Vec<f64> = (0..n)
+            .map(|i| ((i * 7919) % 1000) as f64 / 250.0 - 2.0)
+            .collect();
+        let w: Vec<f64> = (0..n).map(|i| 0.5 + (i % 5) as f64).collect();
+        for objective in [ObjectiveType::LogLoss, ObjectiveType::SquaredLoss] {
+            let calc = gradient_hessian_callables(&objective);
+            let (expected_g, expected_h) = calc(&y, &yhat, &w);
+            let (mut g, mut h) = (vec![0.0; n], vec![0.0; n]);
+            update_grad_hess(calc, &y, &yhat, &w, &mut g, &mut h, true);
+            assert_eq!(g, expected_g);
+            assert_eq!(h, expected_h);
+        }
     }
 
     #[test]

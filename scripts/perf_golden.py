@@ -14,7 +14,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-BINARY = Path(__file__).resolve().parents[1] / "target/release/examples/perf_phases"
+# Set FORUST_PERF_BINARY to use a build in another target directory.
+BINARY = Path(
+    os.environ.get(
+        "FORUST_PERF_BINARY",
+        Path(__file__).resolve().parents[1] / "target/release/examples/perf_phases",
+    )
+)
 DATA = Path("/tmp/forust-perf")
 GOLDEN = DATA / "golden"
 CHECK = DATA / "golden-check"
@@ -31,6 +37,11 @@ CONFIGS = {
     "w200_25k_d8_lossguide": ("w200", 25_000, 8, 20, True, False, ["--grow-policy", "LossGuide", "--max-leaves", "32"]),
     "w200_25k_d5_nbins255": ("w200", 25_000, 5, 20, True, False, ["--nbins", "255"]),
     "w200_25k_d5_nbins64_missing_branch": ("w200", 25_000, 5, 20, True, True, ["--nbins", "64"]),
+    "w200_25k_d8_missing_branch": ("w200", 25_000, 8, 20, True, True, []),
+    "w200_25k_d6_max_leaves": ("w200", 25_000, 6, 20, True, False, ["--max-leaves", "20"]),
+    "w200_25k_d6_max_leaves_missing_branch": ("w200", 25_000, 6, 20, True, True, ["--max-leaves", "21"]),
+    "w200_25k_d5_colsample": ("w200", 25_000, 5, 20, True, False, ["--colsample", "0.5"]),
+    "w200_25k_d5_goss_serial": ("w200", 25_000, 5, 20, False, False, ["--sample-method", "goss"]),
 }
 
 

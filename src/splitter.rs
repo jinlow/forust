@@ -232,6 +232,8 @@ pub trait Splitter: Sync {
     /// Handle the split info, creating the children nodes, this function
     /// will return a vector of new splitable nodes, that can be added to the
     /// growable stack, and further split, or converted to leaf nodes.
+    /// `index` holds only this node's rows: `node.start_idx..node.stop_idx` of the
+    /// tree's index.
     #[allow(clippy::too_many_arguments)]
     fn handle_split_info(
         &self,
@@ -271,7 +273,7 @@ pub trait Splitter: Sync {
                 split_info,
                 n_nodes,
                 node,
-                index,
+                &mut index[node.start_idx..node.stop_idx],
                 col_index,
                 data,
                 cuts,
@@ -553,6 +555,8 @@ impl Splitter for MissingBranchSplitter {
         parallel: bool,
         build_child_histograms: bool,
     ) -> Vec<SplittableNode> {
+        // `index` starts at this node's first row.
+        let offset = node.start_idx;
         let missing_child = *n_nodes;
         let left_child = missing_child + 1;
         let right_child = missing_child + 2;
@@ -584,7 +588,7 @@ impl Splitter for MissingBranchSplitter {
         // pivot the sub array that this node has on our split value
         // Missing all falls to the bottom.
         let (mut missing_split_idx, mut split_idx) = pivot_on_split_exclude_missing(
-            &mut index[node.start_idx..node.stop_idx],
+            index,
             data.get_col(split_info.split_feature),
             split_info.split_bin,
         );
@@ -632,7 +636,7 @@ impl Splitter for MissingBranchSplitter {
                     cuts,
                     grad,
                     hess,
-                    &index[split_idx..node.stop_idx],
+                    &index[split_idx - offset..node.stop_idx - offset],
                     col_index,
                     parallel,
                     true,
@@ -649,7 +653,7 @@ impl Splitter for MissingBranchSplitter {
                     cuts,
                     grad,
                     hess,
-                    &index[missing_split_idx..split_idx],
+                    &index[missing_split_idx - offset..split_idx - offset],
                     col_index,
                     parallel,
                     true,
@@ -668,7 +672,7 @@ impl Splitter for MissingBranchSplitter {
                 cuts,
                 grad,
                 hess,
-                &index[missing_split_idx..split_idx],
+                &index[missing_split_idx - offset..split_idx - offset],
                 col_index,
                 parallel,
                 true,
@@ -678,7 +682,7 @@ impl Splitter for MissingBranchSplitter {
                 cuts,
                 grad,
                 hess,
-                &index[split_idx..node.stop_idx],
+                &index[split_idx - offset..node.stop_idx - offset],
                 col_index,
                 parallel,
                 true,
@@ -700,7 +704,7 @@ impl Splitter for MissingBranchSplitter {
                 cuts,
                 grad,
                 hess,
-                &index[node.start_idx..missing_split_idx],
+                &index[node.start_idx - offset..missing_split_idx - offset],
                 col_index,
                 parallel,
                 true,
@@ -710,7 +714,7 @@ impl Splitter for MissingBranchSplitter {
                 cuts,
                 grad,
                 hess,
-                &index[split_idx..node.stop_idx],
+                &index[split_idx - offset..node.stop_idx - offset],
                 col_index,
                 parallel,
                 true,
@@ -728,7 +732,7 @@ impl Splitter for MissingBranchSplitter {
                 cuts,
                 grad,
                 hess,
-                &index[node.start_idx..missing_split_idx],
+                &index[node.start_idx - offset..missing_split_idx - offset],
                 col_index,
                 parallel,
                 true,
@@ -738,7 +742,7 @@ impl Splitter for MissingBranchSplitter {
                 cuts,
                 grad,
                 hess,
-                &index[missing_split_idx..split_idx],
+                &index[missing_split_idx - offset..split_idx - offset],
                 col_index,
                 parallel,
                 true,
@@ -1025,6 +1029,8 @@ impl Splitter for MissingImputerSplitter {
         parallel: bool,
         build_child_histograms: bool,
     ) -> Vec<SplittableNode> {
+        // `index` starts at this node's first row.
+        let offset = node.start_idx;
         let left_child = *n_nodes;
         let right_child = left_child + 1;
 
@@ -1041,7 +1047,7 @@ impl Splitter for MissingImputerSplitter {
         // This will need to be refactored once we add a
         // separate missing branch.
         let mut split_idx = pivot_on_split(
-            &mut index[node.start_idx..node.stop_idx],
+            index,
             data.get_col(split_info.split_feature),
             split_info.split_bin,
             missing_right,
@@ -1068,7 +1074,7 @@ impl Splitter for MissingImputerSplitter {
                 cuts,
                 grad,
                 hess,
-                &index[node.start_idx..split_idx],
+                &index[node.start_idx - offset..split_idx - offset],
                 col_index,
                 parallel,
                 true,
@@ -1081,7 +1087,7 @@ impl Splitter for MissingImputerSplitter {
                 cuts,
                 grad,
                 hess,
-                &index[split_idx..node.stop_idx],
+                &index[split_idx - offset..node.stop_idx - offset],
                 col_index,
                 parallel,
                 true,

@@ -128,6 +128,65 @@ The subset tree output was byte-identical to the full-data tree output in the
 recorded checks. Parallel and serial GOSS block selection also produced
 identical models.
 
+## Model-Identical Follow-up
+
+Four more changes, each in its own commit, keep trained trees and evaluation
+history byte-identical. `perf_golden.py` now also compares evaluation history
+and covers 15 configurations (adding a missing branch at depth 8, `DepthWise`
+with `max_leaves`, `colsample_bytree` and serial GOSS), and 120 random
+configurations were compared against the previous build.
+
+| Change | What it does |
+| --- | --- |
+| Parallel gradients and hessians | Each row is independent, so blocks of rows are computed in parallel. |
+| Leaf rows for training predictions | Rows a tree was fit on get the weight of the leaf the partition left them in, instead of walking the tree again. Sampled-out rows walk the tree on their bins. |
+| Binned evaluation predictions | Evaluation sets are binned once with the training cuts and trees are walked on `u16` bins instead of `f64` values. |
+| Depth-wise trees grown a level at a time | All nodes of a level search for splits together, then are partitioned and get child histograms together, instead of several parallel steps per node. |
+
+The training predictions rely on the partition matching prediction. The
+partition functions are only wrong when no row goes right, which a chosen split
+can't do with a positive `min_leaf_weight`; `Tree::fit` checks each split and
+falls back to predicting every row if one could be affected.
+
+Per-iteration time of each section, 8 threads, baseline to final:
+
+| Case | Gradients | Training predictions | Evaluation predictions | Tree | Whole iteration |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 100k, depth 5 | 0.8 to 0.3 ms | 1.1 to 0.2 ms | 0.4 to 0.2 ms | 19.3 to 14.4 ms | 23.9 to 17.7 ms |
+| 100k, depth 8 | 0.8 to 0.3 ms | 3.1 to 0.3 ms | 0.9 to 0.5 ms | 68.0 to 46.1 ms | 76.6 to 51.4 ms |
+| 250k, depth 5, GOSS | 1.9 to 0.5 ms | 2.3 to 1.9 ms | 0.7 to 0.4 ms | 18.3 to 14.6 ms | 33.8 to 27.7 ms |
+| 1M, depth 5 | 7.7 to 1.4 ms | 8.1 to 3.2 ms | 2.2 to 1.1 ms | 161.6 to 128.4 ms | 251.9 to 207.1 ms |
+| 1M, depth 8 | 7.7 to 1.4 ms | 31.7 to 4.9 ms | 8.0 to 4.1 ms | 458.7 to 350.7 ms | 611.2 to 462.8 ms |
+
+Median total fit time with one evaluation set (5 interleaved rounds at 8
+threads, 3 at the default 16 threads; 100 iterations at 100k and 250k rows,
+60 at depth 8 or with the missing branch, 30 at 1M rows and 20 at 1M depth 8):
+
+| Case | Before, 8 threads | After, 8 threads | Change | Before, 16 threads | After, 16 threads | Change |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 100k, depth 5 | 2.53 s | 2.00 s | -21% | 2.65 s | 1.88 s | -29% |
+| 100k, depth 8 | 4.52 s | 3.12 s | -31% | 5.55 s | 2.81 s | -49% |
+| 25k, depth 8 | 2.04 s | 1.39 s | -32% | 2.54 s | 1.27 s | -50% |
+| 250k, depth 5 | 5.61 s | 4.58 s | -18% | 5.48 s | 4.14 s | -24% |
+| 250k, depth 5, GOSS | 3.48 s | 2.85 s | -18% | 3.50 s | 2.69 s | -23% |
+| 100k, depth 5, missing branch | 1.91 s | 1.43 s | -25% | 2.06 s | 1.33 s | -36% |
+| 100k, `LossGuide`, 32 leaves | 1.52 s | 1.38 s | -9% | 1.51 s | 1.47 s | -3% |
+| 1M, depth 5 | 7.43 s | 6.50 s | -12% | 6.77 s | 5.61 s | -17% |
+| 1M, depth 8 | 12.02 s | 9.48 s | -21% | 11.26 s | 8.59 s | -24% |
+| 1M, depth 5, GOSS | 5.80 s | 5.14 s | -11% | 5.15 s | 4.43 s | -14% |
+
+Level-at-a-time growth is most of the gain (3-31% on its own at 8 threads),
+largest for deep trees and many small nodes. The other three save 2-37 ms per
+iteration, mostly at 1M rows and depth 8. `LossGuide` still grows one node at a
+time, so it only gets those three.
+
+With depth-wise growth, the default 16 threads is now 6-14% faster than 8
+threads in these runs, where it used to be slower; `LossGuide` was still about
+7% slower at 16 threads.
+
+Rust API changes: `Tree::fit` returns the rows in each node (`Option<TreeRows>`),
+and `Splitter::handle_split_info` receives only the node's rows of the index.
+
 ## Experiments That Were Not Kept
 
 Several ideas were measured and rejected, and recording those results prevents
@@ -146,9 +205,10 @@ repeating the same investigations:
   changing last-digit cut values.
 
 The remaining likely bottlenecks are row partitioning after each split, split
-evaluation for every bin, histogram accumulation and Rayon scheduling for many
-small deep-tree nodes. These are candidates for future profiling, not claims
-of completed work.
+evaluation for every bin and histogram accumulation. Rayon scheduling for many
+small deep-tree nodes was addressed for depth-wise growth by growing a level at
+a time (see above). These are candidates for future profiling, not claims of
+completed work.
 
 ## Reproducing the Measurements
 
