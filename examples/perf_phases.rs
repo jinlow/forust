@@ -2,7 +2,7 @@
 //!
 //! `--mode phases` replays the `GradientBooster::fit` loop with timers around each phase;
 //! `--mode fit` times the real `fit` so the replay can be checked against it.
-use forust_ml::binning::bin_matrix;
+use forust_ml::binning::{bin_matrix, TiledBins};
 use forust_ml::constraints::ConstraintMap;
 use forust_ml::data::Matrix;
 use forust_ml::gradientbooster::{GradientBooster, GrowPolicy};
@@ -118,6 +118,8 @@ fn main() {
     let early_stopping_rounds = args.get("early-stopping-rounds", 0usize);
     // Phases mode only: copy sampled rows into a contiguous subset, as `fit` does.
     let use_subset = args.get("subset", true);
+    // Build histograms row by row from tiled bins (`set_tiled_histograms`).
+    let tiled = args.get("tiled", false);
 
     let (values, y) = load_split(&dir, "train", total_rows, rows, cols);
     let (eval_values, eval_y) = load_split(&dir, "eval", total_eval_rows, eval_rows, cols);
@@ -150,6 +152,7 @@ fn main() {
         "colsample": colsample,
         "early_stopping_rounds": early_stopping_rounds,
         "subset": use_subset,
+        "tiled": tiled,
     });
 
     let result = if mode == "fit" {
@@ -164,6 +167,7 @@ fn main() {
             .set_sample_method(sample_method)
             .set_subsample(subsample)
             .set_seed(seed)
+            .set_tiled_histograms(tiled)
             .set_colsample_bytree(colsample)
             .set_early_stopping_rounds(
                 (early_stopping_rounds > 0).then_some(early_stopping_rounds),
@@ -221,8 +225,9 @@ fn main() {
         let run = || {
             let start = Instant::now();
             let binned = bin_matrix(&data, &w, nbins, f64::NAN, parallel).unwrap();
-            let bin_s = start.elapsed().as_secs_f64();
             let bdata = Matrix::new(&binned.binned_data, rows, cols);
+            let tiles = tiled.then(|| TiledBins::new(&bdata, &binned.cuts, parallel));
+            let bin_s = start.elapsed().as_secs_f64();
             let col_index: Vec<usize> = (0..cols).collect();
             let splitter = MissingImputerSplitter {
                 l1: 0.0,
@@ -278,7 +283,9 @@ fn main() {
                 };
                 tree_rows.push(index.len());
                 let tc = Instant::now();
+                // As in `fit`, tiled histograms read sampled rows in place.
                 let subset = use_subset
+                    && tiles.is_none()
                     && iteration_method != SampleMethod::None
                     && RowSubset::should_use(index.len(), rows);
                 if subset {
@@ -288,7 +295,7 @@ fn main() {
                 let mut tree = Tree::new();
                 let fit_tree =
                     |tree: &mut Tree, data: &Matrix<u16>, index, g: &[f32], h: &[f32]| {
-                        tree.fit(
+                        tree.fit_with_tiles(
                             data,
                             index,
                             &col_index,
@@ -301,6 +308,7 @@ fn main() {
                             parallel,
                             &iteration_method,
                             &grow_policy,
+                            tiles.as_ref(),
                         )
                     };
                 if subset {

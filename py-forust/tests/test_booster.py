@@ -1776,6 +1776,45 @@ def test_num_threads(X_y, tmp_path):
     assert GradientBooster.load_booster(old_path).num_threads is None
 
 
+def test_tiled_histograms(tmp_path):
+    # Enough rows that the tiled fill is used for the larger nodes.
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(30_000, 40))
+    X[rng.random(X.shape) < 0.05] = np.nan
+    y = (np.nansum(X[:, :3], axis=1) + rng.normal(size=X.shape[0]) > 0).astype(float)
+
+    def fit(**kwargs):
+        return GradientBooster(iterations=20, max_depth=5, **kwargs).fit(X, y)
+
+    default = fit()
+    tiled = fit(tiled_histograms=True)
+    assert default.get_params()["tiled_histograms"] is False
+    assert tiled.get_params()["tiled_histograms"] is True
+
+    def log_loss(p):
+        p = 1 / (1 + np.exp(-p))
+        return -np.mean(y * np.log(p) + (1 - y) * np.log(1 - p))
+
+    assert abs(log_loss(default.predict(X)) - log_loss(tiled.predict(X))) < 1e-4
+    # The tiled fill doesn't depend on the number of threads.
+    assert np.array_equal(
+        tiled.predict(X), fit(tiled_histograms=True, num_threads=3).predict(X)
+    )
+
+    path = tmp_path / "model.json"
+    tiled.save_booster(path)
+    loaded = GradientBooster.load_booster(path)
+    assert loaded.tiled_histograms is True
+    assert np.array_equal(loaded.predict(X), tiled.predict(X))
+
+    # Models saved before `tiled_histograms` existed still load.
+    model = json.loads(default.json_dump())
+    del model["tiled_histograms"]
+    old_path = tmp_path / "old.json"
+    old_path.write_text(json.dumps(model))
+    assert GradientBooster.load_booster(old_path).tiled_histograms is False
+
+
 def test_compat_gridsearch(X_y):
     X, y = X_y
     fmod = GradientBooster()

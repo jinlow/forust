@@ -1,4 +1,4 @@
-use crate::binning::PREDICT_NAN_BIN;
+use crate::binning::{TiledBins, PREDICT_NAN_BIN};
 use crate::data::{JaggedMatrix, Matrix};
 use crate::gradientbooster::GrowPolicy;
 use crate::grower::Grower;
@@ -101,6 +101,41 @@ impl Tree {
     pub fn fit<T: Splitter>(
         &mut self,
         data: &Matrix<u16>,
+        index: Vec<usize>,
+        col_index: &[usize],
+        cuts: &JaggedMatrix<f64>,
+        grad: &[f32],
+        hess: &[f32],
+        splitter: &T,
+        max_leaves: usize,
+        max_depth: usize,
+        parallel: bool,
+        sample_method: &SampleMethod,
+        grow_policy: &GrowPolicy,
+    ) -> Option<TreeRows> {
+        self.fit_with_tiles(
+            data,
+            index,
+            col_index,
+            cuts,
+            grad,
+            hess,
+            splitter,
+            max_leaves,
+            max_depth,
+            parallel,
+            sample_method,
+            grow_policy,
+            None,
+        )
+    }
+
+    /// `fit`, building histograms row by row from `tiles` (the same binned data as
+    /// `data`, laid out by `TiledBins`) for nodes big enough to benefit.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fit_with_tiles<T: Splitter>(
+        &mut self,
+        data: &Matrix<u16>,
         mut index: Vec<usize>,
         col_index: &[usize],
         cuts: &JaggedMatrix<f64>,
@@ -112,6 +147,7 @@ impl Tree {
         parallel: bool,
         sample_method: &SampleMethod,
         grow_policy: &GrowPolicy,
+        tiles: Option<&TiledBins>,
     ) -> Option<TreeRows> {
         // Recreating the index for each tree, ensures that the tree construction is faster
         // for the root node. This also ensures that sorting the records is always fast,
@@ -145,8 +181,9 @@ impl Tree {
             hessian_sum,
         );
         // Calculate the histograms for the root node.
-        let root_hists =
-            HistogramMatrix::new(data, cuts, grad, hess, &index, col_index, parallel, sort);
+        let root_hists = HistogramMatrix::build(
+            tiles, data, cuts, grad, hess, &index, col_index, parallel, sort,
+        );
         let root_node = SplittableNode::new(
             0,
             root_hists,
@@ -179,6 +216,7 @@ impl Tree {
                 parallel,
                 &mut ranges,
                 &mut rows_exact,
+                tiles,
             );
         } else {
             let mut n_nodes = 1;
@@ -226,6 +264,7 @@ impl Tree {
                     hess,
                     parallel,
                     depth < max_depth,
+                    tiles,
                 );
 
                 let n_new_nodes = new_nodes.len();
@@ -279,6 +318,7 @@ impl Tree {
         parallel: bool,
         ranges: &mut Vec<(usize, usize)>,
         rows_exact: &mut bool,
+        tiles: Option<&TiledBins>,
     ) {
         let mut n_nodes = 1;
         let mut n_leaves = 1;
@@ -354,6 +394,7 @@ impl Tree {
                     hess,
                     parallel,
                     build_child_histograms,
+                    tiles,
                 );
                 // The parent's histograms aren't needed anymore.
                 node.histograms = HistogramMatrix::empty();
