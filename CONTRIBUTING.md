@@ -44,6 +44,34 @@ The test script can also be run from powershell.
 
 This script, builds the package in release mode, installs it, and then runs the test. Because of this, it is useful to run this whenever you want to test out a change in the python package.
 
+## Preparing a Release
+
+This repository has two Cargo packages and one Python package. The Python package gets its version dynamically from `py-forust/Cargo.toml`, so keep the versions synchronized:
+
+- Set the Rust library version in the root `Cargo.toml`.
+- Set the binding package version in `py-forust/Cargo.toml`.
+- Set the `forust-ml` path dependency in `py-forust/Cargo.toml` to the same version.
+- Leave `project.dynamic = ["version"]` in `py-forust/pyproject.toml`; maturin reads the version from Cargo.
+
+Cargo and Python use different prerelease spellings. In Cargo manifests, use SemVer syntax such as `X.Y.Z-rc.N`. Maturin converts that to the PEP 440 Python version `X.Y.ZrcN` and produces wheel names such as `forust-X.Y.ZrcN-...whl`. Do not use `X.Y.ZrcN` directly in a Cargo manifest; Cargo rejects it.
+
+Before tagging, validate the metadata and build a wheel:
+
+```sh
+cargo metadata --manifest-path py-forust/Cargo.toml --format-version 1
+cargo check --manifest-path py-forust/Cargo.toml
+maturin build --release --manifest-path py-forust/Cargo.toml --out dist
+```
+
+Create an annotated tag after committing and pushing the version changes:
+
+```sh
+git tag -a vX.Y.Z-rc.N -m "Release X.Y.ZrcN"
+git push origin vX.Y.Z-rc.N
+```
+
+The CI workflow runs when a tag is pushed. It publishes the Rust crate and, after the platform builds pass, publishes the Python wheels and source distribution to PyPI. Published versions cannot be reused. If a tagged workflow fails after the Rust publish step, increment the candidate number (`rc.2`, `rc.3`, and so on) before trying again, even if the Python artifacts were never published.
+
 ## Benchmarking
 Benchmarking is run using the [`criterion`](https://github.com/bheisler/criterion.rs) Rust crate.
 To run the benchmarks, you can run the following command from your terminal.

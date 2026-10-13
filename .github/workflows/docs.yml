@@ -23,7 +23,6 @@ jobs:
       - run: |
           cp README.md py-forust/README.md
           cp LICENSE py-forust/LICENSE
-      - run: pip install mkdocs-material
       - run: |
           cd py-forust
           uv sync --group dev --group docs
