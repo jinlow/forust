@@ -885,6 +885,30 @@ def load_booster(path: str) -> GradientBooster:
     return GradientBooster.load_booster(path)
 
 
+def test_pickle_bytes_deterministic(X_y):
+    X, y = X_y
+    mono_ = {f: 1 if i % 2 else -1 for i, f in enumerate(X.columns)}
+    fmod = GradientBooster(
+        iterations=10,
+        max_depth=3,
+        create_missing_branch=True,
+        monotone_constraints=mono_,
+        terminate_missing_features=list(X.columns[::-1]),
+    )
+    for k in ["zeta", "alpha", "mid", "beta", "omega", "gamma", "delta"]:
+        fmod.insert_metadata(k, f"{k}-value")
+    fmod.fit(X, y=y)
+
+    first = pickle.dumps(fmod)
+    # A freshly fitted model and a reloaded one pickle identically.
+    assert pickle.dumps(pickle.loads(first)) == first
+    model = fmod
+    for _ in range(10):
+        model = pickle.loads(pickle.dumps(model))
+        assert pickle.dumps(model) == first
+        assert model.json_dump() == fmod.json_dump()
+
+
 def test_monotone_constraints(X_y):
     X, y = X_y
     X = X

@@ -67,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pyversion: ["3.11", "3.12", "3.13", "3.14"]
+        pyversion: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     runs-on: "macos-latest"
     steps:
       - uses: actions/checkout@v4
@@ -167,11 +167,11 @@ jobs:
 
 
   linux-build-test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.pyversion == '3.9' && 'ubuntu-24.04' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        pyversion: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        pyversion: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
         # target: [x86_64, i686]
     steps:
       - uses: actions/checkout@v4
