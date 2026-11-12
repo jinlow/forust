@@ -22,8 +22,8 @@ use rand::rngs::StdRng;
 use rand::seq::IteratorRandom;
 use rand::SeedableRng;
 use rayon::prelude::*;
-use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::{HashMap, HashSet};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 
 pub type EvaluationData<'a> = (Matrix<'a, f64>, &'a [f64], &'a [f64]);
@@ -160,6 +160,7 @@ pub struct GradientBooster {
     pub allow_missing_splits: bool,
     /// Constraints that are used to enforce a specific relationship
     /// between the training features and the target variable.
+    #[serde(serialize_with = "serialize_sorted_opt_map")]
     pub monotone_constraints: Option<ConstraintMap>,
     /// Percent of records to randomly sample at each iteration when training a tree.
     pub subsample: f32,
@@ -203,7 +204,10 @@ pub struct GradientBooster {
     /// A set of features for which the missing node will always be terminated, even
     /// if `allow_missing_splits` is set to true. This value is only valid if
     /// `create_missing_branch` is also True.
-    #[serde(default = "default_terminate_missing_features")]
+    #[serde(
+        default = "default_terminate_missing_features",
+        serialize_with = "serialize_sorted_set"
+    )]
     pub terminate_missing_features: HashSet<usize>,
     /// A matrix of the evaluation history on the evaluation datasets.
     #[serde(default = "default_evaluation_history")]
@@ -237,7 +241,42 @@ pub struct GradientBooster {
     // Members internal to the booster object, and not parameters set by the user.
     // Trees is public, just to interact with it directly in the python wrapper.
     pub trees: Vec<Tree>,
+    #[serde(serialize_with = "serialize_sorted_map")]
     metadata: HashMap<String, String>,
+}
+
+// Hashed collections iterate in a random order, so write them sorted to keep the JSON stable.
+fn serialize_sorted_map<S, K, V>(map: &HashMap<K, V>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    K: Ord + Serialize,
+    V: Serialize,
+{
+    map.iter().collect::<BTreeMap<_, _>>().serialize(s)
+}
+
+fn serialize_sorted_opt_map<S, K, V>(
+    map: &Option<HashMap<K, V>>,
+    s: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    K: Ord + Serialize,
+    V: Serialize,
+{
+    map.as_ref()
+        .map(|m| m.iter().collect::<BTreeMap<_, _>>())
+        .serialize(s)
+}
+
+fn serialize_sorted_set<S, T>(set: &HashSet<T>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    T: Ord + Serialize,
+{
+    let mut v: Vec<_> = set.iter().collect();
+    v.sort();
+    v.serialize(s)
 }
 
 fn default_l1() -> f32 {
@@ -1969,5 +2008,45 @@ mod tests {
         value.as_object_mut().unwrap().remove("tiled_histograms");
         let old = GradientBooster::from_json(&value.to_string()).unwrap();
         assert!(!old.tiled_histograms);
+    }
+
+    #[test]
+    fn test_json_dump_deterministic() {
+        use crate::constraints::Constraint;
+        let (data_vec, y) = titanic_like_data();
+        let data = Matrix::new(&data_vec, 891, 5);
+        let w = vec![1.; y.len()];
+        let constraints: ConstraintMap = [
+            (0, Constraint::Positive),
+            (1, Constraint::Negative),
+            (2, Constraint::Unconstrained),
+            (3, Constraint::Positive),
+            (4, Constraint::Negative),
+            (10, Constraint::Positive),
+        ]
+        .into_iter()
+        .collect();
+        let mut booster = GradientBooster::default()
+            .set_iterations(5)
+            .set_max_depth(3)
+            .set_create_missing_branch(true)
+            .set_monotone_constraints(Some(constraints))
+            .set_terminate_missing_features([4, 0, 10, 2, 7, 1].into_iter().collect());
+        for k in ["zeta", "alpha", "mid", "beta", "omega", "gamma", "delta"] {
+            booster.insert_metadata(k.to_string(), format!("{k}_value"));
+        }
+        booster.fit(&data, &y, &w, None).unwrap();
+
+        let first = booster.json_dump().unwrap();
+        assert_eq!(first, booster.json_dump().unwrap());
+        let mut json = first.clone();
+        for _ in 0..30 {
+            json = GradientBooster::from_json(&json)
+                .unwrap()
+                .json_dump()
+                .unwrap();
+            assert_eq!(first, json);
+        }
+        assert!(first.contains(r#""terminate_missing_features":[0,1,2,4,7,10]"#));
     }
 }
